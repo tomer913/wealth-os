@@ -1,0 +1,23 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Environment — NEVER commit this
+backend/.env
+backend/.env.save
+*.env
+
+# Data files
+backend/*.json
+backend/check_db.py
+backend/test_engine.py
+backend/snap_log.txt
+backend/rebuild_result.txt
+backend/engine_test_result.txt
+backend/db_check_result.txt
+
+# OS
+.DS_Store
