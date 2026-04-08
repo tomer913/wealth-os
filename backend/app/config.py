@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # ── App ───────────────────────────────────────────────────
     SECRET_KEY: str = "dev-secret-change-in-production"
-    ENVIRONMENT: Literal["development", "staging", "production"] = "development"
+    ENVIRONMENT: Literal["development", "staging", "production"] = "production"
 
     # ── Defaults ──────────────────────────────────────────────
     DEFAULT_CURRENCY: str = "ILS"
