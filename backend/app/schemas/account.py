@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
 from app.utils.enums import AccountStatus, AccountType, AssetCategory
+from pydantic import BaseModel, Field
 
 
 class AccountBase(BaseModel):
@@ -20,8 +21,9 @@ class AccountBase(BaseModel):
     status: AccountStatus = AccountStatus.ACTIVE
     cash_balance: Decimal = Decimal("0")
     opening_balance: Optional[Decimal] = None
-    metadata: Optional[Dict[str, Any]] = None
+    extra_data: Optional[Dict[str, Any]] = Field(None, alias="metadata")
     notes: Optional[str] = None
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class AccountCreate(AccountBase):
@@ -37,8 +39,9 @@ class AccountUpdate(BaseModel):
     include_in_portfolio: Optional[bool] = None
     status: Optional[AccountStatus] = None
     cash_balance: Optional[Decimal] = None
-    metadata: Optional[Dict[str, Any]] = None
+    extra_data: Optional[Dict[str, Any]] = Field(None, alias="metadata")
     notes: Optional[str] = None
+    
 
 
 class AccountRead(AccountBase):
@@ -46,7 +49,8 @@ class AccountRead(AccountBase):
     portfolio_id: UUID
     created_at: datetime
     updated_at: datetime
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
+  
 
 
 # Extends AccountRead with server-computed position count
