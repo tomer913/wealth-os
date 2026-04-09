@@ -72,7 +72,7 @@ export interface Account {
   status: string
   cash_balance: number
   opening_balance: number | null
-  metadata: Record<string, unknown> | null
+  extra_data: Record<string, unknown> | null
   notes: string | null
   portfolio_id: string
   created_at: string
@@ -96,13 +96,13 @@ export interface Transaction {
 export type CategoryFilter = string[]
 
 export const CATEGORY_COLORS: Record<string, string> = {
-  real_estate:   '#3b82f6',
-  pension:       '#8b5cf6',
-  securities:    '#10b981',
-  alternatives:  '#f59e0b',
-  cash:          '#94a3b8',
-  crypto:        '#ef4444',
-  mutual_fund:   '#06b6d4',
-  etf:           '#84cc16',
+  real_estate: '#3b82f6',
+  pension: '#8b5cf6',
+  securities: '#10b981',
+  alternatives: '#f59e0b',
+  cash: '#94a3b8',
+  crypto: '#ef4444',
+  mutual_fund: '#06b6d4',
+  etf: '#84cc16',
   energy_income: '#f97316',
 }
