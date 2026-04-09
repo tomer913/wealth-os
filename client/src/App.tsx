@@ -1,9 +1,9 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import DashboardPage from './pages/DashboardPage'
+import AccountsPage from './pages/AccountsPage'
 import {
   AssetsPage,
-  AccountsPage,
   TransactionsPage,
   ValuationsPage,
   FXRatesPage,
