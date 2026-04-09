@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 from app.utils.enums import AccountStatus, AccountType, AssetCategory
 
+
 class AccountBase(BaseModel):
     name: str = Field(..., max_length=200)
     symbol: str = Field(..., max_length=100)
@@ -22,8 +23,10 @@ class AccountBase(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     notes: Optional[str] = None
 
+
 class AccountCreate(AccountBase):
     portfolio_id: UUID
+
 
 class AccountUpdate(BaseModel):
     name: Optional[str] = None
@@ -37,9 +40,15 @@ class AccountUpdate(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     notes: Optional[str] = None
 
+
 class AccountRead(AccountBase):
     id: UUID
     portfolio_id: UUID
     created_at: datetime
     updated_at: datetime
     model_config = {"from_attributes": True}
+
+
+# Extends AccountRead with server-computed position count
+class AccountReadWithCount(AccountRead):
+    position_count: int = 0

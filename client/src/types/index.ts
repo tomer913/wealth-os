@@ -60,10 +60,24 @@ export interface Asset {
 export interface Account {
   id: string
   name: string
+  symbol: string
   institution: string | null
+  custodian: string | null
   account_type: string | null
+  category: string | null
   currency: string
-  is_active: boolean
+  is_liquid: boolean
+  is_income_generating: boolean
+  include_in_portfolio: boolean
+  status: string
+  cash_balance: number
+  opening_balance: number | null
+  metadata: Record<string, unknown> | null
+  notes: string | null
+  portfolio_id: string
+  created_at: string
+  updated_at: string
+  position_count: number  // server-computed via LEFT JOIN on assets
 }
 
 export interface Transaction {
