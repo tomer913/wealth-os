@@ -34,14 +34,14 @@ export async function getAssets(): Promise<Asset[]> {
 // ─── Accounts ─────────────────────────────────────────────────────────────────
 
 export async function getAccounts(): Promise<Account[]> {
-  const { data } = await apiClient.get(`/api/v1/accounts`, {
+  const { data } = await apiClient.get(`/api/v1/accounts/`, {
     params: { portfolio_id: PORTFOLIO_ID },
   })
   return Array.isArray(data) ? data : (data.items ?? data.accounts ?? [])
 }
 
 export async function createAccount(payload: Record<string, unknown>): Promise<Account> {
-  const { data } = await apiClient.post(`/api/v1/accounts`, {
+  const { data } = await apiClient.post(`/api/v1/accounts/`, {
     ...payload,
     portfolio_id: PORTFOLIO_ID,
   })

@@ -7,6 +7,7 @@ import axios from 'axios'
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'https://your-railway-url.railway.app',
   timeout: 30_000,
+  maxRedirects: 5,
   headers: {
     'Content-Type': 'application/json',
   },
