@@ -2,7 +2,7 @@ import apiClient from './client'
 import type { PortfolioSnapshot, Asset, Account, Transaction } from '../types'
 
 // Your portfolio UUID — move to .env if you add multi-user later
-const PORTFOLIO_ID = import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb'
+const PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
 
 // ─── Snapshot ──────────────────────────────────────────────────────────────────
 
