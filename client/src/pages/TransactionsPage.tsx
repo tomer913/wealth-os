@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getTransactions, createTransaction, updateTransaction, deleteTransaction, getAssets, getAccounts } from '../api/portfolio'
+import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { Transaction } from '../types'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import { Field, Input, Select, Textarea, FormGrid, FormSection, Divider } from '../components/shared/Form'
@@ -59,6 +60,8 @@ const INFLOWS = new Set(['SELL','DEPOSIT','INCOME','FINANCING_INFLOW','INVESTMEN
 export default function TransactionsPage() {
   const qc = useQueryClient()
 
+  const categoryFilter = useCategoryFilter()
+
   // Filters
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('')
@@ -66,6 +69,10 @@ export default function TransactionsPage() {
   const [filterAsset, setFilterAsset] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+
+  // Pagination
+  const PAGE_SIZE = 50
+  const [page, setPage] = useState(1)
 
   const { data: txnData = [], isLoading } = useQuery({
     queryKey: ['transactions', { filterType, filterEconomic, filterAsset, dateFrom, dateTo }],
@@ -95,9 +102,14 @@ export default function TransactionsPage() {
   const accountMap = useMemo(() =>
     Object.fromEntries(accountsData.map((a) => [a.id, a])), [accountsData])
 
-  // Client-side filter for search + type
-  const transactions = useMemo(() => {
+  // Client-side filter — category chips + search + type filters
+  const filtered = useMemo(() => {
     return txnData.filter((t) => {
+      // Global category chips — join through asset
+      if (categoryFilter.length > 0) {
+        const asset = assetMap[t.asset_id ?? '']
+        if (!asset || !categoryFilter.includes(asset.category ?? '')) return false
+      }
       if (filterType && t.type !== filterType) return false
       if (filterEconomic && t.economic_type !== filterEconomic) return false
       if (search) {
@@ -109,7 +121,12 @@ export default function TransactionsPage() {
       }
       return true
     })
-  }, [txnData, filterType, filterEconomic, search, assetMap])
+  }, [txnData, categoryFilter, filterType, filterEconomic, search, assetMap])
+
+  // Paginated slice
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const transactions = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const createMut = useMutation({
     mutationFn: (p: Record<string, unknown>) => createTransaction(p),
@@ -204,6 +221,7 @@ export default function TransactionsPage() {
   const clearFilters = () => {
     setSearch(''); setFilterType(''); setFilterEconomic('')
     setFilterAsset(''); setDateFrom(''); setDateTo('')
+    setPage(1)
   }
   const hasFilters = search || filterType || filterEconomic || filterAsset || dateFrom || dateTo
 
@@ -214,7 +232,8 @@ export default function TransactionsPage() {
         <div>
           <h2 className="text-[16px] font-semibold text-gray-900">Transactions</h2>
           <p className="text-[12px] text-gray-400 mt-0.5">
-            {transactions.length}{transactions.length !== txnData.length ? ` of ${txnData.length}` : ''} transactions
+            {filtered.length}{filtered.length !== txnData.length ? ` of ${txnData.length}` : ''} transactions
+            {totalPages > 1 && ` · page ${safePage} of ${totalPages}`}
           </p>
         </div>
         <button onClick={openAdd}
@@ -228,28 +247,28 @@ export default function TransactionsPage() {
       <div className="flex gap-3 mb-4 flex-wrap">
         <div className="relative min-w-[180px] flex-1">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="6" cy="6" r="4"/><path d="M10 10l3 3"/></svg>
-          <input value={search} onChange={(e) => setSearch(e.target.value)}
+          <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }}
             placeholder="Search symbol or ref…"
             className="w-full pl-8 pr-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white"/>
         </div>
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)}
+        <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white">
           <option value="">All types</option>
           {TXN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
-        <select value={filterEconomic} onChange={(e) => setFilterEconomic(e.target.value)}
+        <select value={filterEconomic} onChange={(e) => { setFilterEconomic(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white">
           <option value="">All economic types</option>
           {ECONOMIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
-        <select value={filterAsset} onChange={(e) => setFilterAsset(e.target.value)}
+        <select value={filterAsset} onChange={(e) => { setFilterAsset(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white max-w-[180px]">
           <option value="">All assets</option>
           {assetList.map((a) => <option key={a.id} value={a.id}>{a.symbol}</option>)}
         </select>
-        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+        <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white"/>
-        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+        <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white"/>
         {hasFilters && (
           <button onClick={clearFilters}
@@ -321,7 +340,35 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Add / Edit Modal */}
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-[12px] text-gray-400">
+            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <PagBtn onClick={() => setPage(1)} disabled={safePage === 1} label="«" />
+            <PagBtn onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1} label="‹" />
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const start = Math.max(1, Math.min(safePage - 2, totalPages - 4))
+              const p = start + i
+              return (
+                <button key={p} onClick={() => setPage(p)}
+                  className={clsx('w-8 h-8 rounded-lg text-[12px] font-medium transition-colors',
+                    p === safePage
+                      ? 'bg-[#0d9488] text-white'
+                      : 'text-gray-500 hover:bg-gray-100')}>
+                  {p}
+                </button>
+              )
+            })}
+            <PagBtn onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} label="›" />
+            <PagBtn onClick={() => setPage(totalPages)} disabled={safePage === totalPages} label="»" />
+          </div>
+        </div>
+      )}
       <Modal open={modalOpen} onClose={closeModal}
         title={editTarget ? 'Edit transaction' : 'Add transaction'}
         width="max-w-2xl">
@@ -550,6 +597,16 @@ function ActionBtn({ onClick, icon, title, danger }: { onClick: () => void; icon
       {icon === 'edit'
         ? <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2l2 2-6 6H3V8l6-6z"/></svg>
         : <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4h9M5 4V3h3v1M4 4l.5 6h4l.5-6"/></svg>}
+    </button>
+  )
+}
+
+function PagBtn({ onClick, disabled, label }: { onClick: () => void; disabled: boolean; label: string }) {
+  return (
+    <button onClick={onClick} disabled={disabled}
+      className={clsx('w-8 h-8 rounded-lg text-[12px] font-medium transition-colors',
+        disabled ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100')}>
+      {label}
     </button>
   )
 }

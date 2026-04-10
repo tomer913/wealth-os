@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getAssets, createAsset, updateAsset, deleteAsset } from '../api/portfolio'
 import { useAppStore } from '../store'
+import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { Asset } from '../types'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import { MetadataEditor, jsonToPairs, pairsToJson } from '../components/shared/MetadataEditor'
@@ -49,6 +50,7 @@ function emptyForm(): AssetForm {
 export default function AssetsPage() {
   const qc = useQueryClient()
   const snapshot = useAppStore((s) => s.snapshot)
+  const categoryFilter = useCategoryFilter()
 
   // Build a lookup map from snapshot for live values
   const snapshotMap = useMemo(() => {
@@ -67,16 +69,20 @@ export default function AssetsPage() {
 
   const assets = data?.items ?? []
 
-  // Client-side filter (search + dropdowns)
+  // Client-side filter — chip bar + search + dropdowns
   const filtered = useMemo(() => {
     return assets.filter((a) => {
+      // Global category chips (from sidebar/topbar)
+      if (categoryFilter.length > 0 && !categoryFilter.includes(a.category ?? '')) return false
+      // Local search
       if (search && !a.name.toLowerCase().includes(search.toLowerCase()) &&
           !a.symbol.toLowerCase().includes(search.toLowerCase())) return false
+      // Local category dropdown (more specific than chips)
       if (filterCategory && a.category !== filterCategory) return false
       if (filterBehavior && a.asset_behavior !== filterBehavior) return false
       return true
     })
-  }, [assets, search, filterCategory, filterBehavior])
+  }, [assets, categoryFilter, search, filterCategory, filterBehavior])
 
   const createMut = useMutation({
     mutationFn: (payload: Record<string, unknown>) => createAsset(payload),

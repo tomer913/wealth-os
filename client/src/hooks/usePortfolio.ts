@@ -10,6 +10,12 @@ export const queryKeys = {
   transactions: (params?: object) => ['transactions', params] as const,
 }
 
+// ─── Category filter helper ────────────────────────────────────────────────────
+// Returns selected categories — empty array means "All" (no filter)
+export function useCategoryFilter() {
+  return useAppStore((s) => s.selectedCategories)
+}
+
 // ─── Snapshot ──────────────────────────────────────────────────────────────────
 export function useSnapshot() {
   const setSnapshot = useAppStore((s) => s.setSnapshot)

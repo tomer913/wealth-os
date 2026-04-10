@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getAccounts, createAccount, updateAccount, deleteAccount } from '../api/portfolio'
+import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { Account } from '../types'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import { MetadataEditor, jsonToPairs, pairsToJson } from '../components/shared/MetadataEditor'
@@ -41,11 +42,17 @@ function emptyForm(): AccountForm {
 
 export default function AccountsPage() {
   const qc = useQueryClient()
+  const categoryFilter = useCategoryFilter()
 
-  const { data: accounts = [], isLoading } = useQuery({
+  const { data: allAccounts = [], isLoading } = useQuery({
     queryKey: ['accounts'],
     queryFn: getAccounts,
   })
+
+  // Apply global category chip filter
+  const accounts = categoryFilter.length === 0
+    ? allAccounts
+    : allAccounts.filter((a) => categoryFilter.includes(a.category ?? ''))
 
   const createMut = useMutation({
     mutationFn: (payload: Record<string, unknown>) => createAccount(payload),
@@ -99,7 +106,7 @@ export default function AccountsPage() {
       status: account.status,
       notes: account.notes ?? '',
     })
-    setMetaPairs(jsonToPairs(account.extra_data ?? undefined))
+    setMetaPairs(jsonToPairs(account.metadata ?? undefined))
     setErrors({})
     setShowImport(false)
     setModalOpen(true)
@@ -183,7 +190,7 @@ export default function AccountsPage() {
           className="flex items-center gap-2 px-4 py-2 bg-[#0d9488] hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg transition-colors"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
-            <path d="M6 1v10M1 6h10" />
+            <path d="M6 1v10M1 6h10"/>
           </svg>
           Add account
         </button>
@@ -242,7 +249,7 @@ export default function AccountsPage() {
             <button type="button" onClick={() => setShowImport((v) => !v)}
               className="flex items-center gap-1.5 text-[12px] text-teal-600 hover:text-teal-700 font-medium">
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <path d="M2 9v2h9V9M6.5 1v7M4 5l2.5 3L9 5" />
+                <path d="M2 9v2h9V9M6.5 1v7M4 5l2.5 3L9 5"/>
               </svg>
               Import from JSON
             </button>
@@ -369,12 +376,12 @@ export default function AccountsPage() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 const TYPE_COLORS: Record<string, string> = {
-  broker: 'bg-blue-50 text-blue-700',
-  bank: 'bg-teal-50 text-teal-700',
-  pension: 'bg-purple-50 text-purple-700',
+  broker:      'bg-blue-50 text-blue-700',
+  bank:        'bg-teal-50 text-teal-700',
+  pension:     'bg-purple-50 text-purple-700',
   real_estate: 'bg-amber-50 text-amber-700',
-  crypto: 'bg-orange-50 text-orange-700',
-  other: 'bg-gray-100 text-gray-500',
+  crypto:      'bg-orange-50 text-orange-700',
+  other:       'bg-gray-100 text-gray-500',
 }
 
 function TypeBadge({ type }: { type: string }) {
@@ -412,14 +419,14 @@ function ActionBtn({ onClick, icon, title, danger, disabled }: {
       className={clsx('w-7 h-7 flex items-center justify-center rounded-lg transition-colors',
         disabled ? 'text-gray-200 cursor-not-allowed'
           : danger ? 'text-gray-300 hover:text-rose-500 hover:bg-rose-50'
-            : 'text-gray-300 hover:text-teal-600 hover:bg-teal-50')}>
+          : 'text-gray-300 hover:text-teal-600 hover:bg-teal-50')}>
       {icon === 'edit' ? (
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 2l2 2-6 6H3V8l6-6z" />
+          <path d="M9 2l2 2-6 6H3V8l6-6z"/>
         </svg>
       ) : (
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M2 4h9M5 4V3h3v1M4 4l.5 6h4l.5-6" />
+          <path d="M2 4h9M5 4V3h3v1M4 4l.5 6h4l.5-6"/>
         </svg>
       )}
     </button>
