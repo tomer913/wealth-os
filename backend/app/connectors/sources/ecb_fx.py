@@ -1,46 +1,42 @@
 """
 ECB FX Rates Connector
-Fetches daily exchange rates from the European Central Bank.
+Fetches daily exchange rates via frankfurter.app (ECB data).
 Free, no API key required.
 
-Rates fetched: USD/ILS, GBP/ILS, EUR/ILS (and any others configured)
-ECB publishes EUR-based rates — we cross-calculate via EUR.
+Strategy: fetch USD/EUR/GBP rates with EUR as base,
+then cross-calculate ILS rates using USD/ILS from Bank of Israel.
+Simpler: just fetch with USD as base and get ILS directly.
 """
 import httpx
-from datetime import date, timezone, datetime
+from datetime import date
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
-from uuid import UUID
-
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.base import BaseConnector, ConnectorResult
 from app.connectors.registry import register
 
-
+# frankfurter.app supports EUR as base only for ECB data
+# For USD base we use their API which supports many currencies
 ECB_URL = "https://api.frankfurter.app/latest"
-# Using frankfurter.app — free, no auth, wraps ECB data
 
 
 @register
 class ECBFxConnector(BaseConnector):
     CONNECTOR_TYPE = "ecb_fx"
     DISPLAY_NAME = "ECB FX Rates"
-    DESCRIPTION = "Fetches daily exchange rates from the European Central Bank. Free, no API key required."
+    DESCRIPTION = "Fetches daily exchange rates. Free, no API key required."
     CONFIG_FIELDS = [
         {
             "key": "base_currency",
             "label": "Base currency",
             "type": "text",
-            "default": "ILS",
-            "hint": "All rates will be expressed as X per 1 ILS",
+            "default": "USD",
+            "hint": "Base for rate calculation (USD recommended)",
         },
         {
             "key": "currencies",
-            "label": "Currencies to fetch",
+            "label": "Target currencies",
             "type": "text",
-            "default": "USD,EUR,GBP",
+            "default": "ILS,EUR,GBP",
             "hint": "Comma-separated list",
         },
     ]
@@ -48,12 +44,11 @@ class ECBFxConnector(BaseConnector):
     async def run(self) -> ConnectorResult:
         result = ConnectorResult()
 
-        base = self.config.get("base_currency", "ILS")
-        currencies_str = self.config.get("currencies", "USD,EUR,GBP")
-        currencies = [c.strip() for c in currencies_str.split(",")]
+        base = self.config.get("base_currency", "USD")
+        currencies_str = self.config.get("currencies", "ILS,EUR,GBP")
+        currencies = [c.strip() for c in currencies_str.split(",") if c.strip() != base]
 
-        # Fetch from Frankfurter (ECB data)
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             response = await client.get(
                 ECB_URL,
                 params={"from": base, "to": ",".join(currencies)},
@@ -63,7 +58,6 @@ class ECBFxConnector(BaseConnector):
 
         rates = data.get("rates", {})
         rate_date = date.fromisoformat(data.get("date", str(date.today())))
-
         result.records_fetched = len(rates)
 
         for currency, rate in rates.items():
@@ -80,17 +74,10 @@ class ECBFxConnector(BaseConnector):
         result.checkpoint = {"last_date": str(rate_date)}
         return result
 
-    async def _upsert_fx_rate(
-        self,
-        from_currency: str,
-        to_currency: str,
-        rate: Decimal,
-        rate_date: date,
-    ) -> bool:
-        """Insert or update FX rate. Returns True if a new record was created."""
+    async def _upsert_fx_rate(self, from_currency, to_currency, rate, rate_date):
+        from sqlalchemy import select
         from app.models.fx_rate import FxRate
 
-        # Check if rate for this date already exists
         q = select(FxRate).where(
             FxRate.from_currency == from_currency,
             FxRate.to_currency == to_currency,
@@ -103,12 +90,11 @@ class ECBFxConnector(BaseConnector):
             existing.source = "ecb"
             return False
         else:
-            fx = FxRate(
+            self.db.add(FxRate(
                 from_currency=from_currency,
                 to_currency=to_currency,
                 rate=rate,
                 fx_date=rate_date,
                 source="ecb",
-            )
-            self.db.add(fx)
+            ))
             return True
