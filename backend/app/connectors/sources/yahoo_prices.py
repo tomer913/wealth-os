@@ -110,6 +110,8 @@ class YahooPricesConnector(BaseConnector):
         yahoo_symbols = {s: to_yahoo_symbol(s) for s in symbols}
         unique_yahoo = list(set(yahoo_symbols.values()))
 
+        print(f"DEBUG: [Connector] about to fetch unique_yahoo: {unique_yahoo}")
+
         # Batch download
         tickers = yf.Tickers(" ".join(unique_yahoo))
 
@@ -122,6 +124,7 @@ class YahooPricesConnector(BaseConnector):
                 if not ticker:
                     continue
                 info = ticker.fast_info
+                print(f"DEBUG: [Connector] Found ticker: {ticker}")
                 price = getattr(info, "last_price", None)
                 currency = getattr(info, "currency", "USD")
                 if price:
@@ -145,7 +148,9 @@ class YahooPricesConnector(BaseConnector):
             Asset.portfolio_id == self.portfolio_id,
             Asset.symbol == symbol,
         )
+        print(f"DEBUG: [Connector] about to update symbol: {symbol}")
         asset = (await self.db.execute(q)).scalar_one_or_none()
+        print(f"DEBUG: [Connector] about to update asset: {asset}")
         if not asset:
             return False
 

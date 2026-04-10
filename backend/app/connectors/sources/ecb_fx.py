@@ -83,6 +83,7 @@ class ECBFxConnector(BaseConnector):
             FXRate.to_currency == to_currency,
             FXRate.fx_date == rate_date,
         )
+        print(f"DEBUG: [Connector] about to update from_currency: {from_currency}")
         existing = (await self.db.execute(q)).scalar_one_or_none()
 
         if existing:
