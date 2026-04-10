@@ -340,8 +340,6 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      )}
-
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
