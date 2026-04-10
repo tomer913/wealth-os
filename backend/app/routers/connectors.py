@@ -213,7 +213,7 @@ async def _execute_connector_run(connector_id: str, run_id: str):
 
             # Decrypt config and execute
             config = decrypt_config(connector.config)
-            handler = get_connector_handler(connector.type)
+            handler = await get_connector_handler(connector.type)
 
             if not handler:
                 raise ValueError(f"Unknown connector type: {connector.type}")
