@@ -1,13 +1,15 @@
 import apiClient from './client'
-import { useAppStore } from '../store'
 import type { PortfolioSnapshot, Asset, AssetListResponse, Account, Transaction, ManualValuation, ValuationListResponse, Portfolio } from '../types'
 
 // Default portfolio from env var
 export const DEFAULT_PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
 
-// Get active portfolio ID from Zustand store at call time
+// Late-binding getter — avoids circular dependency with store
+// The store module is fully initialized by the time any API function is called
 function pid(): string {
-  return useAppStore.getState().activePortfolioId || DEFAULT_PORTFOLIO_ID
+  // Dynamically access store state without importing at module level
+  const store = (window as unknown as { __wealthOsStore?: { getState: () => { activePortfolioId: string } } }).__wealthOsStore
+  return store?.getState().activePortfolioId || DEFAULT_PORTFOLIO_ID
 }
 
 // ─── Portfolios ───────────────────────────────────────────────────────────────

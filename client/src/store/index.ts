@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { PortfolioSnapshot } from '../types'
-import { DEFAULT_PORTFOLIO_ID } from '../api/portfolio'
+
+const DEFAULT_PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
 
 interface AppStore {
   // Active portfolio

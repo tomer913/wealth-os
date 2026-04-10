@@ -3,6 +3,11 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import './index.css'
+import { useAppStore } from './store'
+
+// Expose store on window so api/portfolio.ts can access activePortfolioId
+// without creating a circular dependency
+;(window as unknown as { __wealthOsStore: typeof useAppStore }).__wealthOsStore = useAppStore
 
 const queryClient = new QueryClient({
   defaultOptions: {
