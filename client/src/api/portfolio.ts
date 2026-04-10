@@ -1,22 +1,13 @@
 import apiClient from './client'
+import { useAppStore } from '../store'
 import type { PortfolioSnapshot, Asset, AssetListResponse, Account, Transaction, ManualValuation, ValuationListResponse, Portfolio } from '../types'
 
-// Default portfolio — overridden by Zustand store when user switches
+// Default portfolio from env var
 export const DEFAULT_PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
 
-// Keep backward compat alias
-const PORTFOLIO_ID = DEFAULT_PORTFOLIO_ID
-
-// Use this in all API functions for dynamic portfolio switching
+// Get active portfolio ID from Zustand store at call time
 function pid(): string {
-  try {
-    // Import store dynamically to avoid circular dependency
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { useAppStore } = require('../store')
-    return useAppStore.getState().activePortfolioId || DEFAULT_PORTFOLIO_ID
-  } catch {
-    return DEFAULT_PORTFOLIO_ID
-  }
+  return useAppStore.getState().activePortfolioId || DEFAULT_PORTFOLIO_ID
 }
 
 // ─── Portfolios ───────────────────────────────────────────────────────────────
