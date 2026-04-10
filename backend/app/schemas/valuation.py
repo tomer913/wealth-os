@@ -12,7 +12,7 @@ class ManualValuationBase(BaseModel):
     currency: str = Field("ILS", max_length=10)
     fx_rate_to_ils: Decimal = Decimal("1.0")
     value_ils: Optional[Decimal] = None
-    valuation_method: ValuationMethod = ValuationMethod.MANUAL
+    valuation_method: str = "manual"
     confidence_level: ConfidenceLevel = ConfidenceLevel.MEDIUM
     valuation_source: Optional[str] = Field(None, max_length=100)
     is_estimated: bool = False
@@ -39,7 +39,7 @@ class ManualValuationUpdate(BaseModel):
     market_value: Optional[Decimal] = None
     fx_rate_to_ils: Optional[Decimal] = None
     value_ils: Optional[Decimal] = None
-    valuation_method: Optional[ValuationMethod] = None
+    valuation_method: Optional[str] = None
     confidence_level: Optional[ConfidenceLevel] = None
     valuation_source: Optional[str] = None
     is_estimated: Optional[bool] = None
