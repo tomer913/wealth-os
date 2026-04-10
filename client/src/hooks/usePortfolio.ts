@@ -19,9 +19,10 @@ export function useCategoryFilter() {
 // ─── Snapshot ──────────────────────────────────────────────────────────────────
 export function useSnapshot() {
   const setSnapshot = useAppStore((s) => s.setSnapshot)
+  const activePortfolioId = useAppStore((s) => s.activePortfolioId)
 
   return useQuery({
-    queryKey: queryKeys.snapshot,
+    queryKey: [...queryKeys.snapshot, activePortfolioId],
     queryFn: async () => {
       const data = await getLatestSnapshot()
       setSnapshot(data)
@@ -34,12 +35,13 @@ export function useSnapshot() {
 export function useRebuildSnapshot() {
   const queryClient = useQueryClient()
   const setSnapshot = useAppStore((s) => s.setSnapshot)
+  const activePortfolioId = useAppStore((s) => s.activePortfolioId)
 
   return useMutation({
     mutationFn: rebuildSnapshot,
     onSuccess: (data) => {
       setSnapshot(data)
-      queryClient.setQueryData(queryKeys.snapshot, data)
+      queryClient.setQueryData([...queryKeys.snapshot, activePortfolioId], data)
     },
   })
 }

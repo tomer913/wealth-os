@@ -170,3 +170,14 @@ export const CATEGORY_COLORS: Record<string, string> = {
   etf:           '#84cc16',
   energy_income: '#f97316',
 }
+
+export interface Portfolio {
+  id: string
+  name: string
+  base_currency: string
+  description: string | null
+  is_default: boolean
+  owner_id: string | null
+  created_at: string
+  updated_at: string
+}

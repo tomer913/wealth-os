@@ -1,14 +1,36 @@
 import apiClient from './client'
-import type { PortfolioSnapshot, Asset, AssetListResponse, Account, Transaction, ManualValuation, ValuationListResponse } from '../types'
+import type { PortfolioSnapshot, Asset, AssetListResponse, Account, Transaction, ManualValuation, ValuationListResponse, Portfolio } from '../types'
 
-// Your portfolio UUID — move to .env if you add multi-user later
-const PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
+// Default portfolio — overridden by Zustand store when user switches
+export const DEFAULT_PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
+
+// Keep backward compat alias
+const PORTFOLIO_ID = DEFAULT_PORTFOLIO_ID
+
+// Use this in all API functions for dynamic portfolio switching
+function pid(): string {
+  try {
+    // Import store dynamically to avoid circular dependency
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useAppStore } = require('../store')
+    return useAppStore.getState().activePortfolioId || DEFAULT_PORTFOLIO_ID
+  } catch {
+    return DEFAULT_PORTFOLIO_ID
+  }
+}
+
+// ─── Portfolios ───────────────────────────────────────────────────────────────
+
+export async function getPortfolios(): Promise<Portfolio[]> {
+  const { data } = await apiClient.get(`/api/v1/portfolios/`)
+  return Array.isArray(data) ? data : []
+}
 
 // ─── Snapshot ──────────────────────────────────────────────────────────────────
 
 export async function rebuildSnapshot(): Promise<PortfolioSnapshot> {
   const { data } = await apiClient.post(`/api/v1/snapshots/rebuild`, {
-    portfolio_id: PORTFOLIO_ID,
+    portfolio_id: pid(),
   })
   return data
 }
@@ -17,7 +39,7 @@ export async function getLatestSnapshot(): Promise<PortfolioSnapshot> {
   // If you have a GET endpoint for cached snapshot, use it here.
   // For now we call rebuild (you can swap this later without touching components).
   const { data } = await apiClient.post(`/api/v1/snapshots/rebuild`, {
-    portfolio_id: PORTFOLIO_ID,
+    portfolio_id: pid(),
   })
   return data
 }
@@ -32,7 +54,7 @@ export async function getAssets(params?: {
   status?: string
 }): Promise<AssetListResponse> {
   const { data } = await apiClient.get(`/api/v1/assets/`, {
-    params: { portfolio_id: PORTFOLIO_ID, limit: 500, ...params },
+    params: { portfolio_id: pid(), limit: 500, ...params },
   })
   return data
 }
@@ -40,7 +62,7 @@ export async function getAssets(params?: {
 export async function createAsset(payload: Record<string, unknown>): Promise<Asset> {
   const { data } = await apiClient.post(`/api/v1/assets/`, {
     ...payload,
-    portfolio_id: PORTFOLIO_ID,
+    portfolio_id: pid(),
   })
   return data
 }
@@ -58,7 +80,7 @@ export async function deleteAsset(id: string): Promise<void> {
 
 export async function getAccounts(): Promise<Account[]> {
   const { data } = await apiClient.get(`/api/v1/accounts/`, {
-    params: { portfolio_id: PORTFOLIO_ID },
+    params: { portfolio_id: pid() },
   })
   return Array.isArray(data) ? data : (data.items ?? data.accounts ?? [])
 }
@@ -66,7 +88,7 @@ export async function getAccounts(): Promise<Account[]> {
 export async function createAccount(payload: Record<string, unknown>): Promise<Account> {
   const { data } = await apiClient.post(`/api/v1/accounts/`, {
     ...payload,
-    portfolio_id: PORTFOLIO_ID,
+    portfolio_id: pid(),
   })
   return data
 }
@@ -91,7 +113,7 @@ export async function getValuations(params?: {
   limit?: number
 }): Promise<ValuationListResponse> {
   const { data } = await apiClient.get(`/api/v1/valuations/`, {
-    params: { portfolio_id: PORTFOLIO_ID, limit: 50, ...params },
+    params: { portfolio_id: pid(), limit: 50, ...params },
   })
   return data
 }
@@ -99,7 +121,7 @@ export async function getValuations(params?: {
 export async function createValuation(payload: Record<string, unknown>): Promise<ManualValuation> {
   const { data } = await apiClient.post(`/api/v1/valuations/`, {
     ...payload,
-    portfolio_id: PORTFOLIO_ID,
+    portfolio_id: pid(),
   })
   return data
 }
@@ -122,7 +144,7 @@ export async function getTransactions(params?: {
   offset?: number
 }): Promise<Transaction[]> {
   const { data } = await apiClient.get(`/api/v1/transactions/`, {
-    params: { portfolio_id: PORTFOLIO_ID, limit: 500, ...params },
+    params: { portfolio_id: pid(), limit: 500, ...params },
   })
   return Array.isArray(data) ? data : []
 }
@@ -130,7 +152,7 @@ export async function getTransactions(params?: {
 export async function createTransaction(payload: Record<string, unknown>): Promise<Transaction> {
   const { data } = await apiClient.post(`/api/v1/transactions/`, {
     ...payload,
-    portfolio_id: PORTFOLIO_ID,
+    portfolio_id: pid(),
   })
   return data
 }

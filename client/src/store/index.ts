@@ -1,21 +1,30 @@
 import { create } from 'zustand'
 import type { PortfolioSnapshot } from '../types'
+import { DEFAULT_PORTFOLIO_ID } from '../api/portfolio'
 
 interface AppStore {
+  // Active portfolio
+  activePortfolioId: string
+  setActivePortfolioId: (id: string) => void
+
+  // Category filter — empty array means "All"
   selectedCategories: string[]
   setCategories: (cats: string[]) => void
   toggleCategory: (cat: string) => void
   clearFilter: () => void
+
+  // Last built snapshot (cached in memory)
   snapshot: PortfolioSnapshot | null
   setSnapshot: (s: PortfolioSnapshot) => void
   lastBuiltAt: string | null
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
+  activePortfolioId: DEFAULT_PORTFOLIO_ID,
+  setActivePortfolioId: (id) => set({ activePortfolioId: id, snapshot: null, lastBuiltAt: null }),
+
   selectedCategories: [],
-
   setCategories: (cats) => set({ selectedCategories: cats }),
-
   toggleCategory: (cat) => {
     const current = get().selectedCategories
     if (current.includes(cat)) {
@@ -24,7 +33,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ selectedCategories: [...current, cat] })
     }
   },
-
   clearFilter: () => set({ selectedCategories: [] }),
 
   snapshot: null,

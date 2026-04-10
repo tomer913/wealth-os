@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import CategoryFilter from './CategoryFilter'
+import PortfolioSelector from './PortfolioSelector'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -32,10 +33,12 @@ export default function AppShell() {
         <header className="bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between flex-shrink-0">
           <div>
             <h1 className="text-[18px] font-medium text-gray-900 tracking-tight">{title}</h1>
-            <p className="text-[11px] text-gray-400 mt-0.5">Tomer Portfolio</p>
           </div>
-          {/* Mobile: hamburger placeholder (future) */}
-          <div className="md:hidden text-gray-400 text-sm">Wealth OS</div>
+          <div className="flex items-center gap-3">
+            <PortfolioSelector />
+            {/* Mobile: hamburger placeholder (future) */}
+            <div className="md:hidden text-gray-400 text-sm">Wealth OS</div>
+          </div>
         </header>
 
         {/* Category filter chips */}
