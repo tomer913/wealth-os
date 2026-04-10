@@ -38,10 +38,10 @@ async def list_transactions(
         q = q.where(Transaction.economic_type == economic_type.value)
     if status:
         q = q.where(Transaction.status == status.value)
-if date_from:
-    q = q.where(Transaction.transaction_date >= date_from)
-if date_to:
-    q = q.where(Transaction.transaction_date <= date_to)
+    if date_from:
+        q = q.where(Transaction.transaction_date >= date_from)
+    if date_to:
+        q = q.where(Transaction.transaction_date <= date_to)
     q = q.order_by(Transaction.transaction_date.desc()).limit(limit).offset(offset)
     result = await db.execute(q)
     return result.scalars().all()
