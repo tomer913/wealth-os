@@ -131,7 +131,33 @@ export interface Transaction {
   updated_at: string
 }
 
-export type CategoryFilter = string[]
+export interface ManualValuation {
+  id: string
+  portfolio_id: string
+  asset_id: string
+  account_id: string | null
+  valuation_date: string
+  market_value: number
+  currency: string
+  fx_rate_to_ils: number
+  value_ils: number | null
+  valuation_method: string
+  confidence_level: string
+  valuation_source: string | null
+  is_estimated: boolean
+  notes: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ValuationListResponse {
+  items: ManualValuation[]
+  total: number
+  page: number
+  limit: number
+  pages: number
+}
 
 export const CATEGORY_COLORS: Record<string, string> = {
   real_estate:   '#3b82f6',

@@ -4,8 +4,8 @@ import DashboardPage from './pages/DashboardPage'
 import AccountsPage from './pages/AccountsPage'
 import AssetsPage from './pages/AssetsPage'
 import TransactionsPage from './pages/TransactionsPage'
+import ValuationsPage from './pages/ValuationsPage'
 import {
-  ValuationsPage,
   FXRatesPage,
   ReportsPage,
 } from './pages/PlaceholderPages'

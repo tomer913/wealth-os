@@ -1,12 +1,13 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 from app.utils.enums import ConfidenceLevel, ValuationMethod
 
+
 class ManualValuationBase(BaseModel):
-    date: date
+    valuation_date: date = Field(..., alias="date")
     market_value: Decimal
     currency: str = Field("ILS", max_length=10)
     fx_rate_to_ils: Decimal = Decimal("1.0")
@@ -18,16 +19,20 @@ class ManualValuationBase(BaseModel):
     notes: Optional[str] = None
     source: str = Field("manual", max_length=50)
 
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
     @model_validator(mode="after")
     def compute_value_ils(self) -> "ManualValuationBase":
         if self.value_ils is None and self.market_value and self.fx_rate_to_ils:
             self.value_ils = self.market_value * self.fx_rate_to_ils
         return self
 
+
 class ManualValuationCreate(ManualValuationBase):
     portfolio_id: UUID
     asset_id: UUID
     account_id: Optional[UUID] = None
+
 
 class ManualValuationUpdate(BaseModel):
     date: Optional[date] = None
@@ -40,6 +45,7 @@ class ManualValuationUpdate(BaseModel):
     is_estimated: Optional[bool] = None
     notes: Optional[str] = None
 
+
 class ManualValuationRead(ManualValuationBase):
     id: UUID
     portfolio_id: UUID
@@ -47,4 +53,11 @@ class ManualValuationRead(ManualValuationBase):
     account_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
-    model_config = {"from_attributes": True}
+
+
+class ManualValuationListResponse(BaseModel):
+    items: List[ManualValuationRead]
+    total: int
+    page: int
+    limit: int
+    pages: int

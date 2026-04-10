@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { PortfolioSnapshot, Asset, AssetListResponse, Account, Transaction } from '../types'
+import type { PortfolioSnapshot, Asset, AssetListResponse, Account, Transaction, ManualValuation, ValuationListResponse } from '../types'
 
 // Your portfolio UUID — move to .env if you add multi-user later
 const PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
@@ -80,7 +80,38 @@ export async function deleteAccount(id: string): Promise<void> {
   await apiClient.delete(`/api/v1/accounts/${id}`)
 }
 
-// ─── Transactions ─────────────────────────────────────────────────────────────
+// ─── Valuations ───────────────────────────────────────────────────────────────
+
+export async function getValuations(params?: {
+  asset_id?: string
+  account_id?: string
+  date_from?: string
+  date_to?: string
+  page?: number
+  limit?: number
+}): Promise<ValuationListResponse> {
+  const { data } = await apiClient.get(`/api/v1/valuations/`, {
+    params: { portfolio_id: PORTFOLIO_ID, limit: 50, ...params },
+  })
+  return data
+}
+
+export async function createValuation(payload: Record<string, unknown>): Promise<ManualValuation> {
+  const { data } = await apiClient.post(`/api/v1/valuations/`, {
+    ...payload,
+    portfolio_id: PORTFOLIO_ID,
+  })
+  return data
+}
+
+export async function updateValuation(id: string, payload: Record<string, unknown>): Promise<ManualValuation> {
+  const { data } = await apiClient.patch(`/api/v1/valuations/${id}`, payload)
+  return data
+}
+
+export async function deleteValuation(id: string): Promise<void> {
+  await apiClient.delete(`/api/v1/valuations/${id}`)
+}
 
 export async function getTransactions(params?: {
   asset_id?: string
