@@ -76,12 +76,12 @@ class ECBFxConnector(BaseConnector):
 
     async def _upsert_fx_rate(self, from_currency, to_currency, rate, rate_date):
         from sqlalchemy import select
-        from app.models.fx_rate import FxRate
+        from app.models.fx_rate import FXRate
 
-        q = select(FxRate).where(
-            FxRate.from_currency == from_currency,
-            FxRate.to_currency == to_currency,
-            FxRate.fx_date == rate_date,
+        q = select(FXRate).where(
+            FXRate.from_currency == from_currency,
+            FXRate.to_currency == to_currency,
+            FXRate.fx_date == rate_date,
         )
         existing = (await self.db.execute(q)).scalar_one_or_none()
 
@@ -90,7 +90,7 @@ class ECBFxConnector(BaseConnector):
             existing.source = "ecb"
             return False
         else:
-            self.db.add(FxRate(
+            self.db.add(FXRate(
                 from_currency=from_currency,
                 to_currency=to_currency,
                 rate=rate,
