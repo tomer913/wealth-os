@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { PortfolioSnapshot, Asset, Account, Transaction } from '../types'
+import type { PortfolioSnapshot, Asset, AssetListResponse, Account, Transaction } from '../types'
 
 // Your portfolio UUID — move to .env if you add multi-user later
 const PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
@@ -24,11 +24,34 @@ export async function getLatestSnapshot(): Promise<PortfolioSnapshot> {
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
 
-export async function getAssets(): Promise<Asset[]> {
-  const { data } = await apiClient.get(`/api/v1/assets`, {
-    params: { portfolio_id: PORTFOLIO_ID },
+export async function getAssets(params?: {
+  page?: number
+  limit?: number
+  search?: string
+  category?: string
+  status?: string
+}): Promise<AssetListResponse> {
+  const { data } = await apiClient.get(`/api/v1/assets/`, {
+    params: { portfolio_id: PORTFOLIO_ID, limit: 500, ...params },
   })
   return data
+}
+
+export async function createAsset(payload: Record<string, unknown>): Promise<Asset> {
+  const { data } = await apiClient.post(`/api/v1/assets/`, {
+    ...payload,
+    portfolio_id: PORTFOLIO_ID,
+  })
+  return data
+}
+
+export async function updateAsset(id: string, payload: Record<string, unknown>): Promise<Asset> {
+  const { data } = await apiClient.patch(`/api/v1/assets/${id}`, payload)
+  return data
+}
+
+export async function deleteAsset(id: string): Promise<void> {
+  await apiClient.delete(`/api/v1/assets/${id}`)
 }
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────

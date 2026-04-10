@@ -3,19 +3,20 @@ import clsx from 'clsx'
 import { useRebuildSnapshot } from '../../hooks/usePortfolio'
 import { useAppStore } from '../../store'
 import { formatDateTime } from '../../utils/format'
+import { isEnabled } from '../../config/features'
 
 const NAV_MAIN = [
-  { to: '/', label: 'Dashboard', icon: IconDashboard },
-  { to: '/assets', label: 'Assets', icon: IconAssets },
-  { to: '/accounts', label: 'Accounts', icon: IconAccounts },
-  { to: '/transactions', label: 'Transactions', icon: IconTransactions },
-]
+  { to: '/',             label: 'Dashboard',    icon: IconDashboard,    flag: 'dashboard'         },
+  { to: '/assets',       label: 'Assets',       icon: IconAssets,       flag: 'assets_page'       },
+  { to: '/accounts',     label: 'Accounts',     icon: IconAccounts,     flag: 'accounts_page'     },
+  { to: '/transactions', label: 'Transactions', icon: IconTransactions, flag: 'transactions_page' },
+] as const
 
 const NAV_ANALYSIS = [
-  { to: '/valuations', label: 'Valuations', icon: IconChart },
-  { to: '/fx-rates', label: 'FX Rates', icon: IconFX },
-  { to: '/reports', label: 'Reports', icon: IconReports },
-]
+  { to: '/valuations', label: 'Valuations', icon: IconChart,   flag: 'valuations_page' },
+  { to: '/fx-rates',   label: 'FX Rates',   icon: IconFX,      flag: 'fx_rates_page'   },
+  { to: '/reports',    label: 'Reports',    icon: IconReports, flag: 'reports_page'    },
+] as const
 
 export default function Sidebar() {
   const { mutate: rebuild, isPending } = useRebuildSnapshot()
@@ -35,12 +36,12 @@ export default function Sidebar() {
       {/* Main nav */}
       <nav className="flex-1 py-2">
         <SectionLabel>Main</SectionLabel>
-        {NAV_MAIN.map(({ to, label, icon: Icon }) => (
+        {NAV_MAIN.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
           <NavItem key={to} to={to} label={label} Icon={Icon} end={to === '/'} />
         ))}
 
         <SectionLabel className="mt-3">Analysis</SectionLabel>
-        {NAV_ANALYSIS.map(({ to, label, icon: Icon }) => (
+        {NAV_ANALYSIS.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
           <NavItem key={to} to={to} label={label} Icon={Icon} />
         ))}
       </nav>
