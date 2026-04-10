@@ -9,6 +9,7 @@ export const FEATURES = {
   accounts_page:    true,
   transactions_page: true,
   valuations_page:  true,
+  connectors_page:  true,
   fx_rates_page:    false,
   reports_page:     false,
 

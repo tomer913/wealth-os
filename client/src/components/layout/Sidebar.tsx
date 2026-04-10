@@ -6,16 +6,17 @@ import { formatDateTime } from '../../utils/format'
 import { isEnabled } from '../../config/features'
 
 const NAV_MAIN = [
-  { to: '/',             label: 'Dashboard',    icon: IconDashboard,    flag: 'dashboard'         },
-  { to: '/assets',       label: 'Assets',       icon: IconAssets,       flag: 'assets_page'       },
-  { to: '/accounts',     label: 'Accounts',     icon: IconAccounts,     flag: 'accounts_page'     },
+  { to: '/', label: 'Dashboard', icon: IconDashboard, flag: 'dashboard' },
+  { to: '/assets', label: 'Assets', icon: IconAssets, flag: 'assets_page' },
+  { to: '/accounts', label: 'Accounts', icon: IconAccounts, flag: 'accounts_page' },
   { to: '/transactions', label: 'Transactions', icon: IconTransactions, flag: 'transactions_page' },
 ] as const
 
 const NAV_ANALYSIS = [
-  { to: '/valuations', label: 'Valuations', icon: IconChart,   flag: 'valuations_page' },
-  { to: '/fx-rates',   label: 'FX Rates',   icon: IconFX,      flag: 'fx_rates_page'   },
-  { to: '/reports',    label: 'Reports',    icon: IconReports, flag: 'reports_page'    },
+  { to: '/valuations', label: 'Valuations', icon: IconChart, flag: 'valuations_page' },
+  { to: '/fx-rates', label: 'FX Rates', icon: IconFX, flag: 'fx_rates_page' },
+  { to: '/reports', label: 'Reports', icon: IconReports, flag: 'reports_page' },
+  { to: '/connectors', label: 'Connectors', icon: IconConnectors, flag: 'connectors_page' }
 ] as const
 
 export default function Sidebar() {

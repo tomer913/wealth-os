@@ -1,0 +1,313 @@
+import traceback
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.models.connector import Connector, ConnectorRun
+from app.schemas.connector import (
+    ConnectorCreate,
+    ConnectorRead,
+    ConnectorRunListResponse,
+    ConnectorRunRead,
+    ConnectorUpdate,
+    TriggerRunResponse,
+)
+from app.utils.encryption import decrypt_config, encrypt_config, get_config_keys
+
+router = APIRouter(prefix="/connectors", tags=["connectors"])
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _to_read(connector: Connector, latest_run: ConnectorRun | None = None) -> ConnectorRead:
+    data = ConnectorRead(
+        id=connector.id,
+        portfolio_id=connector.portfolio_id,
+        name=connector.name,
+        type=connector.type,
+        config_keys=get_config_keys(connector.config),
+        asset_filter=connector.asset_filter,
+        auto_create_assets=connector.auto_create_assets,
+        schedule=connector.schedule,
+        is_active=connector.is_active,
+        last_run_at=connector.last_run_at,
+        last_error=connector.last_error,
+        created_at=connector.created_at,
+        updated_at=connector.updated_at,
+    )
+    if latest_run:
+        data.last_run_status = latest_run.status
+        data.last_run_summary = {
+            "transactions_created": latest_run.transactions_created,
+            "assets_created": latest_run.assets_created,
+            "fx_rates_updated": latest_run.fx_rates_updated,
+            "prices_updated": latest_run.prices_updated,
+            "duration_ms": latest_run.duration_ms,
+        }
+    return data
+
+
+# ── Connector CRUD ────────────────────────────────────────────────────────────
+
+@router.get("/", response_model=list[ConnectorRead])
+async def list_connectors(
+    portfolio_id: Optional[UUID] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(Connector)
+    if portfolio_id:
+        q = q.where(Connector.portfolio_id == portfolio_id)
+    q = q.order_by(Connector.name)
+    connectors = (await db.execute(q)).scalars().all()
+
+    result = []
+    for connector in connectors:
+        # Get latest run for each connector
+        run_q = (
+            select(ConnectorRun)
+            .where(ConnectorRun.connector_id == connector.id)
+            .order_by(ConnectorRun.created_at.desc())
+            .limit(1)
+        )
+        latest_run = (await db.execute(run_q)).scalar_one_or_none()
+        result.append(_to_read(connector, latest_run))
+    return result
+
+
+@router.post("/", response_model=ConnectorRead, status_code=status.HTTP_201_CREATED)
+async def create_connector(
+    payload: ConnectorCreate,
+    portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    # Encrypt sensitive config fields before storing
+    encrypted_config = encrypt_config(payload.config)
+    connector = Connector(
+        portfolio_id=portfolio_id,
+        name=payload.name,
+        type=payload.type,
+        config=encrypted_config,
+        asset_filter=payload.asset_filter,
+        auto_create_assets=payload.auto_create_assets,
+        schedule=payload.schedule,
+        is_active=payload.is_active,
+    )
+    db.add(connector)
+    await db.flush()
+    await db.refresh(connector)
+    return _to_read(connector)
+
+
+@router.get("/{connector_id}", response_model=ConnectorRead)
+async def get_connector(connector_id: UUID, db: AsyncSession = Depends(get_db)):
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    run_q = (
+        select(ConnectorRun)
+        .where(ConnectorRun.connector_id == connector_id)
+        .order_by(ConnectorRun.created_at.desc())
+        .limit(1)
+    )
+    latest_run = (await db.execute(run_q)).scalar_one_or_none()
+    return _to_read(connector, latest_run)
+
+
+@router.patch("/{connector_id}", response_model=ConnectorRead)
+async def update_connector(
+    connector_id: UUID,
+    payload: ConnectorUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "config" in data:
+        # Merge with existing config, encrypt new sensitive fields
+        merged = {**connector.config, **data["config"]}
+        data["config"] = encrypt_config(merged)
+
+    for field, value in data.items():
+        setattr(connector, field, value)
+
+    await db.flush()
+    await db.refresh(connector)
+    return _to_read(connector)
+
+
+@router.delete("/{connector_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_connector(connector_id: UUID, db: AsyncSession = Depends(get_db)):
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    await db.delete(connector)
+
+
+# ── Trigger run ───────────────────────────────────────────────────────────────
+
+@router.post("/{connector_id}/run", response_model=TriggerRunResponse)
+async def trigger_run(
+    connector_id: UUID,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if not connector.is_active:
+        raise HTTPException(status_code=400, detail="Connector is disabled")
+
+    # Create run record immediately with pending status
+    run = ConnectorRun(
+        id=uuid.uuid4(),
+        connector_id=connector_id,
+        portfolio_id=connector.portfolio_id,
+        status="pending",
+        triggered_by="manual",
+        started_at=datetime.now(timezone.utc),
+    )
+    db.add(run)
+    await db.flush()
+    await db.refresh(run)
+    run_id = run.id
+
+    # Execute in background so API returns immediately
+    background_tasks.add_task(
+        _execute_connector_run,
+        connector_id=str(connector_id),
+        run_id=str(run_id),
+    )
+
+    return TriggerRunResponse(
+        run_id=run_id,
+        connector_id=connector_id,
+        status="pending",
+        message=f"Run started for connector '{connector.name}'",
+    )
+
+
+async def _execute_connector_run(connector_id: str, run_id: str):
+    """Background task — executes the connector and updates the run record."""
+    from app.database import AsyncSessionLocal
+    from app.connectors.registry import get_connector_handler
+
+    async with AsyncSessionLocal() as db:
+        try:
+            run = await db.get(ConnectorRun, uuid.UUID(run_id))
+            connector = await db.get(Connector, uuid.UUID(connector_id))
+            if not run or not connector:
+                return
+
+            # Mark as running
+            run.status = "running"
+            run.started_at = datetime.now(timezone.utc)
+            await db.flush()
+
+            # Decrypt config and execute
+            config = decrypt_config(connector.config)
+            handler = get_connector_handler(connector.type)
+
+            if not handler:
+                raise ValueError(f"Unknown connector type: {connector.type}")
+
+            result = await handler.run(
+                config=config,
+                portfolio_id=connector.portfolio_id,
+                asset_filter=connector.asset_filter,
+                auto_create_assets=connector.auto_create_assets,
+                db=db,
+            )
+
+            # Update run — success
+            finished = datetime.now(timezone.utc)
+            run.status = "success"
+            run.finished_at = finished
+            run.duration_ms = int(
+                (finished - run.started_at).total_seconds() * 1000
+            )
+            run.records_fetched = result.get("records_fetched", 0)
+            run.transactions_created = result.get("transactions_created", 0)
+            run.transactions_skipped = result.get("transactions_skipped", 0)
+            run.valuations_created = result.get("valuations_created", 0)
+            run.assets_created = result.get("assets_created", 0)
+            run.fx_rates_updated = result.get("fx_rates_updated", 0)
+            run.prices_updated = result.get("prices_updated", 0)
+            run.checkpoint = result.get("checkpoint")
+
+            # Update connector last_run
+            connector.last_run_at = finished
+            connector.last_error = None
+
+            await db.commit()
+
+        except Exception as e:
+            await db.rollback()
+            async with AsyncSessionLocal() as err_db:
+                run = await err_db.get(ConnectorRun, uuid.UUID(run_id))
+                connector = await err_db.get(Connector, uuid.UUID(connector_id))
+                if run:
+                    finished = datetime.now(timezone.utc)
+                    run.status = "failed"
+                    run.finished_at = finished
+                    run.error_message = str(e)
+                    run.error_traceback = traceback.format_exc()
+                    if run.started_at:
+                        run.duration_ms = int(
+                            (finished - run.started_at).total_seconds() * 1000
+                        )
+                if connector:
+                    connector.last_error = str(e)
+                await err_db.commit()
+
+
+# ── Run history ───────────────────────────────────────────────────────────────
+
+@router.get("/{connector_id}/runs", response_model=ConnectorRunListResponse)
+async def list_runs(
+    connector_id: UUID,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    count_q = select(func.count(ConnectorRun.id)).where(
+        ConnectorRun.connector_id == connector_id
+    )
+    total = (await db.execute(count_q)).scalar_one()
+
+    offset = (page - 1) * limit
+    q = (
+        select(ConnectorRun)
+        .where(ConnectorRun.connector_id == connector_id)
+        .order_by(ConnectorRun.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    runs = (await db.execute(q)).scalars().all()
+
+    return ConnectorRunListResponse(
+        items=runs,
+        total=total,
+        page=page,
+        limit=limit,
+        pages=max(1, -(-total // limit)),
+    )
+
+
+@router.get("/runs/{run_id}", response_model=ConnectorRunRead)
+async def get_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
+    run = await db.get(ConnectorRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run

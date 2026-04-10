@@ -9,6 +9,8 @@ import {
   FXRatesPage,
   ReportsPage,
 } from './pages/PlaceholderPages'
+import ConnectorsPage from './pages/ConnectorsPage';
+
 
 export default function App() {
   return (
@@ -23,6 +25,7 @@ export default function App() {
           <Route path="/valuations" element={<ValuationsPage />} />
           <Route path="/fx-rates" element={<FXRatesPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/connectors" element={<ConnectorsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
