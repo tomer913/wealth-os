@@ -16,5 +16,4 @@ babel==2.16.0
 pytest==8.3.4
 pytest-asyncio==0.25.0
 cryptography
-yfinance
-httpx
+yfinance==0.2.40
