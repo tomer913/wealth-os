@@ -1,8 +1,5 @@
 // Placeholder pages — we'll build these out next
 
-export function TransactionsPage() {
-  return <div className="p-5"><p className="text-[13px] text-gray-400">Transactions — coming next sprint</p></div>
-}
 export function ValuationsPage() {
   return <div className="p-5"><p className="text-[13px] text-gray-400">Valuations — coming in v2</p></div>
 }

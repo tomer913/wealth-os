@@ -103,15 +103,32 @@ export interface Account {
 
 export interface Transaction {
   id: string
-  asset_id: string
+  portfolio_id: string
   account_id: string | null
-  transaction_type: string
-  date: string
-  quantity: number | null
-  price: number | null
-  amount: number
+  asset_id: string | null
+  transaction_date: string
+  effective_date: string | null
+  type: string
+  economic_type: string | null
+  domain: string | null
+  subtype: string | null
+  total_amount: number | null
+  cashflow_amount: number | null
   currency: string
+  fees: number
+  tax: number
+  quantity: number | null
+  price_per_unit: number | null
+  units_delta: number
+  from_account_id: string | null
+  to_account_id: string | null
+  is_internal_transfer: boolean
+  status: string
+  source: string
   notes: string | null
+  external_reference_id: string | null
+  created_at: string
+  updated_at: string
 }
 
 export type CategoryFilter = string[]

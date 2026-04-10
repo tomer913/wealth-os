@@ -7,7 +7,7 @@ export const FEATURES = {
   dashboard:        true,
   assets_page:      true,
   accounts_page:    true,
-  transactions_page: false,
+  transactions_page: true,
   valuations_page:  false,
   fx_rates_page:    false,
   reports_page:     false,

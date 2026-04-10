@@ -85,11 +85,30 @@ export async function deleteAccount(id: string): Promise<void> {
 export async function getTransactions(params?: {
   asset_id?: string
   account_id?: string
+  date_from?: string
+  date_to?: string
   limit?: number
   offset?: number
 }): Promise<Transaction[]> {
-  const { data } = await apiClient.get(`/api/v1/transactions`, {
-    params: { portfolio_id: PORTFOLIO_ID, ...params },
+  const { data } = await apiClient.get(`/api/v1/transactions/`, {
+    params: { portfolio_id: PORTFOLIO_ID, limit: 500, ...params },
+  })
+  return Array.isArray(data) ? data : []
+}
+
+export async function createTransaction(payload: Record<string, unknown>): Promise<Transaction> {
+  const { data } = await apiClient.post(`/api/v1/transactions/`, {
+    ...payload,
+    portfolio_id: PORTFOLIO_ID,
   })
   return data
+}
+
+export async function updateTransaction(id: string, payload: Record<string, unknown>): Promise<Transaction> {
+  const { data } = await apiClient.patch(`/api/v1/transactions/${id}`, payload)
+  return data
+}
+
+export async function deleteTransaction(id: string): Promise<void> {
+  await apiClient.delete(`/api/v1/transactions/${id}`)
 }

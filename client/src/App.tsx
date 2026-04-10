@@ -3,8 +3,8 @@ import AppShell from './components/layout/AppShell'
 import DashboardPage from './pages/DashboardPage'
 import AccountsPage from './pages/AccountsPage'
 import AssetsPage from './pages/AssetsPage'
+import TransactionsPage from './pages/TransactionsPage'
 import {
-  TransactionsPage,
   ValuationsPage,
   FXRatesPage,
   ReportsPage,
