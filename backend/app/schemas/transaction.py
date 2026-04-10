@@ -3,14 +3,15 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
-from app.utils.enums import EconomicType, TransactionDomain, TransactionSource, TransactionStatus, TransactionType
+from app.utils.enums import EconomicType, TransactionSource, TransactionType
+
 
 class TransactionBase(BaseModel):
-    date: date
+    transaction_date: date = Field(..., alias="date")
     effective_date: Optional[date] = None
     type: TransactionType
     economic_type: Optional[EconomicType] = None
-    domain: Optional[TransactionDomain] = None
+    domain: Optional[str] = None          # free string — enum too strict for imported data
     subtype: Optional[str] = Field(None, max_length=100)
     total_amount: Optional[Decimal] = None
     cashflow_amount: Optional[Decimal] = None
@@ -23,10 +24,12 @@ class TransactionBase(BaseModel):
     from_account_id: Optional[UUID] = None
     to_account_id: Optional[UUID] = None
     is_internal_transfer: bool = False
-    status: TransactionStatus = TransactionStatus.CONFIRMED
+    status: str = "confirmed"             # free string — imported data has 'imported'
     source: TransactionSource = TransactionSource.MANUAL
     notes: Optional[str] = None
     external_reference_id: Optional[str] = Field(None, max_length=200)
+
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
     @model_validator(mode="after")
     def validate_amounts(self) -> "TransactionBase":
@@ -34,22 +37,25 @@ class TransactionBase(BaseModel):
             raise ValueError("At least one of total_amount or cashflow_amount must be provided")
         return self
 
+
 class TransactionCreate(TransactionBase):
     portfolio_id: UUID
     account_id: Optional[UUID] = None
     asset_id: Optional[UUID] = None
 
+
 class TransactionUpdate(BaseModel):
     date: Optional[date] = None
     effective_date: Optional[date] = None
     economic_type: Optional[EconomicType] = None
-    domain: Optional[TransactionDomain] = None
+    domain: Optional[str] = None
     total_amount: Optional[Decimal] = None
     cashflow_amount: Optional[Decimal] = None
     fees: Optional[Decimal] = None
     tax: Optional[Decimal] = None
-    status: Optional[TransactionStatus] = None
+    status: Optional[str] = None
     notes: Optional[str] = None
+
 
 class TransactionRead(TransactionBase):
     id: UUID
@@ -58,4 +64,3 @@ class TransactionRead(TransactionBase):
     asset_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
-    model_config = {"from_attributes": True}
