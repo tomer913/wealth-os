@@ -4,6 +4,7 @@ import { useRebuildSnapshot } from '../../hooks/usePortfolio'
 import { useAppStore } from '../../store'
 import { formatDateTime } from '../../utils/format'
 import { isEnabled } from '../../config/features'
+import { LayoutDashboard, Wallet, TrendingUp, Database } from 'lucide-react';
 
 const NAV_MAIN = [
   { to: '/', label: 'Dashboard', icon: IconDashboard, flag: 'dashboard' },
@@ -16,7 +17,7 @@ const NAV_ANALYSIS = [
   { to: '/valuations', label: 'Valuations', icon: IconChart, flag: 'valuations_page' },
   { to: '/fx-rates', label: 'FX Rates', icon: IconFX, flag: 'fx_rates_page' },
   { to: '/reports', label: 'Reports', icon: IconReports, flag: 'reports_page' },
-  { to: '/connectors', label: 'Connectors', icon: IconConnectors, flag: 'connectors_page' }
+  { to: '/connectors', label: 'Connectors', icon: Database, flag: 'connectors_page' }
 ] as const
 
 export default function Sidebar() {
