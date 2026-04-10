@@ -42,7 +42,7 @@ export function useRebuildSnapshot() {
 export function useAssets() {
   return useQuery({
     queryKey: queryKeys.assets,
-    queryFn: getAssets,
+    queryFn: () => getAssets({ limit: 500 }),
     staleTime: 10 * 60 * 1000,
   })
 }

@@ -93,7 +93,7 @@ export interface Account {
   status: string
   cash_balance: number
   opening_balance: number | null
-  metadata: Record<string, unknown> | null
+  extra_data: Record<string, unknown> | null
   notes: string | null
   portfolio_id: string
   created_at: string
