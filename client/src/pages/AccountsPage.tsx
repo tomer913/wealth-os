@@ -106,7 +106,7 @@ export default function AccountsPage() {
       status: account.status,
       notes: account.notes ?? '',
     })
-    setMetaPairs(jsonToPairs(account.metadata ?? undefined))
+    setMetaPairs(jsonToPairs(account.extra_data ?? undefined))
     setErrors({})
     setShowImport(false)
     setModalOpen(true)
