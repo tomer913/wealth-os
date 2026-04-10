@@ -13,7 +13,7 @@ class AssetBase(BaseModel):
     category: Optional[AssetCategory] = None
     asset_type: Optional[str] = Field(None, max_length=50)
     sub_type: Optional[str] = Field(None, max_length=100)
-    status: AssetStatus = AssetStatus.ACTIVE
+    status: str = "active"
     lifecycle_stage: LifecycleStage = LifecycleStage.OPERATIONAL
     exchange: Optional[str] = Field(None, max_length=50)
     currency: str = Field("ILS", max_length=10)

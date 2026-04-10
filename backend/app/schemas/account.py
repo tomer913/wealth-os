@@ -17,7 +17,7 @@ class AccountBase(BaseModel):
     is_liquid: bool = False
     is_income_generating: bool = False
     include_in_portfolio: bool = True
-    status: AccountStatus = AccountStatus.ACTIVE
+    status: str = "active"
     cash_balance: Decimal = Decimal("0")
     opening_balance: Optional[Decimal] = None
     extra_data: Optional[Dict[str, Any]] = None

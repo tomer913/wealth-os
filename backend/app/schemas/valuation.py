@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
-from app.utils.enums import ConfidenceLevel, ValuationMethod
+from app.utils.enums import ConfidenceLevel
 
 
 class ManualValuationBase(BaseModel):
