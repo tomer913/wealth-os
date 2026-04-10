@@ -171,9 +171,31 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
         )
 
     # Priority 2: quantity × current_price
+    # quantity comes from extra_data OR computed from transaction history
     current_price = asset.current_price
     extra = asset.extra_data or {}
     quantity = extra.get("quantity") or extra.get("units")
+
+    if not quantity:
+        # Compute net quantity from transactions (sum of buys - sells)
+        from app.models.transaction import Transaction
+        from sqlalchemy import func as sqlfunc
+        buy_types = ("buy", "vest", "allocation", "swap_in", "external_deposit")
+        sell_types = ("sell", "swap_out", "external_withdrawal")
+        txns = get_asset_transactions(db, asset.id, as_of)
+        net = ZERO
+        for tx in txns:
+            qty = tx.quantity
+            if not qty:
+                continue
+            qty = Decimal(str(qty))
+            if tx.type in buy_types:
+                net += qty
+            elif tx.type in sell_types:
+                net -= qty
+        if net > ZERO:
+            quantity = net
+
     if current_price and quantity:
         value_native = Decimal(str(current_price)) * Decimal(str(quantity))
         value_ils, fx = to_ils(value_native, currency, db, as_of)
