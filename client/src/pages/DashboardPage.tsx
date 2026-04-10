@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useSnapshot } from '../hooks/usePortfolio'
 import { useFilteredSummary, useFilteredAssets, useFilteredCategories, useAppStore } from '../store'
 import {
@@ -63,6 +64,7 @@ export default function DashboardPage() {
           value={formatILS(totalValue)}
           sub={`${summary.asset_count} assets`}
           icon="$" iconColor="bg-blue-50 text-blue-500"
+          tooltip="Total current market value of all assets in your portfolio, converted to ILS. Calculated by the snapshot engine using latest valuations, prices × quantities, and FX rates."
         />
         <KpiCard
           label="TOTAL PROFIT / LOSS"
@@ -70,18 +72,21 @@ export default function DashboardPage() {
           sub={formatPct(returnPct) + ' total return'}
           subPositive={summary.total_return_ils >= 0}
           icon="↗" iconColor="bg-emerald-50 text-emerald-500"
+          tooltip="Total gain or loss in ILS: current portfolio value minus total invested capital (cost basis). The percentage is return ÷ total invested."
         />
         <KpiCard
           label="NET EQUITY"
           value={formatILS(summary.net_equity_ils)}
           sub={`Debt: ${formatILSShort(summary.total_debt_ils)}`}
           icon="%" iconColor="bg-violet-50 text-violet-500"
+          tooltip="Portfolio value minus all liabilities (mortgages, loans). This is your actual net worth from this portfolio. Debt shown is the outstanding loan balance on leveraged assets like real estate."
         />
         <KpiCard
           label="TOTAL INVESTED"
           value={formatILS(summary.total_invested_ils)}
           sub="Cost basis"
           icon="◎" iconColor="bg-teal-50 text-teal-500"
+          tooltip="Total capital you have invested — the sum of all purchase costs, deposits, and BUY transactions across all assets. This is your cost basis used to calculate P&L."
         />
       </div>
 
@@ -223,14 +228,38 @@ export default function DashboardPage() {
 }
 
 // ─── KPI Card ──────────────────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, subPositive, icon, iconColor }: {
+function KpiCard({ label, value, sub, subPositive, icon, iconColor, tooltip }: {
   label: string; value: string; sub: string
   subPositive?: boolean; icon: string; iconColor: string
+  tooltip?: string
 }) {
+  const [showTip, setShowTip] = useState(false)
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm relative">
       <div className="flex items-start justify-between mb-3">
-        <span className="text-[11px] font-semibold tracking-widest text-gray-400">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-semibold tracking-widest text-gray-400">{label}</span>
+          {tooltip && (
+            <div className="relative"
+              onMouseEnter={() => setShowTip(true)}
+              onMouseLeave={() => setShowTip(false)}>
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"
+                className="text-gray-300 hover:text-gray-500 cursor-help transition-colors flex-shrink-0"
+                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <circle cx="6.5" cy="6.5" r="5.5"/>
+                <path d="M6.5 6v3M6.5 4.5v.5"/>
+              </svg>
+              {showTip && (
+                <div className="absolute left-0 top-5 z-50 w-64 bg-gray-900 text-white text-[11px] leading-relaxed rounded-lg px-3 py-2.5 shadow-xl pointer-events-none">
+                  {tooltip}
+                  {/* Arrow */}
+                  <div className="absolute -top-1.5 left-1.5 w-3 h-3 bg-gray-900 rotate-45 rounded-sm" />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <span className={clsx('w-8 h-8 rounded-full flex items-center justify-center text-[14px] font-bold flex-shrink-0', iconColor)}>
           {icon}
         </span>
