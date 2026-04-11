@@ -1,321 +1,258 @@
-# Wealth OS – Portfolio Management System
-## CLAUDE.md – Project Instructions & Architecture
+# CLAUDE.md — Wealth OS Development Guide
+
+This file is read by Claude AI at the start of every development session.
+It contains everything needed to continue development without re-explaining the project.
 
 ---
 
-## Project Goal
+## Project Identity
 
-Build a production-grade **Wealth Operating System** – a multi-asset personal portfolio tracker with:
-- Full control over business logic and calculations
-- Reliable performance engine (snapshot-based)
-- Multi-asset-class support with different return models per asset type
-- Clean API-first architecture
+- **App:** Wealth OS — personal portfolio management system
+- **Owner:** Tomer (tomerb)
+- **GitHub:** tomer913/wealth-os (monorepo, branch: main)
+- **Stack:** FastAPI + SQLAlchemy 2.0 + Python 3.12 (backend) / React 18 + Vite + TypeScript (frontend)
 
-This is **not a trading platform**. It is a Wealth OS: net worth visibility, performance tracking, allocation analysis.
+## URLs
 
----
+| Service | URL |
+|---------|-----|
+| Frontend (Vercel) | https://wealth-os-xi-dun.vercel.app |
+| Backend (Railway) | https://web-production-a53d1.up.railway.app |
+| API Docs | https://web-production-a53d1.up.railway.app/docs |
 
-## Tech Stack
+## Key IDs
 
-| Layer      | Technology         | Hosting        |
-|------------|--------------------|----------------|
-| Backend    | FastAPI + Python   | Railway/Render |
-| Database   | PostgreSQL         | Supabase       |
-| Frontend   | Next.js            | Vercel         |
-| ORM        | SQLAlchemy + Alembic |              |
-| Auth       | Supabase Auth      |                |
-
----
-
-## Architecture Principles
-
-1. **Thin UI** – Frontend is display + CRUD only. No financial logic in the frontend.
-2. **All logic in backend** – return calculations, cost basis, FX conversion, snapshots.
-3. **Snapshot-first** – UI reads from pre-computed `performance_snapshots`. Never compute on render.
-4. **JSON-first + extensible schema** – `metadata JSONB` column on assets and accounts for type-specific fields.
-5. **No single return model** – Different asset types use different calculation models.
+| Thing | Value |
+|-------|-------|
+| Main portfolio UUID | `53f8f313-98e8-5de3-bd64-55826cbd82bb` |
+| Railway service | web-production-a53d1 (project: zealous-charisma) |
 
 ---
 
-## Project Structure
+## Development Setup
 
-```
-wealth-os/
-├── backend/
-│   ├── app/
-│   │   ├── main.py
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   ├── models/
-│   │   │   ├── __init__.py
-│   │   │   ├── portfolio.py
-│   │   │   ├── account.py
-│   │   │   ├── asset.py
-│   │   │   ├── transaction.py
-│   │   │   ├── valuation.py
-│   │   │   ├── fx_rate.py
-│   │   │   ├── snapshot.py
-│   │   │   └── position.py
-│   │   ├── schemas/
-│   │   │   ├── portfolio.py
-│   │   │   ├── account.py
-│   │   │   ├── asset.py
-│   │   │   ├── transaction.py
-│   │   │   ├── valuation.py
-│   │   │   └── snapshot.py
-│   │   ├── routers/
-│   │   │   ├── portfolios.py
-│   │   │   ├── accounts.py
-│   │   │   ├── assets.py
-│   │   │   ├── transactions.py
-│   │   │   ├── valuations.py
-│   │   │   ├── snapshots.py
-│   │   │   └── dashboard.py
-│   │   ├── engine/
-│   │   │   ├── __init__.py
-│   │   │   ├── model_resolver.py      # resolveModel(asset) -> AssetModel enum
-│   │   │   ├── cost_basis.py          # computeInvestedCapital(asset, transactions)
-│   │   │   ├── current_value.py       # resolveCurrentValue(asset, valuations, prices)
-│   │   │   ├── performance.py         # calcPositionReturn(...)
-│   │   │   ├── xirr.py                # XIRR calculation
-│   │   │   ├── fx.py                  # FX conversion utilities
-│   │   │   └── snapshot_builder.py    # buildSnapshot(portfolio_id, date)
-│   │   ├── importers/
-│   │   │   ├── base44_importer.py     # Import from Base44 JSON exports
-│   │   │   └── csv_importer.py
-│   │   └── utils/
-│   │       ├── taxonomy.py            # Transaction type taxonomy
-│   │       └── enums.py               # All system enums
-│   ├── alembic/
-│   │   ├── env.py
-│   │   └── versions/
-│   │       └── 001_initial_schema.py
-│   ├── tests/
-│   ├── requirements.txt
-│   └── .env.example
-└── frontend/   (Next.js – separate repo or monorepo)
+```bash
+# Backend
+cd ~/projects/wealth-os/backend
+source venv/bin/activate
+uvicorn app.main:app --reload --port 8000
+
+# Frontend
+cd ~/projects/wealth-os/client
+npm run dev
+
+# Run migration
+cd backend && source venv/bin/activate && alembic upgrade head
+
+# Deploy: just push to main — Railway and Vercel auto-deploy
+git push origin main
 ```
 
 ---
 
-## Data Models
+## Critical Conventions (read these before writing any code)
 
-### Asset Behavior Enum (CRITICAL)
+### 1. Never name a Python field `metadata`
+SQLAlchemy has a built-in `MetaData` class. Use `extra_data` instead.
+The DB column is `metadata`, the Python attribute is `extra_data`.
 ```python
-class AssetBehavior(str, Enum):
-    MARKET = "MARKET"               # stocks, ETF, crypto – market price feed
-    FUND = "FUND"                   # pension, insurance, keren hishtalmut
-    MANUAL = "MANUAL"               # whisky casks, land, alternatives
-    REAL_ESTATE = "REAL_ESTATE"     # operational real estate with cashflows
-    REAL_ESTATE_PIPELINE = "REAL_ESTATE_PIPELINE"  # under construction
-    ENERGY_INCOME = "ENERGY_INCOME" # solar / special income assets
-    NO_RETURN = "NO_RETURN"         # pure placeholder / not tracked
+# Correct in model:
+extra_data: Mapped[Optional[Dict]] = mapped_column("metadata", JSONB)
+
+# Correct in schema:
+extra_data: Optional[Dict[str, Any]] = None
 ```
 
-### Asset Category Enum
-```python
-class AssetCategory(str, Enum):
-    SECURITIES = "securities"       # stocks, ETF
-    CRYPTO = "crypto"
-    REAL_ESTATE = "real_estate"
-    PENSION = "pension"             # pension, bituach menahalim, keren hishtalmut
-    ALTERNATIVES = "alternatives"   # whisky, art, collectibles
-    DEBT_INCOME = "debt_income"     # BTB, loans
-    SPECIAL_INCOME = "special_income"  # solar
-    CASH = "cash"
+### 2. Date column aliases
+Python attributes differ from DB column names:
+- `Transaction.transaction_date` → DB column `date`
+- `ManualValuation.valuation_date` → DB column `date`
+- `FXRate.fx_date` → DB column `date`
+
+Schema must have: `model_config = {"from_attributes": True, "populate_by_name": True}`
+
+### 3. Read schemas use `str` not enums
+Legacy imported data has values outside enums (e.g. status='imported', domain='loan', valuation_method='derived').
+Always use `str` in Read schemas for these fields.
+Create/Update schemas keep enums for validation.
+
+### 4. All API calls need trailing slash
+```typescript
+// Correct
+apiClient.get('/api/v1/assets/')
+// Wrong — causes 307 redirect
+apiClient.get('/api/v1/assets')
 ```
 
-### Transaction Economic Type (CRITICAL for IRR)
-```python
-class EconomicType(str, Enum):
-    # Capital in
-    INVESTMENT = "investment"           # initial capital outflow
-    ACQUISITION_COST = "acquisition_cost"  # purchase tax, lawyer, broker – part of cost basis
-    
-    # Income
-    RENTAL_INCOME = "rental_income"
-    DIVIDEND = "dividend"
-    INTEREST_INCOME = "interest_income"
-    OTHER_INCOME = "other_income"
-    
-    # Operating expenses
-    OPERATING_EXPENSE = "operating_expense"  # maintenance, insurance, storage
-    
-    # Financing – MUST distinguish principal vs interest
-    LOAN_DRAWDOWN = "loan_drawdown"          # money received from loan
-    PRINCIPAL_PAYMENT = "principal_payment"  # reduces debt, NOT expense
-    INTEREST_PAYMENT = "interest_payment"    # IS expense
-    
-    # Capital out
-    SALE_PROCEEDS = "sale_proceeds"
-    
-    # Non-cashflow
-    REVALUATION = "revaluation"              # valuation event, no cash
+### 5. Return percentages are decimals
+API returns 0.209, display needs × 100 → 20.9%
+
+### 6. Circular dependency: api ↔ store
+`DEFAULT_PORTFOLIO_ID` lives in `client/src/config/constants.ts`
+- `constants.ts` imports nothing
+- `store/index.ts` imports from `constants.ts`
+- `api/portfolio.ts` imports from `store` + `constants.ts`
+- Never import `api/portfolio.ts` from `store/index.ts`
+
+### 7. `pid()` function in api/portfolio.ts
+All API calls use `pid()` to get the active portfolio ID dynamically from the Zustand store.
+Never hardcode the portfolio UUID in API calls.
+
+---
+
+## File Locations
+
+### Backend
+```
+backend/app/
+├── main.py                    ← Register new routers here
+├── models/                    ← One file per table
+├── schemas/                   ← Pydantic schemas (separate Base/Create/Update/Read)
+├── routers/                   ← FastAPI endpoints
+├── engine/                    ← Calculation engine (DO NOT modify lightly)
+│   ├── model_resolver.py      ← CalcModel assignment
+│   ├── current_value.py       ← Value calculation per model
+│   ├── cost_basis.py          ← Cost basis + return
+│   ├── xirr.py                ← XIRR calculation
+│   └── snapshot_builder.py    ← Orchestrator
+├── connectors/                ← ETL connectors
+│   ├── base.py                ← BaseConnector (inherit this)
+│   ├── registry.py            ← Register new connectors here
+│   └── sources/               ← Connector implementations
+└── utils/
+    ├── enums.py               ← All enums
+    └── encryption.py          ← Fernet for connector API keys
+```
+
+### Frontend
+```
+client/src/
+├── api/portfolio.ts           ← All API functions, uses pid()
+├── components/layout/
+│   ├── AppShell.tsx           ← Topbar, BuildSnapshotButton
+│   ├── Sidebar.tsx            ← Nav, feature-flag filtered
+│   ├── CategoryFilter.tsx     ← Global category chips
+│   └── PortfolioSelector.tsx  ← Portfolio dropdown
+├── components/shared/
+│   ├── Modal.tsx              ← Modal, ConfirmDialog
+│   ├── Form.tsx               ← Field, Input, Select, Textarea, FormGrid
+│   └── MetadataEditor.tsx     ← Key-value pairs for extra_data
+├── config/
+│   ├── constants.ts           ← DEFAULT_PORTFOLIO_ID (no deps)
+│   └── features.ts            ← Feature flags
+├── hooks/usePortfolio.ts      ← React Query hooks
+├── store/index.ts             ← Zustand: activePortfolioId, categories, snapshot
+├── types/index.ts             ← TypeScript interfaces
+└── utils/format.ts            ← formatILS, formatPct, categoryLabel, gainClass
 ```
 
 ---
 
-## Engine Logic
+## API Response Shapes
 
-### Model Resolution
-```python
-def resolve_model(asset: Asset) -> AssetBehavior:
-    """
-    Determines calculation model for an asset.
-    Priority: explicit asset_behavior field > inferred from type/category
-    """
-    if asset.asset_behavior:
-        return AssetBehavior(asset.asset_behavior)
-    # fallback inference logic...
+### Snapshot (GET /api/v1/snapshots/latest or POST /api/v1/snapshots/rebuild)
+```typescript
+{
+  summary: {
+    total_value_ils: number,
+    total_invested_ils: number,
+    total_return_ils: number,
+    total_return_pct: number,    // decimal! 0.209 = 20.9%
+    total_debt_ils: number,
+    net_equity_ils: number,
+    asset_count: number,
+  },
+  categories: [{ category, current_value_ils, gross_invested_ils, total_return_pct, asset_count }],
+  assets: [{ symbol, name, category, current_value_ils, total_return_pct, xirr_pct }]
+}
 ```
 
-### Invested Capital Rules by Model
-
-| Model | Invested Capital Includes |
-|-------|--------------------------|
-| MARKET | buy transactions (cost basis) |
-| FUND | sum of contributions OR latest manual baseline |
-| REAL_ESTATE | purchase price + acquisition_costs (tax, lawyer, broker, initial renovation) |
-| REAL_ESTATE_PIPELINE | actual equity paid to date (NOT contract price, NOT future mortgage) |
-| MANUAL | purchase price + ongoing carrying costs |
-| ENERGY_INCOME | initial investment outflow |
-
-### Current Value Rules by Model
-
-| Model | Current Value Source |
-|-------|---------------------|
-| MARKET | current_price × quantity |
-| FUND | latest manual_valuation |
-| REAL_ESTATE | latest manual_valuation (property estimate) |
-| REAL_ESTATE_PIPELINE | invested_capital (conservative – no speculative gain) |
-| MANUAL | latest manual_valuation |
-| ENERGY_INCOME | latest manual_valuation |
-
-### XIRR – Critical Rules
-- Use actual cashflow dates, never aggregate
-- Include all outflows (negative) and inflows (positive)
-- Terminal value = current_value as final inflow at today's date
-- Exclude PRINCIPAL_PAYMENT from IRR cashflows (it's balance sheet, not P&L)
-- Include INTEREST_PAYMENT as outflow
-
----
-
-## Migration from Base44
-
-### What exists in Base44 (confirmed from JSON exports)
-- **Portfolios**: 2 portfolios, main one is "Tomer Portfolio Clean"
-- **Assets**: 30+ assets across all categories
-  - Pension/funds: 4 (Migdal x3, Phoenix x1)
-  - Real estate: 5+ (Kochav Yair, TA, Beer Sheva, Ramat Gan pipeline, Porto pipeline)
-  - Whisky casks: 3 (Linkwood, Staoisha, Ledaig)
-  - Land: Binyamina agricultural
-  - Market: AAPL, GOOGL, VOO, SOL, LUMI, + others
-  - BTB, Meniyot Track, Solar
-- **Accounts**: 15+ accounts (brokerages, pension, whisky warehouses, real estate)
-- **Transactions**: 2000+ rows
-- **Valuations**: pension + real estate manual valuations
-
-### Base44 Schema Issues to Fix
-
-| Issue | Fix |
-|-------|-----|
-| `metadata` stored as JSON string, not JSONB | Parse and store as proper JSONB |
-| `asset_class` inconsistent (pension with `stocks` class) | Use `category` field as source of truth |
-| `symbol` only on assets, not on accounts (buried in metadata) | Add `symbol` column to accounts table |
-| `current_value` stored in asset metadata | Move to `manual_valuations` table |
-| No `lifecycle_stage` field | Add to assets |
-| Accounts missing `is_liquid`, `is_income_generating` as real columns | Promote from metadata to real columns |
-| No cost_basis distinction for acquisition costs vs operating expenses | Use `economic_type` taxonomy strictly |
-
----
-
-## Database Schema (Postgres / Supabase)
-
-See: `alembic/versions/001_initial_schema.py`
-
-Key tables:
-- `portfolios`
-- `accounts` – with `symbol`, `is_liquid`, `is_income_generating` as real columns
-- `assets` – with `asset_behavior`, `category`, `lifecycle_stage` as real columns
-- `transactions` – with `economic_type`, `domain` as real columns
-- `manual_valuations`
-- `fx_rates`
-- `performance_snapshots`
-- `positions` (optional derived state)
-
----
-
-## Dashboard Filter Requirements
-
-The dashboard MUST support these views:
-
-| Filter | Logic |
-|--------|-------|
-| Full Portfolio | All active assets |
-| Ex Real Estate | category != real_estate |
-| Liquid Only | account.is_liquid = true |
-| Income Generating | account.is_income_generating = true OR asset generates regular cashflows |
-| Managed Funds | asset_behavior IN (FUND) |
-| Alternatives | category = alternatives |
-
----
-
-## Build Order (Phases)
-
-### Phase 1 – Foundation
-1. Postgres schema + Alembic migration
-2. SQLAlchemy models
-3. Pydantic schemas
-4. Basic CRUD routers (portfolios, accounts, assets)
-
-### Phase 2 – Data Migration
-1. Base44 importer script (`importers/base44_importer.py`)
-2. Map Base44 fields → new schema
-3. Fix inconsistencies (metadata parsing, symbol promotion)
-4. Validate all data loaded correctly
-
-### Phase 3 – Engine
-1. `model_resolver.py`
-2. `cost_basis.py`
-3. `current_value.py`
-4. `xirr.py`
-5. `performance.py`
-6. `snapshot_builder.py`
-
-### Phase 4 – API Routes
-1. `GET /dashboard/{portfolio_id}` – summary with filter support
-2. `GET /assets/{asset_id}/performance`
-3. `POST /snapshots/rebuild`
-4. `GET /valuations/{asset_id}`
-
-### Phase 5 – Frontend (Next.js)
-1. Dashboard page with filter tabs
-2. Asset list with performance columns
-3. Asset detail page
-4. Manual valuation entry
-5. Transaction entry
-
----
-
-## Key Business Rules
-
-1. **Pipeline real estate**: `current_value = invested_capital`. Never show unrealized gain until delivered.
-2. **Pension funds**: Track by periodic valuation only. Do not require every monthly contribution.
-3. **Whisky casks**: `current_value` from periodic third-party valuation. Storage + insurance are operating expenses that reduce net return.
-4. **Acquisition costs** (purchase tax, lawyer, broker): Part of `invested_capital` / cost basis. Affects total return but NOT operating cashflow.
-5. **Mortgage principal**: Balance sheet movement, NOT expense. Exclude from IRR cashflows.
-6. **Mortgage interest**: IS expense. Include in IRR cashflows as outflow.
-7. **XIRR timing**: Use actual dates. Never aggregate cashflows into single annual entries.
-
----
-
-## Environment Variables (.env)
-
+### Asset (GET /api/v1/assets/)
+```typescript
+{
+  items: Asset[], total, page, limit, pages  // paginated
+}
 ```
-DATABASE_URL=postgresql://...
-SUPABASE_URL=...
-SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-SECRET_KEY=...
-ENVIRONMENT=development
+
+### Account (GET /api/v1/accounts/)
+```typescript
+Account[]  // includes position_count via LEFT JOIN
 ```
+
+### Transaction (GET /api/v1/transactions/)
+```typescript
+Transaction[]  // transaction_date field (not 'date')
+```
+
+### ManualValuation (GET /api/v1/valuations/)
+```typescript
+{ items: ManualValuation[], total, page, limit, pages }  // paginated
+```
+
+---
+
+## Pages Status
+
+| Page | Status | Route |
+|------|--------|-------|
+| Dashboard | ✅ Live | / |
+| Assets | ✅ Live | /assets |
+| Accounts | ✅ Live | /accounts |
+| Transactions | ✅ Live | /transactions |
+| Valuations | ✅ Live | /valuations |
+| Connectors | ✅ Live | /connectors |
+| FX Rates | Placeholder | /fx-rates |
+| Reports | Placeholder | /reports |
+
+---
+
+## Connectors Status
+
+| Connector | Type | Status |
+|-----------|------|--------|
+| ECB FX Rates | ecb_fx | ✅ Working |
+| Yahoo Finance Prices | yahoo_prices | ✅ Working |
+| Kraken | kraken | 🔲 Not built |
+| CEX.IO | cexio | 🔲 Not built |
+| IB CSV import | ib_csv | 🔲 Not built |
+
+---
+
+## Roadmap (as of April 2026)
+
+**Next sprint:**
+- [ ] Historical portfolio value chart (use performance_snapshots by date)
+- [ ] APScheduler for daily ETL automation
+- [ ] Kraken connector (transactions)
+- [ ] CEX.IO connector (transactions)
+
+**Later:**
+- [ ] Demo portfolio clone (anonymized copy of real portfolio)
+- [ ] Auth (Clerk integration — interceptor placeholder ready in api/client.ts)
+- [ ] Reports page
+- [ ] Budget app (separate app, shared connectors package)
+- [ ] Israeli bank connectors (scraper or Salt aggregation service)
+
+---
+
+## Known Issues / Tech Debt
+
+1. **ENGS quantity negative** — `-80` in transaction sum, means more sells than buys imported. Data issue from Base44 importer.
+2. **Some assets have 0 transactions** — AAPL, GOOGL, SOL, VOO, NVDA were never imported. Need to add manually or via IB CSV import.
+3. **performance_snapshots debt column** — `total_debt_ils` is hardcoded as 0 in GET /latest endpoint. Real debt comes from engine which reads REAL_ESTATE mortgage transactions. Fix: include debt from actual performance_snapshot rows.
+4. **Dashboard chart** — still shows category breakdown, not time-series. Fix: query performance_snapshots GROUP BY snapshot_date after enough historical data builds up.
+5. **TASE prices** — TASE numeric symbols (e.g. 1143783) tried as `1143783.TA` on Yahoo. Some may not resolve. Need TASE API credentials from openapi.tase.co.il.
+
+---
+
+## Deployment Checklist
+
+If something breaks on Railway:
+1. Check build logs — usually a Python import error or missing package in `requirements.txt` (root level, not backend/)
+2. Check deploy logs — usually a DB connection error (use Session Pooler URL, not Direct Connection)
+3. `requirements.txt` is at ROOT of repo — Railway uses this, not `backend/requirements.txt`
+
+If something breaks on Vercel:
+1. TypeScript build errors — fix locally first with `cd client && npx tsc --noEmit`
+2. 404 on direct URL — check `client/vercel.json` has SPA rewrite
+3. Env vars missing — check Vercel dashboard → Settings → Environment Variables
