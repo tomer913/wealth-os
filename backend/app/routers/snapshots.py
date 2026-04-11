@@ -17,6 +17,91 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/snapshots", tags=["snapshots"])
 
 
+@router.get("/latest", summary="Get latest cached snapshot from DB (fast)")
+async def get_latest_snapshot(
+    portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.asset import Asset
+    from sqlalchemy import func as sqlfunc
+
+    latest_date_q = select(sqlfunc.max(PerformanceSnapshot.snapshot_date)).where(
+        PerformanceSnapshot.portfolio_id == portfolio_id
+    )
+    latest_date = (await db.execute(latest_date_q)).scalar_one_or_none()
+    if not latest_date:
+        return None
+
+    q = (
+        select(PerformanceSnapshot, Asset)
+        .join(Asset, Asset.id == PerformanceSnapshot.asset_id)
+        .where(
+            PerformanceSnapshot.portfolio_id == portfolio_id,
+            PerformanceSnapshot.snapshot_date == latest_date,
+        )
+    )
+    rows = (await db.execute(q)).all()
+    if not rows:
+        return None
+
+    asset_snapshots = []
+    category_buckets: dict = {}
+    total_value = total_invested = total_return = total_debt = 0.0
+
+    for ps, asset in rows:
+        val = float(ps.value_ils or 0)
+        invested = float(ps.invested_capital or 0)
+        ret = float(ps.total_return or 0)
+        cat = asset.category or "other"
+
+        asset_snapshots.append({
+            "symbol": asset.symbol, "name": asset.name, "category": cat,
+            "model": ps.model_used or "unknown",
+            "current_value_ils": val,
+            "total_return_pct": float(ps.total_return_pct) if ps.total_return_pct else None,
+            "xirr_pct": float(ps.xirr_return_pct) if ps.xirr_return_pct else None,
+            "confidence": "medium", "warnings": [],
+        })
+        total_value += val
+        total_invested += invested
+        total_return += ret
+
+        if cat not in category_buckets:
+            category_buckets[cat] = {"current_value_ils": 0.0, "gross_invested_ils": 0.0,
+                                     "total_return_ils": 0.0, "asset_count": 0}
+        category_buckets[cat]["current_value_ils"] += val
+        category_buckets[cat]["gross_invested_ils"] += invested
+        category_buckets[cat]["total_return_ils"] += ret
+        category_buckets[cat]["asset_count"] += 1
+
+    categories = [
+        {"category": cat, **data,
+         "total_return_pct": (data["total_return_ils"] / data["gross_invested_ils"])
+                              if data["gross_invested_ils"] > 0 else None}
+        for cat, data in sorted(category_buckets.items(),
+                                key=lambda x: x[1]["current_value_ils"], reverse=True)
+    ]
+
+    return {
+        "status": "ok", "mode": "portfolio",
+        "snapshot_date": str(latest_date),
+        "portfolio_id": str(portfolio_id),
+        "built_at": latest_date.isoformat() + "T08:00:00",
+        "summary": {
+            "total_value_ils": total_value,
+            "total_invested_ils": total_invested,
+            "total_return_ils": total_return,
+            "total_return_pct": (total_return / total_invested) if total_invested > 0 else None,
+            "total_debt_ils": total_debt,
+            "net_equity_ils": total_value - total_debt,
+            "asset_count": len(asset_snapshots),
+            "warnings": 0,
+        },
+        "categories": categories,
+        "assets": asset_snapshots,
+    }
+
+
 @router.get("/", response_model=List[PerformanceSnapshotRead])
 async def list_snapshots(
     portfolio_id: Optional[UUID] = Query(None),
