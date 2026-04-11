@@ -77,6 +77,43 @@ def _run_rebuild(portfolio_id: UUID, as_of_date: date, asset_id: Optional[UUID])
             # Full portfolio rebuild
             result = build_portfolio_snapshot(portfolio_id, db, as_of_date)
 
+            # ── Persist to performance_snapshots table ──────────────────────
+            from app.models.snapshot import PerformanceSnapshot
+            from sqlalchemy import and_
+
+            for snap in result.asset_snapshots:
+                if snap.asset_id is None:
+                    continue
+                # Upsert: delete existing snapshot for this asset+date, insert new
+                existing = db.query(PerformanceSnapshot).filter(
+                    and_(
+                        PerformanceSnapshot.asset_id == snap.asset_id,
+                        PerformanceSnapshot.snapshot_date == as_of_date,
+                    )
+                ).first()
+                if existing:
+                    db.delete(existing)
+                    db.flush()
+
+                ps = PerformanceSnapshot(
+                    portfolio_id=portfolio_id,
+                    asset_id=snap.asset_id,
+                    snapshot_date=as_of_date,
+                    value_ils=snap.current_value_ils,
+                    current_value=snap.current_value_ils,
+                    invested_capital=snap.gross_invested_capital_ils,
+                    total_return=snap.total_return_ils,
+                    total_return_pct=snap.total_return_pct,
+                    xirr_return_pct=snap.xirr_pct,
+                    model_used=snap.model_used.value if snap.model_used else None,
+                    currency="ILS",
+                    is_stale=False,
+                )
+                db.add(ps)
+            db.commit()
+            log.info("Persisted %d asset snapshots to performance_snapshots", len(result.asset_snapshots))
+            # ────────────────────────────────────────────────────────────────
+
             # Build category summary
             categories = [
                 {
