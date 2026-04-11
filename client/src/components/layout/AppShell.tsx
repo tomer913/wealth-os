@@ -65,13 +65,13 @@ function BuildSnapshotButton() {
   }, [])
 
   function runToday() {
-    rebuild()
+    rebuild(undefined)
     setOpen(false)
   }
 
   function runCustomDate() {
     if (!customDate) return
-    rebuild(customDate as unknown as void)
+    rebuild(customDate)
     setOpen(false)
     setCustomDate('')
   }
