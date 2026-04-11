@@ -22,9 +22,16 @@ from app.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing needed – Alembic manages schema
+    # ── Startup ───────────────────────────────────────────────────────────────
+    from app.scheduler import start_scheduler
+    start_scheduler()
+
     yield
-    # Shutdown: dispose async engine
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    from app.scheduler import stop_scheduler
+    stop_scheduler()
+
     from app.database import async_engine
     await async_engine.dispose()
 
@@ -59,6 +66,34 @@ app.include_router(connectors_router.router, prefix="/api/v1")
 async def health():
     return {"status": "ok", "environment": settings.ENVIRONMENT}
 
+
 @app.get("/api/v1/connector-types")
 async def list_connector_types():
     return connector_registry.list_connector_types()
+
+
+@app.post("/api/v1/scheduler/run-now")
+async def trigger_etl_now():
+    """Manually trigger the daily ETL job immediately. Useful for testing."""
+    from app.scheduler import trigger_manual_etl
+    import asyncio
+    asyncio.create_task(trigger_manual_etl())
+    return {"status": "triggered", "message": "ETL job started in background"}
+
+
+@app.get("/api/v1/scheduler/status")
+async def scheduler_status():
+    """Check scheduler status and next run time."""
+    from app.scheduler import get_scheduler
+    scheduler = get_scheduler()
+    jobs = []
+    for job in scheduler.get_jobs():
+        jobs.append({
+            "id": job.id,
+            "name": job.name,
+            "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+        })
+    return {
+        "running": scheduler.running,
+        "jobs": jobs,
+    }
