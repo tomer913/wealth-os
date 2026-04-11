@@ -1,29 +1,22 @@
 import { NavLink } from 'react-router-dom'
 import clsx from 'clsx'
-import { useRebuildSnapshot } from '../../hooks/usePortfolio'
-import { useAppStore } from '../../store'
-import { formatDateTime } from '../../utils/format'
 import { isEnabled } from '../../config/features'
-import { LayoutDashboard, Wallet, TrendingUp, Database } from 'lucide-react';
 
 const NAV_MAIN = [
-  { to: '/', label: 'Dashboard', icon: IconDashboard, flag: 'dashboard' },
-  { to: '/assets', label: 'Assets', icon: IconAssets, flag: 'assets_page' },
-  { to: '/accounts', label: 'Accounts', icon: IconAccounts, flag: 'accounts_page' },
+  { to: '/',             label: 'Dashboard',    icon: IconDashboard,    flag: 'dashboard'         },
+  { to: '/assets',       label: 'Assets',       icon: IconAssets,       flag: 'assets_page'       },
+  { to: '/accounts',     label: 'Accounts',     icon: IconAccounts,     flag: 'accounts_page'     },
   { to: '/transactions', label: 'Transactions', icon: IconTransactions, flag: 'transactions_page' },
 ] as const
 
 const NAV_ANALYSIS = [
-  { to: '/valuations', label: 'Valuations', icon: IconChart, flag: 'valuations_page' },
-  { to: '/fx-rates', label: 'FX Rates', icon: IconFX, flag: 'fx_rates_page' },
-  { to: '/reports', label: 'Reports', icon: IconReports, flag: 'reports_page' },
-  { to: '/connectors', label: 'Connectors', icon: Database, flag: 'connectors_page' }
+  { to: '/valuations',  label: 'Valuations',  icon: IconChart,      flag: 'valuations_page'  },
+  { to: '/connectors',  label: 'Connectors',  icon: IconConnectors, flag: 'connectors_page'  },
+  { to: '/fx-rates',    label: 'FX Rates',    icon: IconFX,         flag: 'fx_rates_page'    },
+  { to: '/reports',     label: 'Reports',     icon: IconReports,    flag: 'reports_page'     },
 ] as const
 
 export default function Sidebar() {
-  const { mutate: rebuild, isPending } = useRebuildSnapshot()
-  const lastBuiltAt = useAppStore((s) => s.lastBuiltAt)
-
   return (
     <aside className="flex flex-col w-[200px] min-w-[200px] bg-sidebar-bg h-full">
       {/* Logo */}
@@ -47,26 +40,6 @@ export default function Sidebar() {
           <NavItem key={to} to={to} label={label} Icon={Icon} />
         ))}
       </nav>
-
-      {/* Bottom: rebuild button */}
-      <div className="p-4 border-t border-sidebar-border">
-        <button
-          onClick={() => rebuild()}
-          disabled={isPending}
-          className={clsx(
-            'w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-[12px] font-medium transition-colors',
-            isPending
-              ? 'bg-brand/50 text-white cursor-wait'
-              : 'bg-brand hover:bg-brand-light text-white',
-          )}
-        >
-          <IconRebuild spinning={isPending} />
-          {isPending ? 'Building…' : 'Build Snapshot'}
-        </button>
-        <p className="text-[10px] text-slate-500 text-center mt-1.5">
-          {lastBuiltAt ? `Built ${formatDateTime(lastBuiltAt)}` : 'Not yet built'}
-        </p>
-      </div>
     </aside>
   )
 }
@@ -154,6 +127,16 @@ function IconFX() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
       <circle cx="8" cy="8" r="6" />
       <path d="M8 4v8M5 6h4a1 1 0 010 2H6a1 1 0 000 2h5" />
+    </svg>
+  )
+}
+function IconConnectors() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <circle cx="3" cy="8" r="2"/>
+      <circle cx="13" cy="4" r="2"/>
+      <circle cx="13" cy="12" r="2"/>
+      <path d="M5 7.5l6-3M5 8.5l6 3"/>
     </svg>
   )
 }

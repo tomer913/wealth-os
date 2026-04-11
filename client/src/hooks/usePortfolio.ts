@@ -25,7 +25,7 @@ export function useSnapshot() {
     queryKey: [...queryKeys.snapshot, activePortfolioId],
     queryFn: async () => {
       const data = await getLatestSnapshot()
-      if (data) setSnapshot(data)
+      setSnapshot(data)
       return data
     },
     staleTime: 5 * 60 * 1000,
@@ -38,13 +38,11 @@ export function useRebuildSnapshot() {
   const activePortfolioId = useAppStore((s) => s.activePortfolioId)
 
   return useMutation({
-    mutationFn: rebuildSnapshot,
+    mutationFn: (asOfDate?: string) => rebuildSnapshot(asOfDate),
     onSuccess: (data) => {
       if (data) {
         setSnapshot(data)
-        // Update cache so navigation away+back shows fresh data
         queryClient.setQueryData([...queryKeys.snapshot, activePortfolioId], data)
-        // Also invalidate so next background fetch uses GET /latest
         queryClient.invalidateQueries({ queryKey: queryKeys.snapshot })
       }
     },

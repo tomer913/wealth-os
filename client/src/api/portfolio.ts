@@ -1,15 +1,13 @@
 import apiClient from './client'
+import { useAppStore } from '../store'
+import { DEFAULT_PORTFOLIO_ID } from '../config/constants'
 import type { PortfolioSnapshot, Asset, AssetListResponse, Account, Transaction, ManualValuation, ValuationListResponse, Portfolio } from '../types'
 
-// Default portfolio from env var
-export const DEFAULT_PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
+export { DEFAULT_PORTFOLIO_ID }
 
-// Late-binding getter — avoids circular dependency with store
-// The store module is fully initialized by the time any API function is called
+// Get active portfolio ID from store at call time (no circular dep — store doesn't import api)
 function pid(): string {
-  // Dynamically access store state without importing at module level
-  const store = (window as unknown as { __wealthOsStore?: { getState: () => { activePortfolioId: string } } }).__wealthOsStore
-  return store?.getState().activePortfolioId || DEFAULT_PORTFOLIO_ID
+  return useAppStore.getState().activePortfolioId || DEFAULT_PORTFOLIO_ID
 }
 
 // ─── Portfolios ───────────────────────────────────────────────────────────────
@@ -21,19 +19,21 @@ export async function getPortfolios(): Promise<Portfolio[]> {
 
 // ─── Snapshot ──────────────────────────────────────────────────────────────────
 
-export async function rebuildSnapshot(): Promise<PortfolioSnapshot> {
+export async function rebuildSnapshot(asOfDate?: string): Promise<PortfolioSnapshot> {
   const { data } = await apiClient.post(`/api/v1/snapshots/rebuild`, {
     portfolio_id: pid(),
+    ...(asOfDate ? { as_of_date: asOfDate } : {}),
   })
   return data
 }
 
-export async function getLatestSnapshot(): Promise<PortfolioSnapshot | null> {
-  // Reads from DB — fast, no engine computation
-  const { data } = await apiClient.get(`/api/v1/snapshots/latest`, {
-    params: { portfolio_id: pid() },
+export async function getLatestSnapshot(): Promise<PortfolioSnapshot> {
+  // If you have a GET endpoint for cached snapshot, use it here.
+  // For now we call rebuild (you can swap this later without touching components).
+  const { data } = await apiClient.post(`/api/v1/snapshots/rebuild`, {
+    portfolio_id: pid(),
   })
-  return data  // null if no snapshot built yet
+  return data
 }
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
