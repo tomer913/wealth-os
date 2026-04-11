@@ -110,54 +110,33 @@ class IBFlexConnector(BaseConnector):
         if not token or not query_id:
             raise ValueError("IB Flex connector requires 'token' and 'query_id' in config")
 
-        # Determine date range
+        # Get checkpoint — used to skip already-imported trades client-side
         checkpoint = self.config.get("_checkpoint", {})
         last_date_str = checkpoint.get("last_trade_date")
+        last_date = date.fromisoformat(last_date_str) if last_date_str else None
 
-        if last_date_str:
-            # Incremental: fetch from last known date to today
-            from_date = date.fromisoformat(last_date_str) - timedelta(days=1)  # 1 day overlap
-            to_date = date.today()
-            date_ranges = [(from_date, to_date)]
-            log.info("IB Flex incremental sync: %s to %s", from_date, to_date)
+        if last_date:
+            log.info("IB Flex incremental sync — skipping trades before %s", last_date)
         else:
-            # First run: fetch in yearly chunks going back up to 5 years
-            today = date.today()
-            date_ranges = []
-            for i in range(5):
-                td = today - timedelta(days=365 * i)
-                fd = today - timedelta(days=365 * (i + 1))
-                date_ranges.append((fd, td))
-            log.info("IB Flex first run: fetching %d year(s) of history", len(date_ranges))
+            log.info("IB Flex first run — importing all available history")
 
-        latest_trade_date = None
+        # Fetch report (IB returns last 365 days based on query config)
+        xml_data = await self._fetch_flex_xml(token, query_id, date.today(), date.today())
 
-        for from_date, to_date in date_ranges:
-            log.info("  Fetching IB Flex: %s to %s", from_date, to_date)
-            xml_data = await self._fetch_flex_xml(token, query_id, from_date, to_date)
+        if not xml_data:
+            log.info("IB Flex: no data returned")
+            return result
 
-            if not xml_data:
-                log.info("  No data for range %s to %s", from_date, to_date)
-                if last_date_str is None:
-                    break  # No more historical data
-                continue
+        # Process with date filter
+        self._since_date = last_date
+        batch_result = await self._process_xml(xml_data)
+        result.records_fetched = batch_result.records_fetched
+        result.transactions_created = batch_result.transactions_created
+        result.transactions_skipped = batch_result.transactions_skipped
+        result.assets_created = batch_result.assets_created
 
-            batch_result = await self._process_xml(xml_data)
-            result.records_fetched += batch_result.records_fetched
-            result.transactions_created += batch_result.transactions_created
-            result.transactions_skipped += batch_result.transactions_skipped
-            result.assets_created += batch_result.assets_created
-
-            if batch_result.checkpoint and batch_result.checkpoint.get("last_trade_date"):
-                d = date.fromisoformat(batch_result.checkpoint["last_trade_date"])
-                if latest_trade_date is None or d > latest_trade_date:
-                    latest_trade_date = d
-
-            # Small delay between requests to be respectful
-            await asyncio.sleep(1)
-
-        if latest_trade_date:
-            result.checkpoint = {"last_trade_date": str(latest_trade_date)}
+        if batch_result.checkpoint:
+            result.checkpoint = batch_result.checkpoint
 
         return result
 
@@ -166,14 +145,14 @@ class IBFlexConnector(BaseConnector):
     ) -> Optional[str]:
         """Two-step IB Flex Web Service call. Returns XML string or None."""
         headers = {"User-Agent": USER_AGENT}
-        fd = from_date.strftime("%Y%m%d")
-        td = to_date.strftime("%Y%m%d")
 
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             # Step 1: Request report generation
+            # Note: IB does not support fd/td date override for Activity Flex queries
+            # Date filtering is done client-side using the checkpoint
             resp = await client.get(
                 SEND_URL,
-                params={"t": token, "q": query_id, "v": "3", "fd": fd, "td": td},
+                params={"t": token, "q": query_id, "v": "3"},
                 headers=headers,
             )
             resp.raise_for_status()
@@ -181,31 +160,31 @@ class IBFlexConnector(BaseConnector):
             root = ET.fromstring(resp.text)
             status = root.find("Status")
             ref_code = root.find("ReferenceCode")
+            url_elem = root.find("Url")
 
             if status is None or status.text != "Success":
                 error = root.find("ErrorMessage")
                 msg = error.text if error is not None else resp.text
-                # "No data in date range" is not an error
                 if "No data" in msg or "no data" in msg.lower():
                     return None
                 raise ValueError(f"IB Flex SendRequest failed: {msg}")
 
             reference_code = ref_code.text
+            fetch_base = url_elem.text if url_elem is not None else FETCH_URL
             log.info("  IB reference code: %s", reference_code)
 
             # Step 2: Fetch the report (may need a few seconds to generate)
-            for attempt in range(5):
-                await asyncio.sleep(2 + attempt)
+            for attempt in range(8):
+                await asyncio.sleep(3 + attempt)
                 fetch_resp = await client.get(
-                    FETCH_URL,
+                    fetch_base,
                     params={"t": token, "q": reference_code, "v": "3"},
                     headers=headers,
                 )
                 fetch_resp.raise_for_status()
 
-                # Check if still processing
                 if "<Status>Processing</Status>" in fetch_resp.text:
-                    log.info("  Report still generating, waiting...")
+                    log.info("  Report still generating (attempt %d)...", attempt + 1)
                     continue
 
                 return fetch_resp.text
@@ -310,19 +289,32 @@ class IBFlexConnector(BaseConnector):
             return "skipped"
 
         trade_date = date.fromisoformat(trade_date_str)
-        buy_sell = trade.get("buySell", "").upper()  # BUY or SELL
-        quantity = Decimal(str(trade.get("quantity", "0") or "0"))
+
+        # Skip trades before checkpoint date (incremental sync)
+        since = getattr(self, "_since_date", None)
+        if since and trade_date < since:
+            return "skipped"
+        buy_sell = trade.get("buySell", "").upper()
+        # IB uses negative quantity for sells — derive from quantity if buySell not present
+        raw_qty = Decimal(str(trade.get("quantity", "0") or "0"))
+        if not buy_sell:
+            buy_sell = "BUY" if raw_qty >= 0 else "SELL"
+        quantity = abs(raw_qty)
         price = Decimal(str(trade.get("tradePrice", "0") or "0"))
-        trade_money = Decimal(str(trade.get("tradeMoney", "0") or "0"))  # qty × price
-        net_cash = Decimal(str(trade.get("netCash", "0") or "0"))  # after commissions
+        trade_money = Decimal(str(trade.get("tradeMoney", "0") or "0"))
+        net_cash = Decimal(str(trade.get("netCash", "0") or "0"))
         commission = Decimal(str(abs(float(trade.get("ibCommission", "0") or "0"))))
-        currency = trade.get("currencyPrimary", "USD")
-        exchange = trade.get("exchange", "")
-        asset_class = trade.get("assetClass", "STK")
+        currency = trade.get("currency", "USD")
+        exchange = trade.get("listingExchange", trade.get("exchange", ""))
+        asset_class = trade.get("assetCategory", "STK")
         description = trade.get("description", "")
 
         # Resolve or create asset
         category = IB_ASSET_CLASS_MAP.get(asset_class, "securities")
+        sub_category = trade.get("subCategory", "")
+        if sub_category == "ETF":
+            category = "etf"
+
         asset_id = await self.resolve_or_create_asset(symbol, {
             "name": description or symbol,
             "category": category,
@@ -389,7 +381,7 @@ class IBFlexConnector(BaseConnector):
             return "skipped"
 
         amount = Decimal(str(cash_tx.get("amount", "0") or "0"))
-        currency = cash_tx.get("currencyPrimary", "USD")
+        currency = cash_tx.get("currency", cash_tx.get("currencyPrimary", "USD"))
         symbol = (cash_tx.get("symbol") or "").strip()
         description = cash_tx.get("description", "")
 
