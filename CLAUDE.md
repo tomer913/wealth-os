@@ -5,6 +5,58 @@ It contains everything needed to continue development without re-explaining the 
 
 ---
 
+## Session Log
+
+### April 11, 2026 (afternoon)
+- APScheduler added — daily ETL at 07:00 Israel time (Asia/Jerusalem), runs all active connectors then auto-rebuilds snapshot
+- `/api/v1/scheduler/status` and `/api/v1/scheduler/run-now` endpoints added to main.py
+- IB Flex Query connector built (`ib_flex`) — fetches trades, cash transactions, open positions
+  - No gateway required — pure HTTP two-step flow (SendRequest → GetStatement)
+  - Incremental sync via checkpoint `last_trade_date` in connector_runs
+  - Deduplication via IB TradeID → `external_reference_id = "IB-{tradeID}"`
+  - Updates `extra_data["quantity"]` from OpenPositions (engine reads this for value calc)
+  - XML field names: `quantity` (negative=sell), `currency`, `assetCategory`, `listingExchange`, `subCategory`
+  - Query period: Last 365 Calendar Days (no fd/td override — IB doesn't support it for Activity queries)
+- Fixed `CONNECTOR_ENCRYPTION_KEY` — made optional (plain JSON storage if env var not set)
+- Fixed `railway.toml` — removed `[deploy.envs]` section which was wiping Railway env vars on every deploy
+- Duplicate transactions found and cleaned up — IB connector duped trades already in manual imports
+  - Deleted 14 import rows that had matching connector rows (same date/qty/amount)
+- `formatCurrency(amount, currency)` added to `format.ts` — use for native currency amounts in transactions
+- `useFilteredSummary` fixed — reads from `category.gross_invested_ils` not missing `asset.cost_basis_ils`
+- Dashboard chart fixed — shows individual assets when single category selected (no more single dot)
+- IB credentials (in Railway env vars): Token=279988901909582139737827, QueryID=1466664, Account=U18804332
+- Connector run history shows in UI — check Connectors page after each run
+
+### April 11, 2026 (morning)
+- Build Snapshot button moved from sidebar bottom → topbar split button with date picker dropdown
+- Added `GET /api/v1/snapshots/latest` — fast read from `performance_snapshots` table (no engine recompute)
+- Dashboard now loads instantly (reads cached snapshot) instead of rebuilding on every page load
+- `useRebuildSnapshot` hook accepts optional `asOfDate` string for historical snapshots
+- Added `asset_price_history` table (migration 003) — permanent daily price record per asset
+- Yahoo connector now writes to `asset_price_history` in addition to `asset.current_price`
+- Engine `_get_asset_price()` reads from `asset_price_history` by date, fallback to `asset.current_price`
+- Engine `_calc_market()` computes quantity from transactions when not in `extra_data`
+- Snapshot builder now persists results to `performance_snapshots` table after each rebuild
+- Connectors page added to Analysis nav in sidebar
+- `requirements.txt` at ROOT of repo (not backend/) — Railway uses this one
+- ECB FX connector: use `USD` as base (not ILS — not supported), fetch ILS/EUR/GBP as targets
+- Fixed circular dependency: `constants.ts` (no deps) ← `store` ← `api/portfolio.ts`
+
+### April 10, 2026
+- Full frontend built: Dashboard, Assets, Accounts, Transactions, Valuations, Connectors pages
+- Portfolio selector dropdown in topbar (switches portfolio, invalidates all queries)
+- Global category chips filter all management pages (Assets, Accounts, Transactions, Valuations)
+- Feature flags system in `client/src/config/features.ts`
+- Server-side pagination on Assets (500/page) and Valuations (50/page)
+- Client-side pagination on Transactions (50/page)
+- Connector infrastructure: `connectors` + `connector_runs` tables, BaseConnector, registry
+- ECB FX rates connector working
+- Yahoo Finance prices connector working
+- KPI card tooltips on dashboard explaining each metric
+- All backend schemas use `str` not enums for legacy-data fields
+
+---
+
 ## Project Identity
 
 - **App:** Wealth OS — personal portfolio management system
@@ -218,30 +270,38 @@ Transaction[]  // transaction_date field (not 'date')
 
 ---
 
-## Roadmap (as of April 2026)
+## Roadmap (as of April 11, 2026)
 
-**Next sprint:**
-- [ ] Historical portfolio value chart (use performance_snapshots by date)
-- [ ] APScheduler for daily ETL automation
-- [ ] Kraken connector (transactions)
-- [ ] CEX.IO connector (transactions)
+**Next sprint — ETL:**
+- [ ] APScheduler for daily ETL automation (runs connectors + snapshot at 07:00)
+- [ ] Kraken connector (fetch trade history via API)
+- [ ] CEX.IO connector (fetch trade history via API)
+- [ ] IB CSV import connector (parse Interactive Brokers export)
+- [ ] Historical portfolio value chart (query performance_snapshots by date — needs ~7 days of data first)
+
+**Soon:**
+- [ ] Demo portfolio clone (anonymized copy with scrambled amounts)
+- [ ] Auth (Clerk integration — interceptor placeholder ready in api/client.ts)
+- [ ] Portfolio creation from UI (currently only via DB/API)
 
 **Later:**
-- [ ] Demo portfolio clone (anonymized copy of real portfolio)
-- [ ] Auth (Clerk integration — interceptor placeholder ready in api/client.ts)
 - [ ] Reports page
 - [ ] Budget app (separate app, shared connectors package)
 - [ ] Israeli bank connectors (scraper or Salt aggregation service)
+- [ ] TASE API for Israeli securities pricing (register at openapi.tase.co.il)
+- [ ] AI feedback/recommendations engine
 
 ---
 
 ## Known Issues / Tech Debt
 
-1. **ENGS quantity negative** — `-80` in transaction sum, means more sells than buys imported. Data issue from Base44 importer.
-2. **Some assets have 0 transactions** — AAPL, GOOGL, SOL, VOO, NVDA were never imported. Need to add manually or via IB CSV import.
-3. **performance_snapshots debt column** — `total_debt_ils` is hardcoded as 0 in GET /latest endpoint. Real debt comes from engine which reads REAL_ESTATE mortgage transactions. Fix: include debt from actual performance_snapshot rows.
-4. **Dashboard chart** — still shows category breakdown, not time-series. Fix: query performance_snapshots GROUP BY snapshot_date after enough historical data builds up.
-5. **TASE prices** — TASE numeric symbols (e.g. 1143783) tried as `1143783.TA` on Yahoo. Some may not resolve. Need TASE API credentials from openapi.tase.co.il.
+1. **ENGS quantity negative** — `-80` in transaction sum. More sells than buys imported from Base44. Data issue — needs manual fix.
+2. **Some assets have 0 transactions** — AAPL, GOOGL, SOL, VOO, NVDA never imported. Need IB CSV import or manual entry.
+3. **Dashboard chart shows category breakdown not time-series** — needs ~7 days of daily snapshots to build up history. Fix: query `performance_snapshots GROUP BY snapshot_date` once data exists.
+4. **`total_debt_ils` hardcoded 0 in GET /latest** — real debt comes from engine. Fix: store debt in `performance_snapshots` or compute from mortgage transactions in the /latest endpoint.
+5. **TASE numeric symbols** — tried as `1143783.TA` on Yahoo Finance. Some resolve, some don't. Need TASE API for reliable Israeli securities pricing.
+6. **No scheduler yet** — connectors and snapshot must be triggered manually from UI. APScheduler setup is next sprint.
+7. **`requirements.txt` at root** — Railway uses `/requirements.txt` not `/backend/requirements.txt`. Both exist. Keep them in sync.
 
 ---
 
