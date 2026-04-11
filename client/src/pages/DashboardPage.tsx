@@ -42,10 +42,17 @@ export default function DashboardPage() {
     color: CATEGORY_COLORS[c.category] ?? '#94a3b8',
   }))
 
-  const chartData = categories.map((c) => ({
-    name: categoryLabel(c.category),
-    value: c.current_value_ils,
-  }))
+  // Chart: use individual assets when one category selected (avoids single dot)
+  // Use categories when showing all
+  const chartData = categories.length === 1
+    ? assets
+        .filter((a) => a.current_value_ils > 0)
+        .sort((a, b) => b.current_value_ils - a.current_value_ils)
+        .map((a) => ({ name: a.symbol, value: a.current_value_ils }))
+    : categories.map((c) => ({
+        name: categoryLabel(c.category),
+        value: c.current_value_ils,
+      }))
 
   return (
     <div className="p-6 space-y-5 pb-20 md:pb-6 bg-gray-50 min-h-full">

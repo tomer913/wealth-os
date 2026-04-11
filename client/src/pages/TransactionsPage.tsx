@@ -5,7 +5,7 @@ import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { Transaction } from '../types'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import { Field, Input, Select, Textarea, FormGrid, FormSection, Divider } from '../components/shared/Form'
-import { formatILS, formatDate, gainClass } from '../utils/format'
+import { formatILS, formatDate, gainClass, formatCurrency } from '../utils/format'
 import clsx from 'clsx'
 
 // ─── Enum values from backend ─────────────────────────────────────────────────
@@ -318,7 +318,7 @@ export default function TransactionsPage() {
                           : <span className="text-gray-300">—</span>}
                       </td>
                       <td className={clsx('px-4 py-3 font-mono font-semibold text-[12px]', isInflow ? 'text-emerald-600' : 'text-gray-800')}>
-                        {t.total_amount != null ? `${isInflow ? '+' : ''}${formatILS(Number(t.total_amount))}` : '—'}
+                        {t.total_amount != null ? `${isInflow ? '+' : ''}${formatCurrency(Number(t.total_amount), t.currency)}` : '—'}
                       </td>
                       <td className="px-4 py-3 font-mono text-gray-500 text-[12px]">{t.currency}</td>
                       <td className={clsx('px-4 py-3 font-mono text-[12px]', gainClass(t.cashflow_amount != null ? (isInflow ? 1 : -1) : null))}>

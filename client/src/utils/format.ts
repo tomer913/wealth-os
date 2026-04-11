@@ -11,7 +11,7 @@ const ILS_NUM_SHORT = new Intl.NumberFormat('en-IL', {
   maximumFractionDigits: 1,
 })
 
-// Formats as "₪ 16,088,735" — symbol prefix with space, like Base44
+// Formats as "₪ 16,088,735" — always ILS (for portfolio values)
 export function formatILS(n: number): string {
   const abs = ILS_NUM.format(Math.abs(Math.round(n)))
   return n < 0 ? `-₪ ${abs}` : `₪ ${abs}`
@@ -20,6 +20,22 @@ export function formatILS(n: number): string {
 export function formatILSShort(n: number): string {
   const abs = ILS_NUM_SHORT.format(Math.abs(n))
   return n < 0 ? `-₪ ${abs}` : `₪ ${abs}`
+}
+
+// Currency-aware formatter — use for asset/transaction amounts in native currency
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  ILS: '₪', USD: '$', EUR: '€', GBP: '£',
+  JPY: '¥', CHF: 'Fr', CAD: 'CA$', AUD: 'A$',
+}
+
+export function formatCurrency(n: number, currency = 'ILS'): string {
+  const symbol = CURRENCY_SYMBOLS[currency.toUpperCase()] ?? currency
+  const fmt = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })
+  const abs = fmt.format(Math.abs(n))
+  return n < 0 ? `-${symbol} ${abs}` : `${symbol} ${abs}`
 }
 
 export function formatPct(n: number | null, decimals = 1): string {

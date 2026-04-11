@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type { PortfolioSnapshot } from '../types'
-
-const DEFAULT_PORTFOLIO_ID = (import.meta.env.VITE_PORTFOLIO_ID || '53f8f313-98e8-5de3-bd64-55826cbd82bb').trim()
+import { DEFAULT_PORTFOLIO_ID } from '../config/constants'
 
 interface AppStore {
   // Active portfolio
@@ -64,14 +63,19 @@ export function useFilteredSummary() {
     if (!s.snapshot) return null
     if (s.selectedCategories.length === 0) return s.snapshot.summary
 
-    const filtered = s.snapshot.assets.filter((a) =>
-      s.selectedCategories.includes(a.category),
+    // Filter categories and sum from category data (has gross_invested_ils)
+    const filteredCats = s.snapshot.categories.filter((c) =>
+      s.selectedCategories.includes(c.category)
     )
 
-    const total_value_ils = filtered.reduce((sum, a) => sum + (a.current_value_ils ?? 0), 0)
-    const total_invested_ils = filtered.reduce((sum, a) => sum + (a.cost_basis_ils ?? 0), 0)
-    const total_return_ils = total_value_ils - total_invested_ils
+    const total_value_ils = filteredCats.reduce((sum, c) => sum + (c.current_value_ils ?? 0), 0)
+    const total_invested_ils = filteredCats.reduce((sum, c) => sum + (c.gross_invested_ils ?? 0), 0)
+    const total_return_ils = filteredCats.reduce((sum, c) => sum + (c.total_return_ils ?? 0), 0)
     const total_return_pct = total_invested_ils > 0 ? total_return_ils / total_invested_ils : 0
+
+    // Debt only applies to real_estate — preserve from full summary if not filtering RE
+    const includesRealEstate = s.selectedCategories.includes('real_estate')
+    const total_debt_ils = includesRealEstate ? s.snapshot.summary.total_debt_ils : 0
 
     return {
       ...s.snapshot.summary,
@@ -79,6 +83,9 @@ export function useFilteredSummary() {
       total_invested_ils,
       total_return_ils,
       total_return_pct,
+      total_debt_ils,
+      net_equity_ils: total_value_ils - total_debt_ils,
+      asset_count: filteredCats.reduce((sum, c) => sum + c.asset_count, 0),
     }
   })
 }
