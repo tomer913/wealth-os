@@ -172,7 +172,8 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
 
     # Priority 2: quantity × current_price
     # quantity comes from extra_data OR computed from transaction history
-    current_price = asset.current_price
+    # price comes from asset_price_history by date, fallback to asset.current_price
+    current_price = _get_asset_price(db, asset, as_of)
     extra = asset.extra_data or {}
     quantity = extra.get("quantity") or extra.get("units")
 
