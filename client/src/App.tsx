@@ -10,6 +10,7 @@ import {
   ReportsPage,
 } from './pages/PlaceholderPages'
 import ConnectorsPage from './pages/ConnectorsPage';
+import BudgetRulesPage from './pages/BudgetRulesPage';
 
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/fx-rates" element={<FXRatesPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/connectors" element={<ConnectorsPage />} />
+          <Route path="/budget/rules" element={<BudgetRulesPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

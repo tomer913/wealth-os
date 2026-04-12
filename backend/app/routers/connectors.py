@@ -311,3 +311,75 @@ async def get_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
+
+
+# ── Ingest endpoint (for GitHub Actions scraper) ──────────────────────────────
+
+import os as _os
+from fastapi import Header
+
+SCRAPER_SECRET = _os.environ.get("SCRAPER_SECRET", "")
+
+
+@router.post("/ingest/")
+async def ingest_raw_transactions(
+    payload: dict,
+    x_scraper_token: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Called by the GitHub Actions credit card scraper.
+    Body: { "source": "isracard", "transactions": [{ "date", "description",
+            "amount", "currency", "identifier", "extra_data" }] }
+    Protected by X-Scraper-Token header.
+    """
+    if SCRAPER_SECRET and x_scraper_token != SCRAPER_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid scraper token")
+
+    source = payload.get("source", "")
+    transactions = payload.get("transactions", [])
+    portfolio_id_str = payload.get("portfolio_id")
+
+    if not source or not transactions or not portfolio_id_str:
+        raise HTTPException(status_code=422, detail="source, transactions, portfolio_id required")
+
+    from app.models.raw_layer import RawTransaction
+    from app.utils.uuid7 import uuid7
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from datetime import datetime, timezone
+    import uuid as _uuid
+
+    portfolio_id = _uuid.UUID(portfolio_id_str)
+    created = 0
+    skipped = 0
+
+    for tx in transactions:
+        raw_date_str = tx.get("date", "")
+        try:
+            raw_date = datetime.fromisoformat(raw_date_str)
+        except Exception:
+            from datetime import date
+            raw_date = datetime.strptime(raw_date_str[:10], "%Y-%m-%d")
+
+        stmt = pg_insert(RawTransaction).values(
+            id=uuid7(),
+            portfolio_id=portfolio_id,
+            source=source,
+            raw_date=raw_date,
+            description=tx.get("description", ""),
+            amount=tx.get("amount", 0),
+            currency=tx.get("currency", "ILS"),
+            reference=tx.get("reference"),
+            extra_raw=tx.get("extra_data"),
+            external_ref_id=str(tx.get("identifier", "")),
+            imported_at=datetime.now(timezone.utc),
+        ).on_conflict_do_nothing(constraint="uq_raw_transactions_source_ref")
+
+        result = await db.execute(stmt)
+        if result.rowcount:
+            created += 1
+        else:
+            skipped += 1
+
+    await db.commit()
+    return {"status": "ok", "created": created, "skipped": skipped, "source": source}

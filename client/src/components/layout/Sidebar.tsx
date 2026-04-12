@@ -16,6 +16,10 @@ const NAV_ANALYSIS = [
   { to: '/reports',     label: 'Reports',     icon: IconReports,    flag: 'reports_page'     },
 ] as const
 
+const NAV_BUDGET = [
+  { to: '/budget/rules', label: 'Budget Rules', icon: IconBudgetRules, flag: 'budget_rules_page' },
+] as const
+
 export default function Sidebar() {
   return (
     <aside className="flex flex-col w-[200px] min-w-[200px] bg-sidebar-bg h-full">
@@ -39,6 +43,15 @@ export default function Sidebar() {
         {NAV_ANALYSIS.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
           <NavItem key={to} to={to} label={label} Icon={Icon} />
         ))}
+
+        {NAV_BUDGET.some(n => isEnabled(n.flag)) && (
+          <>
+            <SectionLabel className="mt-3">Budget</SectionLabel>
+            {NAV_BUDGET.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
+              <NavItem key={to} to={to} label={label} Icon={Icon} />
+            ))}
+          </>
+        )}
       </nav>
     </aside>
   )
@@ -137,6 +150,15 @@ function IconConnectors() {
       <circle cx="13" cy="4" r="2"/>
       <circle cx="13" cy="12" r="2"/>
       <path d="M5 7.5l6-3M5 8.5l6 3"/>
+    </svg>
+  )
+}
+function IconBudgetRules() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <path d="M2 4h12M2 8h8M2 12h5"/>
+      <circle cx="13" cy="11" r="2.5"/>
+      <path d="M13 9.5V11l1 1"/>
     </svg>
   )
 }

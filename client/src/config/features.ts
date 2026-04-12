@@ -26,6 +26,10 @@ export const FEATURES = {
   account_json_import:  true,
   pagination:           true,
 
+  // Budget
+  budget_rules_page:    true,
+  budget_summary_page:  false,  // build later
+
   // Future / SaaS
   portfolio_selector:   false,
   multi_user:           false,

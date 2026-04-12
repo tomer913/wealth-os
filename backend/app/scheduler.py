@@ -53,6 +53,16 @@ def start_scheduler():
         misfire_grace_time=3600,
     )
 
+    # 07:08 — Run BudgetProcessor for all portfolios
+    scheduler.add_job(
+        run_budget_processors,
+        trigger=CronTrigger(hour=7, minute=8, timezone="Asia/Jerusalem"),
+        id="daily_budget_processor",
+        name="Daily budget processor — classify raw → budget categories",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
     # 07:10 — Rebuild snapshot for each portfolio
     scheduler.add_job(
         run_snapshots,
@@ -159,6 +169,32 @@ async def run_bank_processors():
             log.error("BankProcessor failed for portfolio %s: %s", portfolio.id, e)
 
     log.info("=== BankProcessor complete ===")
+
+
+async def run_budget_processors():
+    """
+    07:08 job — Run BudgetProcessor for all portfolios.
+    """
+    log.info("=== BudgetProcessor started at %s ===", datetime.now(timezone.utc).isoformat())
+
+    from app.database import AsyncSessionLocal
+    from app.models.portfolio import Portfolio
+    from app.processors.budget_processor import BudgetProcessor
+    from sqlalchemy import select
+
+    processor = BudgetProcessor()
+
+    async with AsyncSessionLocal() as db:
+        portfolios = (await db.execute(select(Portfolio))).scalars().all()
+
+    for portfolio in portfolios:
+        try:
+            log.info("BudgetProcessor running for portfolio %s", portfolio.id)
+            await processor.run(portfolio.id, triggered_by="scheduler")
+        except Exception as e:
+            log.error("BudgetProcessor failed for portfolio %s: %s", portfolio.id, e)
+
+    log.info("=== BudgetProcessor complete ===")
 
 
 async def run_snapshots(portfolio_ids=None):

@@ -157,3 +157,81 @@ export async function updateTransaction(id: string, payload: Record<string, unkn
 export async function deleteTransaction(id: string): Promise<void> {
   await apiClient.delete(`/api/v1/transactions/${id}`)
 }
+
+// ─── Budget ───────────────────────────────────────────────────────────────────
+
+export async function getBudgetCategories() {
+  const { data } = await apiClient.get('/api/v1/budget/categories/', {
+    params: { portfolio_id: pid() },
+  })
+  return Array.isArray(data) ? data : []
+}
+
+export async function getBudgetRules(statusFilter?: string) {
+  const { data } = await apiClient.get('/api/v1/budget/rules/', {
+    params: { portfolio_id: pid(), ...(statusFilter ? { status: statusFilter } : {}) },
+  })
+  return Array.isArray(data) ? data : []
+}
+
+export async function createBudgetRule(payload: Record<string, unknown>) {
+  const { data } = await apiClient.post('/api/v1/budget/rules/', payload, {
+    params: { portfolio_id: pid() },
+  })
+  return data
+}
+
+export async function updateBudgetRule(id: string, payload: Record<string, unknown>) {
+  const { data } = await apiClient.patch(`/api/v1/budget/rules/${id}/`, payload)
+  return data
+}
+
+export async function deleteBudgetRule(id: string) {
+  await apiClient.delete(`/api/v1/budget/rules/${id}/`)
+}
+
+export async function approveBudgetRule(id: string) {
+  const { data } = await apiClient.post(`/api/v1/budget/rules/${id}/approve/`)
+  return data
+}
+
+export async function testBudgetRule(id: string) {
+  const { data } = await apiClient.post(`/api/v1/budget/rules/${id}/test/`, null, {
+    params: { portfolio_id: pid() },
+  })
+  return data
+}
+
+export async function testBudgetConditions(conditions: Record<string, unknown>) {
+  const { data } = await apiClient.post('/api/v1/budget/rules/test-conditions/', conditions, {
+    params: { portfolio_id: pid() },
+  })
+  return data
+}
+
+export async function getBudgetReviewQueue() {
+  const { data } = await apiClient.get('/api/v1/budget/review/', {
+    params: { portfolio_id: pid() },
+  })
+  return Array.isArray(data) ? data : []
+}
+
+export async function categorizePendingTx(
+  logId: string,
+  categoryId: string,
+  generateRule: boolean,
+) {
+  const { data } = await apiClient.post(
+    `/api/v1/budget/review/${logId}/categorize/`,
+    { category_id: categoryId, generate_rule: generateRule },
+    { params: { portfolio_id: pid() } },
+  )
+  return data
+}
+
+export async function getBudgetSummary(year: number, month: number) {
+  const { data } = await apiClient.get('/api/v1/budget/summary/', {
+    params: { portfolio_id: pid(), year, month },
+  })
+  return Array.isArray(data) ? data : []
+}

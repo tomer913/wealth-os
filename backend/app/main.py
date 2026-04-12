@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import connectors as connectors_router
 from app.routers import processors as processors_router
+from app.routers import budget as budget_router
 from app.connectors import registry as connector_registry
 
 from app.config import settings
@@ -62,6 +63,7 @@ app.include_router(snapshots.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(connectors_router.router, prefix="/api/v1")
 app.include_router(processors_router.router, prefix="/api/v1")
+app.include_router(budget_router.router, prefix="/api/v1")
 
 
 @app.get("/health")

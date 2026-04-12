@@ -1,0 +1,15 @@
+{
+  "name": "wealth-os-scraper",
+  "version": "1.0.0",
+  "description": "Israeli credit card scraper using israeli-bank-scrapers",
+  "type": "module",
+  "scripts": {
+    "scrape": "node index.js"
+  },
+  "dependencies": {
+    "israeli-bank-scrapers": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

@@ -1,0 +1,69 @@
+name: Scrape Credit Cards
+
+on:
+  schedule:
+    # 05:00 UTC = 07:00 Israel time (runs before bank processors at 07:05/07:08)
+    - cron: '0 5 * * *'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: scraper/package.json
+
+      - name: Install dependencies
+        working-directory: scraper
+        run: npm install
+
+      - name: Install Chromium dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgbm-dev \
+            libnss3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libgdk-pixbuf2.0-0 \
+            libpango-1.0-0 \
+            libcairo2 \
+            libasound2
+
+      - name: Run scraper
+        working-directory: scraper
+        env:
+          WEALTH_OS_API_URL: ${{ secrets.WEALTH_OS_API_URL }}
+          SCRAPER_SECRET: ${{ secrets.SCRAPER_SECRET }}
+          PORTFOLIO_ID: ${{ secrets.PORTFOLIO_ID }}
+          # Isracard
+          ISRACARD_USERNAME: ${{ secrets.ISRACARD_USERNAME }}
+          ISRACARD_PASSWORD: ${{ secrets.ISRACARD_PASSWORD }}
+          ISRACARD_CARD6: ${{ secrets.ISRACARD_CARD6 }}
+          # Cal
+          CAL_USERNAME: ${{ secrets.CAL_USERNAME }}
+          CAL_PASSWORD: ${{ secrets.CAL_PASSWORD }}
+          # Max
+          MAX_USERNAME: ${{ secrets.MAX_USERNAME }}
+          MAX_PASSWORD: ${{ secrets.MAX_PASSWORD }}
+          # Leumi Card
+          LEUMI_CARD_USERNAME: ${{ secrets.LEUMI_CARD_USERNAME }}
+          LEUMI_CARD_PASSWORD: ${{ secrets.LEUMI_CARD_PASSWORD }}
+          LEUMI_CARD_NATIONAL_ID: ${{ secrets.LEUMI_CARD_NATIONAL_ID }}
+          # Amex
+          AMEX_USERNAME: ${{ secrets.AMEX_USERNAME }}
+          AMEX_PASSWORD: ${{ secrets.AMEX_PASSWORD }}
+        run: npm run scrape
