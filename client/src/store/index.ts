@@ -17,7 +17,17 @@ interface AppStore {
   snapshot: PortfolioSnapshot | null
   setSnapshot: (s: PortfolioSnapshot) => void
   lastBuiltAt: string | null
+
+  // Budget view state
+  activeBudgetYear: number
+  activeBudgetMonth: number
+  budgetViewMode: 'monthly' | 'annual'
+  setActiveBudgetYear: (year: number) => void
+  setActiveBudgetMonth: (month: number) => void
+  setBudgetViewMode: (mode: 'monthly' | 'annual') => void
 }
+
+const now = new Date()
 
 export const useAppStore = create<AppStore>((set, get) => ({
   activePortfolioId: DEFAULT_PORTFOLIO_ID,
@@ -38,6 +48,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   snapshot: null,
   setSnapshot: (s) => set({ snapshot: s, lastBuiltAt: s.built_at ?? new Date().toISOString() }),
   lastBuiltAt: null,
+
+  // Budget
+  activeBudgetYear: now.getFullYear(),
+  activeBudgetMonth: now.getMonth() + 1,
+  budgetViewMode: 'monthly',
+  setActiveBudgetYear: (year) => set({ activeBudgetYear: year }),
+  setActiveBudgetMonth: (month) => set({ activeBudgetMonth: month }),
+  setBudgetViewMode: (mode) => set({ budgetViewMode: mode }),
 }))
 
 // ─── Selector helpers ─────────────────────────────────────────────────────────

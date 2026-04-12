@@ -102,6 +102,7 @@ class BudgetPlan(Base):
     # {"3": 25000, "12": 30000} — month number → override amount
     monthly_overrides: Mapped[Optional[Dict]] = mapped_column(JSONB, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    budget_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="ראשי")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

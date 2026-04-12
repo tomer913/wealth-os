@@ -100,3 +100,68 @@ async def reset_bank_checkpoint(
     processor = BankProcessor()
     await processor.reset_checkpoint(portfolio_id)
     return {"status": "reset", "processor": "bank_processor", "portfolio_id": str(portfolio_id)}
+
+
+@router.post("/budget/run")
+async def trigger_budget_processor(
+    portfolio_id: UUID = Query(...),
+):
+    """Manually trigger BudgetProcessor for a portfolio (runs in background)."""
+    import asyncio
+    from app.processors.budget_processor import BudgetProcessor
+
+    processor = BudgetProcessor()
+    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual"))
+    return {"status": "triggered", "processor": "budget_processor", "portfolio_id": str(portfolio_id)}
+
+
+@router.post("/budget/reset-checkpoint")
+async def reset_budget_checkpoint(
+    portfolio_id: UUID = Query(...),
+):
+    """Reset BudgetProcessor checkpoint to reclassify all raw transactions."""
+    from app.processors.budget_processor import BudgetProcessor
+
+    processor = BudgetProcessor()
+    await processor.reset_checkpoint(portfolio_id)
+    return {"status": "reset", "processor": "budget_processor", "portfolio_id": str(portfolio_id)}
+
+
+@router.post("/run")
+async def trigger_processor(
+    processor_name: str = Query(...),
+    portfolio_id: UUID = Query(...),
+):
+    """Generic: trigger any processor by name."""
+    import asyncio
+
+    if processor_name == "bank_processor":
+        from app.processors.bank_processor import BankProcessor
+        processor = BankProcessor()
+    elif processor_name == "budget_processor":
+        from app.processors.budget_processor import BudgetProcessor
+        processor = BudgetProcessor()
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown processor: {processor_name}")
+
+    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual"))
+    return {"status": "triggered", "processor": processor_name, "portfolio_id": str(portfolio_id)}
+
+
+@router.post("/reset-checkpoint")
+async def reset_processor_checkpoint(
+    processor_name: str = Query(...),
+    portfolio_id: UUID = Query(...),
+):
+    """Generic: reset checkpoint for any processor by name."""
+    if processor_name == "bank_processor":
+        from app.processors.bank_processor import BankProcessor
+        processor = BankProcessor()
+    elif processor_name == "budget_processor":
+        from app.processors.budget_processor import BudgetProcessor
+        processor = BudgetProcessor()
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown processor: {processor_name}")
+
+    await processor.reset_checkpoint(portfolio_id)
+    return {"status": "reset", "processor": processor_name, "portfolio_id": str(portfolio_id)}

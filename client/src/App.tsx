@@ -9,8 +9,11 @@ import {
   FXRatesPage,
   ReportsPage,
 } from './pages/PlaceholderPages'
-import ConnectorsPage from './pages/ConnectorsPage';
-import BudgetRulesPage from './pages/BudgetRulesPage';
+import ConnectorsPage from './pages/ConnectorsPage'
+import BudgetRulesPage from './pages/BudgetRulesPage'
+import BudgetDashboardPage from './pages/BudgetDashboardPage'
+import BudgetManagementPage from './pages/BudgetManagementPage'
+import PipelineStatusPage from './pages/PipelineStatusPage'
 
 
 export default function App() {
@@ -27,7 +30,12 @@ export default function App() {
           <Route path="/fx-rates" element={<FXRatesPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/connectors" element={<ConnectorsPage />} />
+          {/* Budget */}
+          <Route path="/budget" element={<BudgetDashboardPage />} />
+          <Route path="/budget/manage" element={<BudgetManagementPage />} />
           <Route path="/budget/rules" element={<BudgetRulesPage />} />
+          {/* System */}
+          <Route path="/pipeline" element={<PipelineStatusPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

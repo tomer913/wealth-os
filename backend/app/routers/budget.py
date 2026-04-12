@@ -162,6 +162,127 @@ async def delete_plan(plan_id: UUID, db: AsyncSession = Depends(get_db)):
     await db.delete(plan)
 
 
+@router.post("/plans/generate-from-history/")
+async def generate_plans_from_history(
+    body: dict,
+    portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generate budget plans for target_year based on average actuals from recent months.
+    Body: { "target_year": 2026, "source_months": 6 }
+    """
+    from datetime import date
+    target_year = int(body.get("target_year", date.today().year))
+    source_months = int(body.get("source_months", 6))
+
+    # Determine date range for source data
+    today = date.today()
+    cutoff_year = today.year
+    cutoff_month = today.month - source_months
+    while cutoff_month <= 0:
+        cutoff_month += 12
+        cutoff_year -= 1
+
+    # Load actuals in range
+    actuals_q = select(BudgetActual).where(
+        BudgetActual.portfolio_id == portfolio_id,
+        (BudgetActual.year > cutoff_year) |
+        ((BudgetActual.year == cutoff_year) & (BudgetActual.month >= cutoff_month)),
+    )
+    actuals = (await db.execute(actuals_q)).scalars().all()
+
+    # Aggregate per category
+    from collections import defaultdict
+    totals: dict = defaultdict(Decimal)
+    counts: dict = defaultdict(int)
+    for a in actuals:
+        totals[a.category_id] += a.actual_amount
+        counts[a.category_id] += 1
+
+    created = 0
+    updated = 0
+    for cat_id, total in totals.items():
+        avg_monthly = total / counts[cat_id]
+        # Upsert plan
+        existing_q = select(BudgetPlan).where(
+            BudgetPlan.portfolio_id == portfolio_id,
+            BudgetPlan.category_id == cat_id,
+            BudgetPlan.year == target_year,
+        )
+        existing = (await db.execute(existing_q)).scalar_one_or_none()
+        if existing:
+            existing.monthly_amount = avg_monthly
+            existing.plan_type = "fixed_monthly"
+            updated += 1
+        else:
+            plan = BudgetPlan(
+                id=uuid.uuid4(),
+                portfolio_id=portfolio_id,
+                category_id=cat_id,
+                year=target_year,
+                plan_type="fixed_monthly",
+                monthly_amount=avg_monthly,
+            )
+            db.add(plan)
+            created += 1
+
+    await db.flush()
+    return {"status": "ok", "created": created, "updated": updated, "target_year": target_year}
+
+
+@router.post("/plans/import-from-year/")
+async def import_plans_from_year(
+    body: dict,
+    portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Copy plans from source_year to target_year.
+    Body: { "source_year": 2025, "target_year": 2026 }
+    """
+    source_year = int(body.get("source_year"))
+    target_year = int(body.get("target_year"))
+
+    source_q = select(BudgetPlan).where(
+        BudgetPlan.portfolio_id == portfolio_id,
+        BudgetPlan.year == source_year,
+    )
+    source_plans = (await db.execute(source_q)).scalars().all()
+
+    created = 0
+    updated = 0
+    for sp in source_plans:
+        existing_q = select(BudgetPlan).where(
+            BudgetPlan.portfolio_id == portfolio_id,
+            BudgetPlan.category_id == sp.category_id,
+            BudgetPlan.year == target_year,
+        )
+        existing = (await db.execute(existing_q)).scalar_one_or_none()
+        if existing:
+            existing.plan_type = sp.plan_type
+            existing.monthly_amount = sp.monthly_amount
+            existing.annual_amount = sp.annual_amount
+            existing.monthly_overrides = None  # Don't copy overrides
+            updated += 1
+        else:
+            plan = BudgetPlan(
+                id=uuid.uuid4(),
+                portfolio_id=portfolio_id,
+                category_id=sp.category_id,
+                year=target_year,
+                plan_type=sp.plan_type,
+                monthly_amount=sp.monthly_amount,
+                annual_amount=sp.annual_amount,
+            )
+            db.add(plan)
+            created += 1
+
+    await db.flush()
+    return {"status": "ok", "created": created, "updated": updated,
+            "source_year": source_year, "target_year": target_year}
+
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 @router.get("/summary/", response_model=List[BudgetSummaryRow])

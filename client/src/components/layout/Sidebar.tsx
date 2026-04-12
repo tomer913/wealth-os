@@ -17,7 +17,13 @@ const NAV_ANALYSIS = [
 ] as const
 
 const NAV_BUDGET = [
-  { to: '/budget/rules', label: 'Budget Rules', icon: IconBudgetRules, flag: 'budget_rules_page' },
+  { to: '/budget',         label: 'Dashboard',    icon: IconBudgetDash,  flag: 'budget_dashboard'  },
+  { to: '/budget/manage',  label: 'Manage',       icon: IconBudgetMgmt,  flag: 'budget_management' },
+  { to: '/budget/rules',   label: 'Rules',        icon: IconBudgetRules, flag: 'budget_rules_page' },
+] as const
+
+const NAV_SYSTEM = [
+  { to: '/pipeline', label: 'Pipeline', icon: IconPipeline, flag: 'pipeline_page' },
 ] as const
 
 export default function Sidebar() {
@@ -48,6 +54,15 @@ export default function Sidebar() {
           <>
             <SectionLabel className="mt-3">Budget</SectionLabel>
             {NAV_BUDGET.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
+              <NavItem key={to} to={to} label={label} Icon={Icon} />
+            ))}
+          </>
+        )}
+
+        {NAV_SYSTEM.some(n => isEnabled(n.flag)) && (
+          <>
+            <SectionLabel className="mt-3">System</SectionLabel>
+            {NAV_SYSTEM.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
               <NavItem key={to} to={to} label={label} Icon={Icon} />
             ))}
           </>
@@ -153,12 +168,43 @@ function IconConnectors() {
     </svg>
   )
 }
+function IconBudgetDash() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <rect x="1" y="9" width="4" height="5" rx="0.5"/>
+      <rect x="6" y="6" width="4" height="8" rx="0.5"/>
+      <rect x="11" y="3" width="4" height="11" rx="0.5"/>
+      <path d="M1 5l4-3 4 3 5-3"/>
+    </svg>
+  )
+}
+function IconBudgetMgmt() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <rect x="2" y="2" width="5" height="5" rx="1"/>
+      <rect x="9" y="2" width="5" height="5" rx="1"/>
+      <rect x="2" y="9" width="5" height="5" rx="1"/>
+      <path d="M11.5 9v6M9 11.5h5"/>
+    </svg>
+  )
+}
 function IconBudgetRules() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
       <path d="M2 4h12M2 8h8M2 12h5"/>
       <circle cx="13" cy="11" r="2.5"/>
       <path d="M13 9.5V11l1 1"/>
+    </svg>
+  )
+}
+function IconPipeline() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <circle cx="3" cy="8" r="1.5"/>
+      <circle cx="8" cy="8" r="1.5"/>
+      <circle cx="13" cy="8" r="1.5"/>
+      <path d="M4.5 8h2M9.5 8h2"/>
+      <path d="M3 6V4M8 6V4M13 6V4"/>
     </svg>
   )
 }

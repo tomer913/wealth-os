@@ -181,3 +181,88 @@ export interface Portfolio {
   created_at: string
   updated_at: string
 }
+
+// ─── Budget ────────────────────────────────────────────────────────────────────
+
+export interface BudgetCategory {
+  id: string
+  portfolio_id: string
+  parent_id: string | null
+  name: string
+  name_en: string | null
+  category_type: 'income' | 'expense' | 'saving' | 'investment'
+  icon: string | null
+  color: string | null
+  sort_order: number
+  is_active: boolean
+  children: BudgetCategory[]
+}
+
+export interface BudgetPlan {
+  id: string
+  portfolio_id: string
+  category_id: string
+  year: number
+  plan_type: 'fixed_monthly' | 'annual_pool' | 'one_time'
+  monthly_amount: number | null
+  annual_amount: number | null
+  monthly_overrides: Record<string, number> | null
+  notes: string | null
+  budget_name: string | null
+  created_at: string
+}
+
+export interface BudgetActual {
+  id: string
+  portfolio_id: string
+  category_id: string
+  year: number
+  month: number
+  actual_amount: number
+  transaction_count: number
+  last_updated: string
+}
+
+export interface BudgetSummaryRow {
+  category_id: string
+  category_name: string
+  category_type: string
+  plan_amount: number | null
+  actual_amount: number
+  variance: number | null
+  variance_pct: number | null
+  transaction_count: number
+  has_override: boolean
+}
+
+export interface BudgetRule {
+  id: string
+  portfolio_id: string
+  category_id: string
+  category_name: string
+  name: string
+  priority: number
+  status: 'suggested' | 'active' | 'inactive' | 'conflict' | 'deleted'
+  conditions: Record<string, unknown>
+  confidence: number
+  source: string
+  match_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ProcessorRun {
+  id: string
+  processor_name: string
+  portfolio_id: string
+  status: string
+  triggered_by: string
+  rows_read: number
+  rows_written: number
+  rows_skipped: number
+  started_at: string | null
+  finished_at: string | null
+  duration_ms: number | null
+  error_message: string | null
+  created_at: string
+}

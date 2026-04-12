@@ -57,6 +57,7 @@ class BudgetPlanBase(BaseModel):
     annual_amount: Optional[Decimal] = None
     monthly_overrides: Optional[Dict[str, Any]] = None
     notes: Optional[str] = None
+    budget_name: Optional[str] = "ראשי"
 
 
 class BudgetPlanCreate(BudgetPlanBase):
@@ -69,6 +70,7 @@ class BudgetPlanUpdate(BaseModel):
     annual_amount: Optional[Decimal] = None
     monthly_overrides: Optional[Dict[str, Any]] = None
     notes: Optional[str] = None
+    budget_name: Optional[str] = None
 
 
 class BudgetPlanRead(BudgetPlanBase):

@@ -16,6 +16,10 @@ const PAGE_TITLES: Record<string, string> = {
   '/connectors': 'Connectors',
   '/fx-rates': 'FX Rates',
   '/reports': 'Reports',
+  '/budget': 'Budget Dashboard',
+  '/budget/manage': 'Budget Management',
+  '/budget/rules': 'Budget Rules',
+  '/pipeline': 'Pipeline Status',
 }
 
 export default function AppShell() {

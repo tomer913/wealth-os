@@ -27,8 +27,14 @@ export const FEATURES = {
   pagination:           true,
 
   // Budget
+  budget_dashboard:     true,
+  budget_management:    true,
   budget_rules_page:    true,
-  budget_summary_page:  false,  // build later
+  budget_summary_page:  false,  // superseded by budget_dashboard
+
+  // System
+  pipeline_page:        true,
+  processor_controls:   true,
 
   // Future / SaaS
   portfolio_selector:   false,

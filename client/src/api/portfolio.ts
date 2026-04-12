@@ -235,3 +235,90 @@ export async function getBudgetSummary(year: number, month: number) {
   })
   return Array.isArray(data) ? data : []
 }
+
+export async function getBudgetPlans(year?: number) {
+  const { data } = await apiClient.get('/api/v1/budget/plans/', {
+    params: { portfolio_id: pid(), ...(year ? { year } : {}) },
+  })
+  return Array.isArray(data) ? data : []
+}
+
+export async function createBudgetPlan(payload: Record<string, unknown>) {
+  const { data } = await apiClient.post('/api/v1/budget/plans/', payload, {
+    params: { portfolio_id: pid() },
+  })
+  return data
+}
+
+export async function updateBudgetPlan(id: string, payload: Record<string, unknown>) {
+  const { data } = await apiClient.patch(`/api/v1/budget/plans/${id}/`, payload)
+  return data
+}
+
+export async function deleteBudgetPlan(id: string) {
+  await apiClient.delete(`/api/v1/budget/plans/${id}/`)
+}
+
+export async function generatePlansFromHistory(targetYear: number, sourceMonths = 6) {
+  const { data } = await apiClient.post(
+    '/api/v1/budget/plans/generate-from-history/',
+    { target_year: targetYear, source_months: sourceMonths },
+    { params: { portfolio_id: pid() } },
+  )
+  return data
+}
+
+export async function importPlansFromYear(sourceYear: number, targetYear: number) {
+  const { data } = await apiClient.post(
+    '/api/v1/budget/plans/import-from-year/',
+    { source_year: sourceYear, target_year: targetYear },
+    { params: { portfolio_id: pid() } },
+  )
+  return data
+}
+
+export async function createBudgetCategory(payload: Record<string, unknown>) {
+  const { data } = await apiClient.post('/api/v1/budget/categories/', payload, {
+    params: { portfolio_id: pid() },
+  })
+  return data
+}
+
+export async function updateBudgetCategory(id: string, payload: Record<string, unknown>) {
+  const { data } = await apiClient.patch(`/api/v1/budget/categories/${id}/`, payload)
+  return data
+}
+
+export async function deleteBudgetCategory(id: string) {
+  await apiClient.delete(`/api/v1/budget/categories/${id}/`)
+}
+
+// ─── Processors ───────────────────────────────────────────────────────────────
+
+export async function getProcessorRuns(processorName?: string, limit = 50) {
+  const { data } = await apiClient.get('/api/v1/processors/runs/', {
+    params: { portfolio_id: pid(), ...(processorName ? { processor_name: processorName } : {}), limit },
+  })
+  return Array.isArray(data) ? data : []
+}
+
+export async function triggerProcessorRun(processorName: string) {
+  const { data } = await apiClient.post('/api/v1/processors/run', null, {
+    params: { processor_name: processorName, portfolio_id: pid() },
+  })
+  return data
+}
+
+export async function resetProcessorCheckpoint(processorName: string) {
+  const { data } = await apiClient.post('/api/v1/processors/reset-checkpoint', null, {
+    params: { processor_name: processorName, portfolio_id: pid() },
+  })
+  return data
+}
+
+export async function triggerSnapshotRebuild() {
+  const { data } = await apiClient.post('/api/v1/snapshots/rebuild', {
+    portfolio_id: pid(),
+  })
+  return data
+}
