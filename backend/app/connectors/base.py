@@ -1,5 +1,12 @@
 """
 BaseConnector — interface all connectors must implement.
+
+Architecture:
+  - Subclasses implement fetch() which returns a list of raw row dicts.
+  - The base run() method writes those rows to raw_transactions (dedup via
+    external_ref_id + source unique constraint) and returns a ConnectorResult.
+  - Non-bank connectors (FX, prices, IB) that still write directly to domain
+    tables override run() directly as before.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -39,21 +46,20 @@ class BaseConnector(ABC):
     """
     Base class for all connectors.
 
-    Each connector handles one external data source:
-    - ECB FX rates
-    - Yahoo Finance prices
-    - Kraken trades
-    - CEX.IO trades
-    - IB CSV import
-    etc.
+    Bank-style connectors implement fetch() and get the run() logic for free.
+    Other connectors (FX, prices, IB) override run() directly.
     """
 
     # Override in subclass
     CONNECTOR_TYPE: str = "base"
     DISPLAY_NAME: str = "Base Connector"
     DESCRIPTION: str = ""
-    # Fields required in config (shown in UI form)
     CONFIG_FIELDS: List[Dict[str, Any]] = []
+
+    # Set to True in bank-style connectors that use fetch() + raw_transactions
+    WRITES_RAW: bool = False
+    # Source name written to raw_transactions.source (defaults to CONNECTOR_TYPE)
+    RAW_SOURCE: str = ""
 
     def __init__(
         self,
@@ -65,20 +71,77 @@ class BaseConnector(ABC):
     ):
         self.config = config
         self.portfolio_id = portfolio_id
-        self.asset_filter = asset_filter  # None = fetch all
+        self.asset_filter = asset_filter
         self.auto_create_assets = auto_create_assets
         self.db = db
 
-    @abstractmethod
     async def run(self) -> ConnectorResult:
         """
-        Execute the connector. Must be implemented by all subclasses.
-        Returns a ConnectorResult with counts and checkpoint.
+        Default implementation for WRITES_RAW connectors:
+        calls fetch() and upserts rows into raw_transactions.
+        Non-raw connectors must override this method.
         """
-        ...
+        if not self.WRITES_RAW:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must override run() or set WRITES_RAW=True"
+            )
+        return await self._run_raw()
+
+    async def _run_raw(self) -> ConnectorResult:
+        """Fetch rows and write to raw_transactions with dedup."""
+        from datetime import datetime, timezone
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from app.models.raw_layer import RawTransaction
+        from app.utils.uuid7 import uuid7
+
+        source = self.RAW_SOURCE or self.CONNECTOR_TYPE
+
+        rows = await self.fetch()
+        created = 0
+        skipped = 0
+
+        for row in rows:
+            stmt = pg_insert(RawTransaction).values(
+                id=uuid7(),
+                portfolio_id=self.portfolio_id,
+                source=source,
+                raw_date=row["raw_date"],
+                description=row["description"],
+                amount=row["amount"],
+                currency=row["currency"],
+                reference=row.get("reference"),
+                extra_raw=row.get("extra_raw"),
+                external_ref_id=row["external_ref_id"],
+                imported_at=datetime.now(timezone.utc),
+            ).on_conflict_do_nothing(
+                constraint="uq_raw_transactions_source_ref"
+            )
+            result = await self.db.execute(stmt)
+            if result.rowcount:
+                created += 1
+            else:
+                skipped += 1
+
+        await self.db.commit()
+
+        return ConnectorResult(
+            records_fetched=len(rows),
+            transactions_created=created,
+            transactions_skipped=skipped,
+        )
+
+    async def fetch(self) -> List[Dict[str, Any]]:
+        """
+        Bank-style connectors implement this.
+        Returns list of dicts with keys:
+          raw_date, description, amount, currency, reference,
+          external_ref_id, extra_raw (optional)
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement fetch()"
+        )
 
     def should_include_symbol(self, symbol: str) -> bool:
-        """Check if this symbol should be processed based on asset_filter."""
         if self.asset_filter is None:
             return True
         return symbol in self.asset_filter
@@ -86,11 +149,6 @@ class BaseConnector(ABC):
     async def resolve_or_create_asset(
         self, symbol: str, meta: Optional[Dict[str, Any]] = None
     ) -> Optional[UUID]:
-        """
-        Find an existing asset by symbol in this portfolio,
-        or create a new one if auto_create_assets is enabled.
-        Returns asset UUID or None.
-        """
         from sqlalchemy import select
         from app.models.asset import Asset
 
@@ -106,7 +164,6 @@ class BaseConnector(ABC):
         if not self.auto_create_assets:
             return None
 
-        # Auto-create with provided metadata or defaults
         new_asset = Asset(
             portfolio_id=self.portfolio_id,
             symbol=symbol,

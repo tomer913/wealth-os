@@ -4,10 +4,10 @@ scheduler.py — Daily ETL scheduler for Wealth OS.
 Uses APScheduler with AsyncIOScheduler.
 Runs inside the FastAPI process — extractable to a separate service later.
 
-Daily job (07:00 Israel time):
-  1. Run all active connectors (FX rates, prices, transactions)
-  2. Rebuild snapshot for each portfolio after connectors complete
-  3. All results logged to connector_runs table (existing infrastructure)
+Daily chain (Israel time):
+  07:00 — Run all active connectors (FX rates, prices, bank raw import)
+  07:05 — Run BankProcessor for all portfolios (classify raw → transactions)
+  07:10 — Rebuild snapshot for each portfolio
 """
 import logging
 from datetime import datetime, timezone, date
@@ -33,18 +33,41 @@ def start_scheduler():
     """Start the scheduler and register all jobs. Called at app startup."""
     scheduler = get_scheduler()
 
-    # Daily ETL — 07:00 Israel time
+    # 07:00 — Run all active connectors
     scheduler.add_job(
-        run_daily_etl,
+        run_connectors,
         trigger=CronTrigger(hour=7, minute=0, timezone="Asia/Jerusalem"),
-        id="daily_etl",
-        name="Daily ETL — connectors + snapshot",
+        id="daily_connectors",
+        name="Daily connectors — raw import",
         replace_existing=True,
-        misfire_grace_time=3600,  # run even if missed by up to 1 hour
+        misfire_grace_time=3600,
+    )
+
+    # 07:05 — Run BankProcessor for all portfolios
+    scheduler.add_job(
+        run_bank_processors,
+        trigger=CronTrigger(hour=7, minute=5, timezone="Asia/Jerusalem"),
+        id="daily_bank_processor",
+        name="Daily bank processor — classify raw → transactions",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    # 07:10 — Rebuild snapshot for each portfolio
+    scheduler.add_job(
+        run_snapshots,
+        trigger=CronTrigger(hour=7, minute=10, timezone="Asia/Jerusalem"),
+        id="daily_snapshots",
+        name="Daily snapshots — rebuild portfolio snapshots",
+        replace_existing=True,
+        misfire_grace_time=3600,
     )
 
     scheduler.start()
-    log.info("Scheduler started — daily ETL scheduled at 07:00 Asia/Jerusalem")
+    log.info(
+        "Scheduler started — 07:00 connectors, 07:05 bank processor, "
+        "07:10 snapshots (Asia/Jerusalem)"
+    )
 
 
 def stop_scheduler():
@@ -55,21 +78,19 @@ def stop_scheduler():
         log.info("Scheduler stopped")
 
 
-async def run_daily_etl():
+async def run_connectors():
     """
-    Main daily ETL job.
-    Runs all active connectors then rebuilds snapshot for each portfolio.
-    Designed to be fault-tolerant — a failing connector doesn't block others.
+    07:00 job — Run all active connectors.
+    FX rates first, then prices, then bank raw importers.
+    Returns the set of portfolio IDs that had connectors run.
     """
-    log.info("=== Daily ETL started at %s ===", datetime.now(timezone.utc).isoformat())
+    log.info("=== Connectors started at %s ===", datetime.now(timezone.utc).isoformat())
 
     from app.database import AsyncSessionLocal
     from app.models.connector import Connector
-    from app.models.portfolio import Portfolio
-    from sqlalchemy import select, distinct
+    from sqlalchemy import select
 
     async with AsyncSessionLocal() as db:
-        # Get all active connectors grouped by portfolio
         q = select(Connector).where(
             Connector.is_active == True,
             Connector.schedule.in_(["daily", "hourly"]),
@@ -78,13 +99,11 @@ async def run_daily_etl():
         connectors = (await db.execute(q)).scalars().all()
 
         if not connectors:
-            log.info("No active connectors found — skipping ETL")
-            return
+            log.info("No active connectors found — skipping")
+            return set()
 
         log.info("Found %d active connectors", len(connectors))
 
-        # Run connectors in order: FX rates first, then prices, then transactions
-        # This ensures FX rates are available when snapshot is built
         TYPE_ORDER = {
             "ecb_fx": 0,
             "yahoo_prices": 1,
@@ -92,13 +111,12 @@ async def run_daily_etl():
             "kraken": 3,
             "cexio": 4,
             "ib_flex": 5,
+            "mizrachi_bank": 6,
+            "fibi_bank": 7,
+            "leumi_bank": 8,
         }
-        sorted_connectors = sorted(
-            connectors,
-            key=lambda c: TYPE_ORDER.get(c.type, 99)
-        )
+        sorted_connectors = sorted(connectors, key=lambda c: TYPE_ORDER.get(c.type, 99))
 
-        # Track which portfolios had connectors run
         portfolios_updated = set()
         success_count = 0
         fail_count = 0
@@ -112,21 +130,72 @@ async def run_daily_etl():
             except Exception as e:
                 log.error("Connector %s failed: %s", connector.name, e)
                 fail_count += 1
-                # Continue — don't let one failure block others
 
-        log.info(
-            "Connectors complete — %d success, %d failed",
-            success_count, fail_count
-        )
+        log.info("Connectors complete — %d success, %d failed", success_count, fail_count)
+        return portfolios_updated
 
-    # Rebuild snapshot for each portfolio that had connectors run
-    for portfolio_id in portfolios_updated:
+
+async def run_bank_processors():
+    """
+    07:05 job — Run BankProcessor for all portfolios.
+    """
+    log.info("=== BankProcessor started at %s ===", datetime.now(timezone.utc).isoformat())
+
+    from app.database import AsyncSessionLocal
+    from app.models.portfolio import Portfolio
+    from app.processors.bank_processor import BankProcessor
+    from sqlalchemy import select
+
+    processor = BankProcessor()
+
+    async with AsyncSessionLocal() as db:
+        portfolios = (await db.execute(select(Portfolio))).scalars().all()
+
+    for portfolio in portfolios:
+        try:
+            log.info("BankProcessor running for portfolio %s", portfolio.id)
+            await processor.run(portfolio.id, triggered_by="scheduler")
+        except Exception as e:
+            log.error("BankProcessor failed for portfolio %s: %s", portfolio.id, e)
+
+    log.info("=== BankProcessor complete ===")
+
+
+async def run_snapshots(portfolio_ids=None):
+    """
+    07:10 job — Rebuild snapshot for each portfolio.
+    If portfolio_ids is None, rebuilds all portfolios.
+    """
+    log.info("=== Snapshots started at %s ===", datetime.now(timezone.utc).isoformat())
+
+    if portfolio_ids is None:
+        from app.database import AsyncSessionLocal
+        from app.models.portfolio import Portfolio
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as db:
+            portfolios = (await db.execute(select(Portfolio))).scalars().all()
+            portfolio_ids = [p.id for p in portfolios]
+
+    for portfolio_id in portfolio_ids:
         try:
             log.info("Rebuilding snapshot for portfolio %s", portfolio_id)
             await _rebuild_portfolio_snapshot(portfolio_id)
         except Exception as e:
             log.error("Snapshot rebuild failed for portfolio %s: %s", portfolio_id, e)
 
+    log.info("=== Snapshots complete ===")
+
+
+async def run_daily_etl():
+    """
+    Full daily ETL — connectors → bank processor → snapshots.
+    Called by manual trigger endpoint.
+    """
+    log.info("=== Daily ETL started at %s ===", datetime.now(timezone.utc).isoformat())
+    portfolios_updated = await run_connectors()
+    await run_bank_processors()
+    await run_snapshots(list(portfolios_updated) if portfolios_updated else None)
     log.info("=== Daily ETL complete ===")
 
 

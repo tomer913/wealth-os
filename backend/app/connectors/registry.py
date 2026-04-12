@@ -80,3 +80,5 @@ class ConnectorHandler:
 from app.connectors.sources import ecb_fx  # noqa: E402, F401
 from app.connectors.sources import yahoo_prices  # noqa: E402, F401
 from app.connectors.sources import ib_flex  # noqa: E402, F401
+from app.connectors.sources import mizrachi_bank  # noqa: E402, F401
+from app.connectors.sources import fibi_bank  # noqa: E402, F401

@@ -6,8 +6,10 @@ from app.models.valuation import ManualValuation
 from app.models.fx_rate import FXRate
 from app.models.snapshot import PerformanceSnapshot
 from app.models.position import Position
+from app.models.raw_layer import RawTransaction, ServiceCheckpoint, ProcessorRun
 
 __all__ = [
     "Portfolio", "Account", "Asset", "Transaction",
     "ManualValuation", "FXRate", "PerformanceSnapshot", "Position",
+    "RawTransaction", "ServiceCheckpoint", "ProcessorRun",
 ]
