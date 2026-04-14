@@ -158,6 +158,7 @@ class BankProcessor(BaseProcessor):
                 portfolio_id=portfolio_id,
                 transaction_date=row.raw_date.date(),
                 type=clf["type"],
+                economic_type=clf["type"],
                 domain=clf["domain"],
                 is_internal_transfer=clf["is_internal_transfer"],
                 total_amount=abs(row.amount),

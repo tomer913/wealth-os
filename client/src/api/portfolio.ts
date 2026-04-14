@@ -332,6 +332,7 @@ export async function uploadBankStatement(
   form.append('file', file)
   const { data } = await apiClient.post('/api/v1/connectors/upload/', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000,
   })
   return data
 }
