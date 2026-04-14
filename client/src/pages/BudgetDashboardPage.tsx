@@ -1,18 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getBudgetSummary, getBudgetReviewQueue } from '../api/portfolio'
 import { useAppStore } from '../store'
 import type { BudgetSummaryRow } from '../types'
 import clsx from 'clsx'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-
-const MONTHS = [
-  '', 'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
-  'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
-]
-const MONTHS_EN = [
-  '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-]
 
 function fmtILS(n: number | null | undefined) {
   if (n == null) return '–'
@@ -24,13 +16,6 @@ function fmtPct(n: number | null | undefined) {
   return `${(n * 100).toFixed(0)}%`
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  income: 'הכנסות',
-  expense: 'הוצאות',
-  saving: 'חיסכון',
-  investment: 'השקעות',
-}
-
 const TYPE_COLORS: Record<string, string> = {
   income: '#10b981',
   expense: '#ef4444',
@@ -39,6 +24,8 @@ const TYPE_COLORS: Record<string, string> = {
 }
 
 export default function BudgetDashboardPage() {
+  const { t } = useTranslation('budget')
+  const { t: tc } = useTranslation('common')
   const { activeBudgetYear, activeBudgetMonth, budgetViewMode, setActiveBudgetYear, setActiveBudgetMonth, setBudgetViewMode } = useAppStore()
 
   const { data: summary = [], isLoading } = useQuery({
@@ -64,7 +51,7 @@ export default function BudgetDashboardPage() {
   const totalActualSaving = savings.reduce((s: number, r: BudgetSummaryRow) => s + r.actual_amount, 0)
   const cashflow = totalActualIncome - totalActualExpense
 
-  // Chart data: group by category_type
+  // Chart data grouped by category_type
   const chartData = Object.entries(
     summary.reduce((acc: Record<string, { plan: number; actual: number }>, r: BudgetSummaryRow) => {
       if (!acc[r.category_type]) acc[r.category_type] = { plan: 0, actual: 0 }
@@ -73,14 +60,14 @@ export default function BudgetDashboardPage() {
       return acc
     }, {})
   ).map(([type, vals]) => ({
-    name: TYPE_LABELS[type] ?? type,
+    name: t(`category_types.${type}`),
     type,
     plan: Math.round((vals as { plan: number; actual: number }).plan),
     actual: Math.round((vals as { plan: number; actual: number }).actual),
   }))
 
   if (isLoading) {
-    return <div className="p-6 text-gray-400 text-sm">טוען נתוני תקציב…</div>
+    return <div className="p-6 text-gray-400 text-sm">{tc('status.loading')}</div>
   }
 
   return (
@@ -94,8 +81,8 @@ export default function BudgetDashboardPage() {
             onChange={(e) => setActiveBudgetMonth(Number(e.target.value))}
             className="px-3 py-1.5 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"
           >
-            {MONTHS_EN.slice(1).map((m, i) => (
-              <option key={i + 1} value={i + 1}>{MONTHS[i + 1]} ({m})</option>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <option key={m} value={m}>{tc(`time.months.${m}`)}</option>
             ))}
           </select>
           <select
@@ -121,7 +108,7 @@ export default function BudgetDashboardPage() {
                   : 'text-gray-500 hover:text-gray-700',
               )}
             >
-              {mode === 'monthly' ? 'חודשי' : 'שנתי'}
+              {tc(`time.view.${mode}`)}
             </button>
           ))}
         </div>
@@ -133,24 +120,24 @@ export default function BudgetDashboardPage() {
           <div className="flex items-center gap-2">
             <span className="text-amber-500">⚠</span>
             <span className="text-[13px] text-amber-800 font-medium">
-              {reviewQueue.length} עסקאות ממתינות לסיווג ידני
+              {t('dashboard.unclassified_alert', { count: reviewQueue.length })}
             </span>
           </div>
-          <a href="/budget/rules" className="text-[12px] text-amber-700 underline">עבור לתור בדיקה</a>
+          <a href="/budget/rules" className="text-[12px] text-amber-700 underline">{t('dashboard.go_to_review')}</a>
         </div>
       )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="הכנסות" plan={totalPlanIncome} actual={totalActualIncome} type="income" />
-        <KpiCard label="הוצאות" plan={totalPlanExpense} actual={totalActualExpense} type="expense" />
-        <KpiCard label="חיסכון" plan={totalPlanSaving} actual={totalActualSaving} type="saving" />
+        <KpiCard label={t('category_types.income')} plan={totalPlanIncome} actual={totalActualIncome} type="income" />
+        <KpiCard label={t('category_types.expense')} plan={totalPlanExpense} actual={totalActualExpense} type="expense" />
+        <KpiCard label={t('category_types.saving')} plan={totalPlanSaving} actual={totalActualSaving} type="saving" />
         <div className="bg-white rounded-xl border border-gray-100 p-4">
-          <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">תזרים נטו</p>
+          <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">{t('dashboard.cash_flow')}</p>
           <p className={clsx('text-[22px] font-semibold', cashflow >= 0 ? 'text-emerald-600' : 'text-red-500')}>
             {fmtILS(cashflow)}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">הכנסות פחות הוצאות</p>
+          <p className="text-[11px] text-gray-400 mt-1">{t('dashboard.cash_flow_desc')}</p>
         </div>
       </div>
 
@@ -158,14 +145,14 @@ export default function BudgetDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Bar chart */}
         <div className="bg-white rounded-xl border border-gray-100 p-4 lg:col-span-1">
-          <p className="text-[12px] font-semibold text-gray-700 mb-3">תכנון מול ביצוע</p>
+          <p className="text-[12px] font-semibold text-gray-700 mb-3">{t('dashboard.plan_vs_actual')}</p>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={chartData} barGap={2}>
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} width={40} />
               <Tooltip formatter={(v: number) => fmtILS(v)} />
-              <Bar dataKey="plan" name="תכנון" fill="#94a3b8" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="actual" name="ביצוע" radius={[3, 3, 0, 0]}>
+              <Bar dataKey="plan" name={t('dashboard.columns.plan')} fill="#94a3b8" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="actual" name={t('dashboard.columns.actual')} radius={[3, 3, 0, 0]}>
                 {chartData.map((entry, i) => (
                   <Cell key={i} fill={TYPE_COLORS[entry.type] ?? '#6b7280'} />
                 ))}
@@ -177,20 +164,22 @@ export default function BudgetDashboardPage() {
         {/* Category breakdown table */}
         <div className="bg-white rounded-xl border border-gray-100 lg:col-span-2 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-[12px] font-semibold text-gray-700">פירוט קטגוריות — {MONTHS[activeBudgetMonth]} {activeBudgetYear}</p>
+            <p className="text-[12px] font-semibold text-gray-700">
+              {t('dashboard.category_breakdown', { month: tc(`time.months.${activeBudgetMonth}`), year: activeBudgetYear })}
+            </p>
           </div>
           {summary.length === 0 ? (
-            <div className="p-6 text-center text-gray-400 text-sm">אין נתוני תקציב לחודש זה</div>
+            <div className="p-6 text-center text-gray-400 text-sm">{t('dashboard.no_data_month')}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[12px]">
                 <thead>
                   <tr className="border-b border-gray-100 text-gray-400 text-[10px] uppercase tracking-wide">
-                    <th className="px-4 py-2 text-right">קטגוריה</th>
-                    <th className="px-4 py-2 text-left">תכנון</th>
-                    <th className="px-4 py-2 text-left">ביצוע</th>
-                    <th className="px-4 py-2 text-left">סטייה</th>
-                    <th className="px-4 py-2 text-left w-32">התקדמות</th>
+                    <th className="px-4 py-2 text-right">{t('dashboard.columns.category')}</th>
+                    <th className="px-4 py-2 text-left">{t('dashboard.columns.plan')}</th>
+                    <th className="px-4 py-2 text-left">{t('dashboard.columns.actual')}</th>
+                    <th className="px-4 py-2 text-left">{t('dashboard.columns.variance')}</th>
+                    <th className="px-4 py-2 text-left w-32">{t('dashboard.columns.progress')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -241,8 +230,8 @@ export default function BudgetDashboardPage() {
 
       {summary.length === 0 && (
         <div className="bg-white rounded-xl border border-dashed border-gray-200 p-8 text-center">
-          <p className="text-gray-400 text-sm mb-2">אין תכנון תקציב לתקופה זו</p>
-          <a href="/budget/manage" className="text-teal-600 text-[13px] underline">לחץ כאן להגדרת תקציב</a>
+          <p className="text-gray-400 text-sm mb-2">{t('dashboard.no_plan')}</p>
+          <a href="/budget/manage" className="text-teal-600 text-[13px] underline">{t('dashboard.go_manage')}</a>
         </div>
       )}
     </div>
@@ -250,6 +239,7 @@ export default function BudgetDashboardPage() {
 }
 
 function KpiCard({ label, plan, actual, type }: { label: string; plan: number; actual: number; type: string }) {
+  const { t } = useTranslation('budget')
   const color = TYPE_COLORS[type] ?? '#6b7280'
   const pct = plan > 0 ? actual / plan : 0
   const over = plan > 0 && actual > plan
@@ -260,7 +250,7 @@ function KpiCard({ label, plan, actual, type }: { label: string; plan: number; a
       <p className="text-[22px] font-semibold text-gray-900">{fmtILS(actual)}</p>
       {plan > 0 ? (
         <>
-          <p className="text-[11px] text-gray-400 mt-0.5">מתוך {fmtILS(plan)} מתוכנן</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">{t('dashboard.planned_of', { amount: fmtILS(plan) })}</p>
           <div className="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all"
@@ -269,7 +259,7 @@ function KpiCard({ label, plan, actual, type }: { label: string; plan: number; a
           </div>
         </>
       ) : (
-        <p className="text-[11px] text-gray-300 mt-0.5">ללא תכנון</p>
+        <p className="text-[11px] text-gray-300 mt-0.5">{t('dashboard.no_plan_label')}</p>
       )}
     </div>
   )

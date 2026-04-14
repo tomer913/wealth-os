@@ -1,0 +1,124 @@
+{
+  "nav": {
+    "dashboard": "לוח בקרה",
+    "assets": "נכסים",
+    "accounts": "חשבונות",
+    "transactions": "תנועות",
+    "valuations": "הערכות שווי",
+    "connectors": "מחברים",
+    "budget": "תקציב",
+    "budget_dashboard": "לוח תקציב",
+    "budget_manage": "ניהול תקציב",
+    "budget_rules": "חוקי סיווג",
+    "pipeline": "צינור נתונים",
+    "fx_rates": "שערי מטבע",
+    "reports": "דוחות"
+  },
+  "actions": {
+    "save": "שמור",
+    "cancel": "בטל",
+    "delete": "מחק",
+    "edit": "ערוך",
+    "add": "הוסף",
+    "confirm": "אשר",
+    "close": "סגור",
+    "search": "חיפוש",
+    "filter": "סינון",
+    "export": "ייצוא",
+    "import": "ייבוא",
+    "refresh": "רענן",
+    "run_now": "הפעל עכשיו",
+    "approve": "אשר",
+    "reject": "דחה",
+    "test": "בדוק",
+    "create": "צור",
+    "update": "עדכן",
+    "view": "הצג",
+    "clear": "נקה",
+    "apply": "החל",
+    "saving": "שומר…",
+    "save_changes": "שמור שינויים"
+  },
+  "status": {
+    "loading": "טוען...",
+    "error": "שגיאה",
+    "success": "הצלחה",
+    "pending": "ממתין",
+    "running": "פועל",
+    "failed": "נכשל",
+    "completed": "הושלם",
+    "partial": "חלקי",
+    "active": "פעיל",
+    "inactive": "לא פעיל",
+    "suggested": "מוצע",
+    "on_track": "בשליטה",
+    "warning": "אזהרה",
+    "over_budget": "חריגה מתקציב",
+    "no_data": "אין נתונים",
+    "conflict": "קונפליקט",
+    "deleted": "נמחק"
+  },
+  "currency": {
+    "ils": "₪",
+    "usd": "$",
+    "eur": "€"
+  },
+  "time": {
+    "months": {
+      "1": "ינואר", "2": "פברואר", "3": "מרץ",
+      "4": "אפריל", "5": "מאי", "6": "יוני",
+      "7": "יולי", "8": "אוגוסט", "9": "ספטמבר",
+      "10": "אוקטובר", "11": "נובמבר", "12": "דצמבר"
+    },
+    "months_short": {
+      "1": "ינו", "2": "פבר", "3": "מרץ",
+      "4": "אפר", "5": "מאי", "6": "יוני",
+      "7": "יול", "8": "אוג", "9": "ספט",
+      "10": "אוק", "11": "נוב", "12": "דצמ"
+    },
+    "view": {
+      "monthly": "חודשי",
+      "annual": "שנתי"
+    },
+    "just_now": "זה עתה",
+    "minutes_ago": "לפני {{count}} דקות",
+    "hours_ago": "לפני {{count}} שעות",
+    "days_ago": "לפני {{count}} ימים"
+  },
+  "pagination": {
+    "showing": "מציג {{from}}-{{to}} מתוך {{total}}",
+    "per_page": "פריטים לדף"
+  },
+  "errors": {
+    "generic": "אירעה שגיאה. נסה שוב.",
+    "not_found": "לא נמצא",
+    "network": "שגיאת רשת. בדוק את החיבור.",
+    "unauthorized": "אין הרשאה"
+  },
+  "confirm_delete": "האם אתה בטוח שברצונך למחוק?",
+  "no_results": "לא נמצאו תוצאות",
+  "build_snapshot": "בנה תמונת מצב",
+  "building": "בונה...",
+  "last_built": "עודכן לאחרונה",
+  "snapshot_date": "תאריך תמונת מצב",
+  "today": "היום (ברירת מחדל)",
+  "custom_date": "תאריך מותאם אישית",
+  "historical": "היסטורי",
+  "build_for": "בנה עבור {{date}}",
+  "all": "הכל",
+  "section": {
+    "main": "ראשי",
+    "analysis": "ניתוח",
+    "budget": "תקציב",
+    "system": "מערכת"
+  },
+  "app_name": "Wealth OS",
+  "app_subtitle": "Portfolio Intelligence",
+  "import_from_json": "ייבוא מ-JSON",
+  "add_metadata_field": "+ הוסף שדה מטא-דאטה",
+  "additional_fields": "שדות נוספים",
+  "notes": "הערות",
+  "optional_notes": "הערות אופציונליות…",
+  "none": "— ללא —",
+  "cannot_be_undone": "פעולה זו אינה הפיכה."
+}

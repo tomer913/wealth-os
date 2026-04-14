@@ -1,32 +1,35 @@
 import { NavLink } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import { isEnabled } from '../../config/features'
 
 const NAV_MAIN = [
-  { to: '/',             label: 'Dashboard',    icon: IconDashboard,    flag: 'dashboard'         },
-  { to: '/assets',       label: 'Assets',       icon: IconAssets,       flag: 'assets_page'       },
-  { to: '/accounts',     label: 'Accounts',     icon: IconAccounts,     flag: 'accounts_page'     },
-  { to: '/transactions', label: 'Transactions', icon: IconTransactions, flag: 'transactions_page' },
+  { to: '/',             navKey: 'dashboard',       icon: IconDashboard,    flag: 'dashboard'         },
+  { to: '/assets',       navKey: 'assets',          icon: IconAssets,       flag: 'assets_page'       },
+  { to: '/accounts',     navKey: 'accounts',        icon: IconAccounts,     flag: 'accounts_page'     },
+  { to: '/transactions', navKey: 'transactions',    icon: IconTransactions, flag: 'transactions_page' },
 ] as const
 
 const NAV_ANALYSIS = [
-  { to: '/valuations',  label: 'Valuations',  icon: IconChart,      flag: 'valuations_page'  },
-  { to: '/connectors',  label: 'Connectors',  icon: IconConnectors, flag: 'connectors_page'  },
-  { to: '/fx-rates',    label: 'FX Rates',    icon: IconFX,         flag: 'fx_rates_page'    },
-  { to: '/reports',     label: 'Reports',     icon: IconReports,    flag: 'reports_page'     },
+  { to: '/valuations',  navKey: 'valuations',      icon: IconChart,      flag: 'valuations_page'  },
+  { to: '/connectors',  navKey: 'connectors',      icon: IconConnectors, flag: 'connectors_page'  },
+  { to: '/fx-rates',    navKey: 'fx_rates',        icon: IconFX,         flag: 'fx_rates_page'    },
+  { to: '/reports',     navKey: 'reports',         icon: IconReports,    flag: 'reports_page'     },
 ] as const
 
 const NAV_BUDGET = [
-  { to: '/budget',         label: 'Dashboard',    icon: IconBudgetDash,  flag: 'budget_dashboard'  },
-  { to: '/budget/manage',  label: 'Manage',       icon: IconBudgetMgmt,  flag: 'budget_management' },
-  { to: '/budget/rules',   label: 'Rules',        icon: IconBudgetRules, flag: 'budget_rules_page' },
+  { to: '/budget',         navKey: 'budget_dashboard', icon: IconBudgetDash,  flag: 'budget_dashboard'  },
+  { to: '/budget/manage',  navKey: 'budget_manage',    icon: IconBudgetMgmt,  flag: 'budget_management' },
+  { to: '/budget/rules',   navKey: 'budget_rules',     icon: IconBudgetRules, flag: 'budget_rules_page' },
 ] as const
 
 const NAV_SYSTEM = [
-  { to: '/pipeline', label: 'Pipeline', icon: IconPipeline, flag: 'pipeline_page' },
+  { to: '/pipeline', navKey: 'pipeline', icon: IconPipeline, flag: 'pipeline_page' },
 ] as const
 
 export default function Sidebar() {
+  const { t: tc } = useTranslation('common')
+
   return (
     <aside className="flex flex-col w-[200px] min-w-[200px] bg-sidebar-bg h-full">
       {/* Logo */}
@@ -34,36 +37,36 @@ export default function Sidebar() {
         <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center mb-3">
           <IconLogo />
         </div>
-        <div className="text-[15px] font-medium text-slate-100 tracking-tight">Wealth OS</div>
-        <div className="text-[11px] text-slate-500 mt-0.5">Portfolio Intelligence</div>
+        <div className="text-[15px] font-medium text-slate-100 tracking-tight">{tc('app_name')}</div>
+        <div className="text-[11px] text-slate-500 mt-0.5">{tc('app_subtitle')}</div>
       </div>
 
       {/* Main nav */}
       <nav className="flex-1 py-2">
-        <SectionLabel>Main</SectionLabel>
-        {NAV_MAIN.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
-          <NavItem key={to} to={to} label={label} Icon={Icon} end={to === '/'} />
+        <SectionLabel>{tc('section.main')}</SectionLabel>
+        {NAV_MAIN.filter(n => isEnabled(n.flag)).map(({ to, navKey, icon: Icon }) => (
+          <NavItem key={to} to={to} label={tc(`nav.${navKey}`)} Icon={Icon} end={to === '/'} />
         ))}
 
-        <SectionLabel className="mt-3">Analysis</SectionLabel>
-        {NAV_ANALYSIS.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
-          <NavItem key={to} to={to} label={label} Icon={Icon} />
+        <SectionLabel className="mt-3">{tc('section.analysis')}</SectionLabel>
+        {NAV_ANALYSIS.filter(n => isEnabled(n.flag)).map(({ to, navKey, icon: Icon }) => (
+          <NavItem key={to} to={to} label={tc(`nav.${navKey}`)} Icon={Icon} />
         ))}
 
         {NAV_BUDGET.some(n => isEnabled(n.flag)) && (
           <>
-            <SectionLabel className="mt-3">Budget</SectionLabel>
-            {NAV_BUDGET.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
-              <NavItem key={to} to={to} label={label} Icon={Icon} />
+            <SectionLabel className="mt-3">{tc('section.budget')}</SectionLabel>
+            {NAV_BUDGET.filter(n => isEnabled(n.flag)).map(({ to, navKey, icon: Icon }) => (
+              <NavItem key={to} to={to} label={tc(`nav.${navKey}`)} Icon={Icon} />
             ))}
           </>
         )}
 
         {NAV_SYSTEM.some(n => isEnabled(n.flag)) && (
           <>
-            <SectionLabel className="mt-3">System</SectionLabel>
-            {NAV_SYSTEM.filter(n => isEnabled(n.flag)).map(({ to, label, icon: Icon }) => (
-              <NavItem key={to} to={to} label={label} Icon={Icon} />
+            <SectionLabel className="mt-3">{tc('section.system')}</SectionLabel>
+            {NAV_SYSTEM.filter(n => isEnabled(n.flag)).map(({ to, navKey, icon: Icon }) => (
+              <NavItem key={to} to={to} label={tc(`nav.${navKey}`)} Icon={Icon} />
             ))}
           </>
         )}

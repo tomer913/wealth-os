@@ -1,0 +1,43 @@
+{
+  "title": "Data Pipeline",
+  "stages": {
+    "connectors": "Connectors",
+    "bank_processor": "Bank Processor",
+    "budget_processor": "Budget Processor",
+    "engine": "Snapshot Engine"
+  },
+  "connectors_desc": "Fetch raw_transactions from banks",
+  "connectors_mizrachi": "Mizrachi Tefahot: Manual upload",
+  "connectors_leumi": "Leumi: Manual upload",
+  "connectors_cards": "Credit cards: GitHub Actions (05:00 UTC)",
+  "auto_run_time": "Auto-run: 07:00 IL",
+  "bank_processor_desc": "Converts raw_transactions → transactions",
+  "budget_processor_desc": "Classifies transactions into budget categories",
+  "engine_desc": "Computes current portfolio values",
+  "engine_endpoint": "POST /api/v1/snapshots/rebuild",
+  "processor": {
+    "last_run": "Last run: {{time}}",
+    "rows": "Rows: {{read}} read / {{written}} written / {{skipped}} skipped",
+    "duration": "Duration: {{duration}}",
+    "error": "Error: {{message}}",
+    "no_runs": "No runs yet",
+    "trigger": "▶ Run",
+    "triggering": "…",
+    "reset_title": "↺",
+    "reset_warning": "Reset checkpoint? All transactions will be reprocessed from the beginning."
+  },
+  "recent_runs": "Recent Runs",
+  "filter_all": "All",
+  "filter_bank": "Bank",
+  "filter_budget": "Budget",
+  "columns": {
+    "processor": "Processor",
+    "status": "Status",
+    "started": "Started",
+    "read": "Read",
+    "written": "Written",
+    "skipped": "Skipped",
+    "duration": "Duration",
+    "triggered_by": "Triggered by"
+  }
+}

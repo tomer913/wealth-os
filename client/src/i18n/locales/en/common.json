@@ -1,0 +1,124 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "assets": "Assets",
+    "accounts": "Accounts",
+    "transactions": "Transactions",
+    "valuations": "Valuations",
+    "connectors": "Connectors",
+    "budget": "Budget",
+    "budget_dashboard": "Budget Dashboard",
+    "budget_manage": "Manage Budget",
+    "budget_rules": "Classification Rules",
+    "pipeline": "Data Pipeline",
+    "fx_rates": "FX Rates",
+    "reports": "Reports"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "confirm": "Confirm",
+    "close": "Close",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export",
+    "import": "Import",
+    "refresh": "Refresh",
+    "run_now": "Run Now",
+    "approve": "Approve",
+    "reject": "Reject",
+    "test": "Test",
+    "create": "Create",
+    "update": "Update",
+    "view": "View",
+    "clear": "Clear",
+    "apply": "Apply",
+    "saving": "Saving…",
+    "save_changes": "Save changes"
+  },
+  "status": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "pending": "Pending",
+    "running": "Running",
+    "failed": "Failed",
+    "completed": "Completed",
+    "partial": "Partial",
+    "active": "Active",
+    "inactive": "Inactive",
+    "suggested": "Suggested",
+    "on_track": "On Track",
+    "warning": "Warning",
+    "over_budget": "Over Budget",
+    "no_data": "No Data",
+    "conflict": "Conflict",
+    "deleted": "Deleted"
+  },
+  "currency": {
+    "ils": "₪",
+    "usd": "$",
+    "eur": "€"
+  },
+  "time": {
+    "months": {
+      "1": "January", "2": "February", "3": "March",
+      "4": "April", "5": "May", "6": "June",
+      "7": "July", "8": "August", "9": "September",
+      "10": "October", "11": "November", "12": "December"
+    },
+    "months_short": {
+      "1": "Jan", "2": "Feb", "3": "Mar",
+      "4": "Apr", "5": "May", "6": "Jun",
+      "7": "Jul", "8": "Aug", "9": "Sep",
+      "10": "Oct", "11": "Nov", "12": "Dec"
+    },
+    "view": {
+      "monthly": "Monthly",
+      "annual": "Annual"
+    },
+    "just_now": "Just now",
+    "minutes_ago": "{{count}} minutes ago",
+    "hours_ago": "{{count}} hours ago",
+    "days_ago": "{{count}} days ago"
+  },
+  "pagination": {
+    "showing": "Showing {{from}}-{{to}} of {{total}}",
+    "per_page": "Items per page"
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "not_found": "Not found",
+    "network": "Network error. Check your connection.",
+    "unauthorized": "Unauthorized"
+  },
+  "confirm_delete": "Are you sure you want to delete this?",
+  "no_results": "No results found",
+  "build_snapshot": "Build Snapshot",
+  "building": "Building...",
+  "last_built": "Last built",
+  "snapshot_date": "Snapshot date",
+  "today": "Today (default)",
+  "custom_date": "Custom date (historical)",
+  "historical": "Historical",
+  "build_for": "Build for {{date}}",
+  "all": "All",
+  "section": {
+    "main": "Main",
+    "analysis": "Analysis",
+    "budget": "Budget",
+    "system": "System"
+  },
+  "app_name": "Wealth OS",
+  "app_subtitle": "Portfolio Intelligence",
+  "import_from_json": "Import from JSON",
+  "add_metadata_field": "+ Add metadata field",
+  "additional_fields": "Additional fields",
+  "notes": "Notes",
+  "optional_notes": "Optional notes…",
+  "none": "— None —",
+  "cannot_be_undone": "This cannot be undone."
+}

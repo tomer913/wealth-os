@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   getBudgetCategories, getBudgetPlans, createBudgetPlan, updateBudgetPlan,
   generatePlansFromHistory, importPlansFromYear,
@@ -8,22 +9,11 @@ import { useAppStore } from '../store'
 import type { BudgetCategory, BudgetPlan } from '../types'
 import clsx from 'clsx'
 
-const TYPE_LABELS: Record<string, string> = {
-  income: 'הכנסות',
-  expense: 'הוצאות',
-  saving: 'חיסכון',
-  investment: 'השקעות',
-}
 const TYPE_COLORS: Record<string, string> = {
   income: 'text-emerald-600 bg-emerald-50',
   expense: 'text-red-500 bg-red-50',
   saving: 'text-purple-600 bg-purple-50',
   investment: 'text-blue-600 bg-blue-50',
-}
-const PLAN_TYPE_LABELS: Record<string, string> = {
-  fixed_monthly: 'קבוע חודשי',
-  annual_pool: 'מאגר שנתי',
-  one_time: 'חד פעמי',
 }
 
 function fmtILS(n: number | null | undefined) {
@@ -32,6 +22,8 @@ function fmtILS(n: number | null | undefined) {
 }
 
 export default function BudgetManagementPage() {
+  const { t } = useTranslation('budget')
+  const { t: tc } = useTranslation('common')
   const { activeBudgetYear, setActiveBudgetYear } = useAppStore()
   const qc = useQueryClient()
 
@@ -53,9 +45,7 @@ export default function BudgetManagementPage() {
     return acc
   }, {})
 
-  const selectedCat = selectedCatId
-    ? findCat(categories, selectedCatId)
-    : null
+  const selectedCat = selectedCatId ? findCat(categories, selectedCatId) : null
 
   const generateMutation = useMutation({
     mutationFn: () => generatePlansFromHistory(activeBudgetYear, 6),
@@ -76,7 +66,7 @@ export default function BudgetManagementPage() {
     })
   }
 
-  // Group flat category list by type (roots)
+  // Group flat category list by type (roots only)
   const byType: Record<string, BudgetCategory[]> = {}
   for (const cat of categories) {
     if (!cat.parent_id) {
@@ -91,7 +81,7 @@ export default function BudgetManagementPage() {
       <div className="w-64 min-w-[240px] border-l border-gray-100 bg-white flex flex-col overflow-hidden">
         {/* Year selector */}
         <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-          <span className="text-[12px] text-gray-500">שנה:</span>
+          <span className="text-[12px] text-gray-500">{t('manage.year_label')}</span>
           <select
             value={activeBudgetYear}
             onChange={(e) => setActiveBudgetYear(Number(e.target.value))}
@@ -103,7 +93,7 @@ export default function BudgetManagementPage() {
 
         {/* Tree */}
         <div className="flex-1 overflow-y-auto py-2">
-          {['income', 'expense', 'saving', 'investment'].map((type) => {
+          {(['income', 'expense', 'saving', 'investment'] as const).map((type) => {
             const cats = byType[type] ?? []
             if (cats.length === 0) return null
             return (
@@ -112,7 +102,7 @@ export default function BudgetManagementPage() {
                   onClick={() => toggleType(type)}
                   className="w-full flex items-center justify-between px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500 hover:bg-gray-50"
                 >
-                  {TYPE_LABELS[type]}
+                  {t(`category_types.${type}`)}
                   <span className={clsx('transition-transform', expandedTypes.has(type) ? 'rotate-90' : '')}>›</span>
                 </button>
                 {expandedTypes.has(type) && cats.map(cat => (
@@ -122,6 +112,8 @@ export default function BudgetManagementPage() {
                     level={0}
                     selectedId={selectedCatId}
                     planMap={planMap}
+                    hasPlanLabel={t('manage.has_plan')}
+                    noPlanLabel={t('manage.no_plan')}
                     onSelect={setSelectedCatId}
                   />
                 ))}
@@ -137,14 +129,18 @@ export default function BudgetManagementPage() {
             disabled={generateMutation.isPending}
             className="w-full px-3 py-2 text-[11px] bg-teal-50 text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-100 disabled:opacity-50 transition-colors"
           >
-            {generateMutation.isPending ? 'מחשב…' : `✦ הפק מהיסטוריה → ${activeBudgetYear}`}
+            {generateMutation.isPending
+              ? t('manage.generating')
+              : t('manage.generate_from_history_btn', { year: activeBudgetYear })}
           </button>
           <button
             onClick={() => importMutation.mutate()}
             disabled={importMutation.isPending}
             className="w-full px-3 py-2 text-[11px] bg-gray-50 text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
           >
-            {importMutation.isPending ? 'מייבא…' : `↙ ייבא מ-${activeBudgetYear - 1}`}
+            {importMutation.isPending
+              ? t('manage.importing')
+              : t('manage.import_from_year_btn', { year: activeBudgetYear - 1 })}
           </button>
         </div>
       </div>
@@ -161,8 +157,8 @@ export default function BudgetManagementPage() {
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <div className="text-4xl mb-3">←</div>
-            <p className="text-[14px]">בחר קטגוריה מהרשימה להגדרת תקציב</p>
+            <div className="text-4xl mb-3">{t('manage.select_category_arrow')}</div>
+            <p className="text-[14px]">{t('manage.select_category')}</p>
           </div>
         )}
       </div>
@@ -180,12 +176,14 @@ function findCat(cats: BudgetCategory[], id: string): BudgetCategory | null {
 }
 
 function CategoryTreeNode({
-  cat, level, selectedId, planMap, onSelect,
+  cat, level, selectedId, planMap, hasPlanLabel, noPlanLabel, onSelect,
 }: {
   cat: BudgetCategory
   level: number
   selectedId: string | null
   planMap: Record<string, BudgetPlan>
+  hasPlanLabel: string
+  noPlanLabel: string
   onSelect: (id: string) => void
 }) {
   const hasPlan = !!planMap[cat.id]
@@ -205,9 +203,9 @@ function CategoryTreeNode({
       >
         <span className="truncate flex-1 text-right">{cat.name}</span>
         {hasPlan ? (
-          <span className="text-[9px] text-teal-500 flex-shrink-0">✓</span>
+          <span className="text-[9px] text-teal-500 flex-shrink-0">{hasPlanLabel}</span>
         ) : (
-          <span className="text-[9px] text-gray-300 flex-shrink-0">○</span>
+          <span className="text-[9px] text-gray-300 flex-shrink-0">{noPlanLabel}</span>
         )}
       </button>
       {(cat.children ?? []).map(child => (
@@ -217,6 +215,8 @@ function CategoryTreeNode({
           level={level + 1}
           selectedId={selectedId}
           planMap={planMap}
+          hasPlanLabel={hasPlanLabel}
+          noPlanLabel={noPlanLabel}
           onSelect={onSelect}
         />
       ))}
@@ -232,6 +232,8 @@ function PlanEditor({
   existingPlan: BudgetPlan | null
   onSaved: () => void
 }) {
+  const { t } = useTranslation('budget')
+  const { t: tc } = useTranslation('common')
   const [planType, setPlanType] = useState<'fixed_monthly' | 'annual_pool' | 'one_time'>(
     existingPlan?.plan_type ?? 'fixed_monthly'
   )
@@ -276,8 +278,6 @@ function PlanEditor({
     setTimeout(() => setSaved(false), 2000)
   }
 
-  const MONTH_NAMES = ['', 'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
-
   return (
     <div className="max-w-xl">
       {/* Category header */}
@@ -287,7 +287,7 @@ function PlanEditor({
           {category.name_en && <p className="text-[12px] text-gray-400">{category.name_en}</p>}
         </div>
         <span className={clsx('text-[11px] px-2 py-0.5 rounded-full font-medium', TYPE_COLORS[category.category_type])}>
-          {TYPE_LABELS[category.category_type]}
+          {t(`category_types.${category.category_type}`)}
         </span>
         <span className="text-[12px] text-gray-400 mr-auto">{year}</span>
       </div>
@@ -295,7 +295,9 @@ function PlanEditor({
       <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-5">
         {/* Plan type */}
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">סוג תכנון</label>
+          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            {t('manage.plan_type_label')}
+          </label>
           <div className="flex gap-2">
             {(['fixed_monthly', 'annual_pool', 'one_time'] as const).map((pt) => (
               <button
@@ -308,17 +310,17 @@ function PlanEditor({
                     : 'border-gray-200 text-gray-600 hover:border-teal-300',
                 )}
               >
-                {PLAN_TYPE_LABELS[pt]}
+                {t(`manage.plan_types.${pt}`)}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Amount inputs */}
+        {/* Monthly amount */}
         {planType === 'fixed_monthly' && (
           <div>
             <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              סכום חודשי (₪)
+              {t('manage.fields.monthly_amount')}
             </label>
             <input
               type="number"
@@ -330,16 +332,17 @@ function PlanEditor({
             />
             {monthlyAmount && (
               <p className="text-[11px] text-gray-400 mt-1">
-                שנתי: {fmtILS(Number(monthlyAmount) * 12)}
+                {t('manage.fields.annual_equivalent', { amount: fmtILS(Number(monthlyAmount) * 12) })}
               </p>
             )}
           </div>
         )}
 
+        {/* Annual amount */}
         {(planType === 'annual_pool' || planType === 'one_time') && (
           <div>
             <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              סכום שנתי (₪)
+              {t('manage.fields.annual_amount')}
             </label>
             <input
               type="number"
@@ -351,22 +354,22 @@ function PlanEditor({
             />
             {planType === 'annual_pool' && annualAmount && (
               <p className="text-[11px] text-gray-400 mt-1">
-                ממוצע חודשי: {fmtILS(Number(annualAmount) / 12)}
+                {t('manage.fields.monthly_avg', { amount: fmtILS(Number(annualAmount) / 12) })}
               </p>
             )}
           </div>
         )}
 
-        {/* Monthly overrides (only for fixed_monthly) */}
+        {/* Monthly overrides */}
         {planType === 'fixed_monthly' && (
           <div>
             <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              עקיפות חודשיות (אופציונלי)
+              {t('manage.fields.monthly_overrides')}
             </label>
             <div className="grid grid-cols-3 gap-2">
               {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                 <div key={m} className="flex items-center gap-1">
-                  <span className="text-[10px] text-gray-400 w-8 flex-shrink-0">{MONTH_NAMES[m].slice(0, 3)}</span>
+                  <span className="text-[10px] text-gray-400 w-8 flex-shrink-0">{tc(`time.months_short.${m}`)}</span>
                   <input
                     type="number"
                     value={overrides[String(m)] ?? ''}
@@ -391,13 +394,15 @@ function PlanEditor({
 
         {/* Notes */}
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">הערות</label>
+          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            {t('manage.fields.notes')}
+          </label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
             className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 resize-none"
-            placeholder="הערות אופציונליות…"
+            placeholder={t('manage.fields.notes_placeholder')}
           />
         </div>
 
@@ -408,9 +413,9 @@ function PlanEditor({
             disabled={isPending}
             className="flex-1 py-2.5 bg-teal-600 text-white text-[13px] font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
           >
-            {isPending ? 'שומר…' : existingPlan ? 'עדכן תכנון' : 'צור תכנון'}
+            {isPending ? t('manage.saving') : existingPlan ? t('manage.update_plan') : t('manage.create_plan')}
           </button>
-          {saved && <span className="text-[12px] text-emerald-600">✓ נשמר</span>}
+          {saved && <span className="text-[12px] text-emerald-600">{t('manage.saved')}</span>}
         </div>
       </div>
     </div>

@@ -1,23 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
-  getProcessorRuns, triggerProcessorRun, resetProcessorCheckpoint, triggerSnapshotRebuild,
+  getProcessorRuns, triggerProcessorRun, resetProcessorCheckpoint,
 } from '../api/portfolio'
 import { useRebuildSnapshot } from '../hooks/usePortfolio'
 import { isEnabled } from '../config/features'
 import type { ProcessorRun } from '../types'
 import clsx from 'clsx'
-
-function fmtRelative(iso: string | null) {
-  if (!iso) return '–'
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 2) return 'זה עתה'
-  if (mins < 60) return `לפני ${mins} דקות`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `לפני ${hrs} שעות`
-  return `לפני ${Math.floor(hrs / 24)} ימים`
-}
 
 function fmtDuration(ms: number | null) {
   if (ms == null) return '–'
@@ -32,22 +22,9 @@ const STATUS_STYLES: Record<string, string> = {
   partial: 'bg-amber-100 text-amber-700',
 }
 
-const PROCESSOR_INFO: Array<{ name: string; label: string; description: string; icon: string }> = [
-  {
-    name: 'bank_processor',
-    label: 'מעבד בנקאי',
-    description: 'ממיר raw_transactions → transactions',
-    icon: '🏦',
-  },
-  {
-    name: 'budget_processor',
-    label: 'מעבד תקציב',
-    description: 'מסווג עסקאות לקטגוריות תקציב',
-    icon: '🏷',
-  },
-]
-
 export default function PipelineStatusPage() {
+  const { t } = useTranslation('pipeline')
+  const { t: tc } = useTranslation('common')
   const qc = useQueryClient()
   const [selectedProcessor, setSelectedProcessor] = useState<string>('all')
 
@@ -75,6 +52,22 @@ export default function PipelineStatusPage() {
     return allRuns.find((r: ProcessorRun) => r.processor_name === processorName) ?? null
   }
 
+  function fmtRelative(iso: string | null) {
+    if (!iso) return '–'
+    const diff = Date.now() - new Date(iso).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 2) return tc('time.just_now')
+    if (mins < 60) return tc('time.minutes_ago', { count: mins })
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return tc('time.hours_ago', { count: hrs })
+    return tc('time.days_ago', { count: Math.floor(hrs / 24) })
+  }
+
+  const processorDefs = [
+    { name: 'bank_processor', labelKey: 'stages.bank_processor', descKey: 'bank_processor_desc' },
+    { name: 'budget_processor', labelKey: 'stages.budget_processor', descKey: 'budget_processor_desc' },
+  ]
+
   const filteredRuns = selectedProcessor === 'all'
     ? allRuns
     : allRuns.filter((r: ProcessorRun) => r.processor_name === selectedProcessor)
@@ -83,29 +76,29 @@ export default function PipelineStatusPage() {
     <div className="p-6 space-y-6 bg-gray-50 min-h-full" dir="rtl">
 
       {/* Stage cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
 
         {/* Connectors */}
         <div className="bg-white rounded-xl border border-gray-100 p-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xl">🔌</span>
             <div>
-              <p className="text-[13px] font-semibold text-gray-800">קונקטורים</p>
-              <p className="text-[11px] text-gray-400">מביאים raw_transactions</p>
+              <p className="text-[13px] font-semibold text-gray-800">{t('stages.connectors')}</p>
+              <p className="text-[11px] text-gray-400">{t('connectors_desc')}</p>
             </div>
           </div>
           <div className="text-[11px] text-gray-500 space-y-1">
-            <p>מזרחי טפחות: Upload ידני</p>
-            <p>לאומי: Upload ידני</p>
-            <p>כרטיסי אשראי: GitHub Actions (05:00 UTC)</p>
+            <p>{t('connectors_mizrachi')}</p>
+            <p>{t('connectors_leumi')}</p>
+            <p>{t('connectors_cards')}</p>
           </div>
           <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-[11px] text-gray-400">הפעלה אוטומטית: 07:00 IL</p>
+            <p className="text-[11px] text-gray-400">{t('auto_run_time')}</p>
           </div>
         </div>
 
-        {/* Processors */}
-        {PROCESSOR_INFO.map((proc) => {
+        {/* Processor cards */}
+        {processorDefs.map((proc) => {
           const lastRun = getLastRun(proc.name)
           const canControl = isEnabled('processor_controls')
 
@@ -113,32 +106,32 @@ export default function PipelineStatusPage() {
             <div key={proc.name} className="bg-white rounded-xl border border-gray-100 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">{proc.icon}</span>
+                  <span className="text-xl">{proc.name === 'bank_processor' ? '🏦' : '🏷'}</span>
                   <div>
-                    <p className="text-[13px] font-semibold text-gray-800">{proc.label}</p>
-                    <p className="text-[11px] text-gray-400">{proc.description}</p>
+                    <p className="text-[13px] font-semibold text-gray-800">{t(proc.labelKey)}</p>
+                    <p className="text-[11px] text-gray-400">{t(proc.descKey)}</p>
                   </div>
                 </div>
                 {lastRun && (
                   <span className={clsx('text-[10px] px-2 py-0.5 rounded-full font-medium', STATUS_STYLES[lastRun.status] ?? 'bg-gray-100 text-gray-500')}>
-                    {lastRun.status}
+                    {tc(`status.${lastRun.status}`)}
                   </span>
                 )}
               </div>
 
               {lastRun ? (
                 <div className="text-[11px] text-gray-500 space-y-1">
-                  <p>הרצה אחרונה: {fmtRelative(lastRun.started_at)}</p>
-                  <p>שורות: {lastRun.rows_read} קרא / {lastRun.rows_written} כתב / {lastRun.rows_skipped} דילג</p>
-                  <p>משך: {fmtDuration(lastRun.duration_ms)}</p>
+                  <p>{t('processor.last_run', { time: fmtRelative(lastRun.started_at) })}</p>
+                  <p>{t('processor.rows', { read: lastRun.rows_read, written: lastRun.rows_written, skipped: lastRun.rows_skipped })}</p>
+                  <p>{t('processor.duration', { duration: fmtDuration(lastRun.duration_ms) })}</p>
                   {lastRun.error_message && (
                     <p className="text-red-500 text-[10px] truncate" title={lastRun.error_message}>
-                      שגיאה: {lastRun.error_message}
+                      {t('processor.error', { message: lastRun.error_message })}
                     </p>
                   )}
                 </div>
               ) : (
-                <p className="text-[11px] text-gray-400">אין הרצות</p>
+                <p className="text-[11px] text-gray-400">{t('processor.no_runs')}</p>
               )}
 
               {canControl && (
@@ -148,19 +141,19 @@ export default function PipelineStatusPage() {
                     disabled={triggerMut.isPending}
                     className="flex-1 py-1.5 text-[11px] bg-teal-50 text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-100 disabled:opacity-50 transition-colors"
                   >
-                    {triggerMut.isPending ? '…' : '▶ הפעל'}
+                    {triggerMut.isPending ? t('processor.triggering') : t('processor.trigger')}
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm('לאפס נקודת ביקורת? כל העסקאות יעובדו מחדש.')) {
+                      if (confirm(t('processor.reset_warning'))) {
                         resetMut.mutate(proc.name)
                       }
                     }}
                     disabled={resetMut.isPending}
                     className="py-1.5 px-2 text-[11px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                    title="אפס נקודת ביקורת"
+                    title={t('processor.reset_title')}
                   >
-                    ↺
+                    {t('processor.reset_title')}
                   </button>
                 </div>
               )}
@@ -173,13 +166,13 @@ export default function PipelineStatusPage() {
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xl">⚡</span>
             <div>
-              <p className="text-[13px] font-semibold text-gray-800">מנוע תמונת מצב</p>
-              <p className="text-[11px] text-gray-400">מחשב ערכי תיק עדכניים</p>
+              <p className="text-[13px] font-semibold text-gray-800">{t('stages.engine')}</p>
+              <p className="text-[11px] text-gray-400">{t('engine_desc')}</p>
             </div>
           </div>
           <div className="text-[11px] text-gray-500 space-y-1">
-            <p>POST /api/v1/snapshots/rebuild</p>
-            <p>הפעלה אוטומטית: 07:10 IL</p>
+            <p dir="ltr" className="text-right">{t('engine_endpoint')}</p>
+            <p>{t('auto_run_time')}</p>
           </div>
           <div className="mt-3 pt-3 border-t border-gray-100">
             <button
@@ -187,7 +180,7 @@ export default function PipelineStatusPage() {
               disabled={isRebuilding}
               className="w-full py-1.5 text-[12px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
             >
-              {isRebuilding ? 'בונה…' : '⟳ בנה תמונת מצב'}
+              {isRebuilding ? tc('building') : tc('build_snapshot')}
             </button>
           </div>
         </div>
@@ -196,42 +189,46 @@ export default function PipelineStatusPage() {
       {/* Recent runs table */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-          <p className="text-[12px] font-semibold text-gray-700">הרצות אחרונות</p>
+          <p className="text-[12px] font-semibold text-gray-700">{t('recent_runs')}</p>
           <div className="flex gap-1">
-            {(['all', ...PROCESSOR_INFO.map(p => p.name)] as const).map((p) => (
+            {([
+              { key: 'all', label: t('filter_all') },
+              { key: 'bank_processor', label: t('filter_bank') },
+              { key: 'budget_processor', label: t('filter_budget') },
+            ]).map(({ key, label }) => (
               <button
-                key={p}
-                onClick={() => setSelectedProcessor(p)}
+                key={key}
+                onClick={() => setSelectedProcessor(key)}
                 className={clsx(
                   'px-2 py-1 text-[10px] rounded font-medium transition-colors',
-                  selectedProcessor === p
+                  selectedProcessor === key
                     ? 'bg-gray-800 text-white'
                     : 'text-gray-500 hover:bg-gray-100',
                 )}
               >
-                {p === 'all' ? 'הכל' : p === 'bank_processor' ? 'בנקאי' : 'תקציב'}
+                {label}
               </button>
             ))}
           </div>
         </div>
 
         {isLoading ? (
-          <div className="p-6 text-center text-gray-400 text-sm">טוען…</div>
+          <div className="p-6 text-center text-gray-400 text-sm">{tc('status.loading')}</div>
         ) : filteredRuns.length === 0 ? (
-          <div className="p-6 text-center text-gray-400 text-sm">אין הרצות</div>
+          <div className="p-6 text-center text-gray-400 text-sm">{t('processor.no_runs')}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="border-b border-gray-100 text-gray-400 text-[10px] uppercase tracking-wide">
-                  <th className="px-4 py-2 text-right">מעבד</th>
-                  <th className="px-4 py-2 text-right">סטטוס</th>
-                  <th className="px-4 py-2 text-right">התחיל</th>
-                  <th className="px-4 py-2 text-left">קרא</th>
-                  <th className="px-4 py-2 text-left">כתב</th>
-                  <th className="px-4 py-2 text-left">דילג</th>
-                  <th className="px-4 py-2 text-left">משך</th>
-                  <th className="px-4 py-2 text-right">מופעל ע"י</th>
+                  <th className="px-4 py-2 text-right">{t('columns.processor')}</th>
+                  <th className="px-4 py-2 text-right">{t('columns.status')}</th>
+                  <th className="px-4 py-2 text-right">{t('columns.started')}</th>
+                  <th className="px-4 py-2 text-left">{t('columns.read')}</th>
+                  <th className="px-4 py-2 text-left">{t('columns.written')}</th>
+                  <th className="px-4 py-2 text-left">{t('columns.skipped')}</th>
+                  <th className="px-4 py-2 text-left">{t('columns.duration')}</th>
+                  <th className="px-4 py-2 text-right">{t('columns.triggered_by')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -240,7 +237,7 @@ export default function PipelineStatusPage() {
                     <td className="px-4 py-2.5 font-mono text-[11px] text-gray-600">{run.processor_name}</td>
                     <td className="px-4 py-2.5">
                       <span className={clsx('text-[10px] px-2 py-0.5 rounded-full font-medium', STATUS_STYLES[run.status] ?? 'bg-gray-100 text-gray-500')}>
-                        {run.status}
+                        {tc(`status.${run.status}`)}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-gray-500">{fmtRelative(run.started_at)}</td>

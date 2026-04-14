@@ -1,0 +1,43 @@
+{
+  "title": "צינור נתונים",
+  "stages": {
+    "connectors": "קונקטורים",
+    "bank_processor": "מעבד בנקאי",
+    "budget_processor": "מעבד תקציב",
+    "engine": "מנוע חישוב"
+  },
+  "connectors_desc": "מביאים raw_transactions",
+  "connectors_mizrachi": "מזרחי טפחות: Upload ידני",
+  "connectors_leumi": "לאומי: Upload ידני",
+  "connectors_cards": "כרטיסי אשראי: GitHub Actions (05:00 UTC)",
+  "auto_run_time": "הפעלה אוטומטית: 07:00 IL",
+  "bank_processor_desc": "ממיר raw_transactions לעסקאות",
+  "budget_processor_desc": "מסווג עסקאות לקטגוריות תקציב",
+  "engine_desc": "מחשב ערכי תיק עדכניים",
+  "engine_endpoint": "POST /api/v1/snapshots/rebuild",
+  "processor": {
+    "last_run": "הרצה אחרונה: {{time}}",
+    "rows": "שורות: {{read}} קרא / {{written}} כתב / {{skipped}} דילג",
+    "duration": "משך: {{duration}}",
+    "error": "שגיאה: {{message}}",
+    "no_runs": "אין הרצות",
+    "trigger": "▶ הפעל",
+    "triggering": "…",
+    "reset_title": "↺",
+    "reset_warning": "לאפס נקודת ביקורת? כל העסקאות יעובדו מחדש."
+  },
+  "recent_runs": "הרצות אחרונות",
+  "filter_all": "הכל",
+  "filter_bank": "בנקאי",
+  "filter_budget": "תקציב",
+  "columns": {
+    "processor": "מעבד",
+    "status": "סטטוס",
+    "started": "התחיל",
+    "read": "קרא",
+    "written": "כתב",
+    "skipped": "דילג",
+    "duration": "משך",
+    "triggered_by": "מופעל ע\"י"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "title": "Budget",
+  "dashboard": {
+    "title": "Budget Dashboard",
+    "plan_vs_actual": "Plan vs Actual",
+    "category_breakdown": "Category Breakdown — {{month}} {{year}}",
+    "no_data_month": "No budget data for this month",
+    "no_plan": "No budget plan for this period",
+    "go_manage": "Click here to set up a budget",
+    "unclassified_alert": "{{count}} transactions pending classification",
+    "go_to_review": "Go to review queue",
+    "cash_flow": "Net Cash Flow",
+    "cash_flow_desc": "Income minus expenses",
+    "no_plan_label": "No plan",
+    "planned_of": "of {{amount}} planned",
+    "columns": {
+      "category": "Category",
+      "plan": "Plan",
+      "actual": "Actual",
+      "variance": "Variance",
+      "progress": "Progress"
+    }
+  },
+  "category_types": {
+    "income": "Income",
+    "expense": "Expenses",
+    "saving": "Savings",
+    "investment": "Investments"
+  },
+  "manage": {
+    "title": "Budget Management",
+    "year_label": "Year:",
+    "select_category": "Select a category from the list to set a budget",
+    "select_category_arrow": "←",
+    "generate_from_history_btn": "✦ Generate from history → {{year}}",
+    "import_from_year_btn": "↙ Import from {{year}}",
+    "generating": "Calculating…",
+    "importing": "Importing…",
+    "plan_types": {
+      "fixed_monthly": "Fixed Monthly",
+      "annual_pool": "Annual Pool",
+      "one_time": "One Time"
+    },
+    "plan_type_label": "Plan type",
+    "has_plan": "✓",
+    "no_plan": "○",
+    "fields": {
+      "monthly_amount": "Monthly amount (₪)",
+      "annual_equivalent": "Annual: {{amount}}",
+      "annual_amount": "Annual amount (₪)",
+      "monthly_avg": "Monthly average: {{amount}}",
+      "monthly_overrides": "Monthly overrides (optional)",
+      "notes": "Notes",
+      "notes_placeholder": "Optional notes…"
+    },
+    "create_plan": "Create plan",
+    "update_plan": "Update plan",
+    "saving": "Saving…",
+    "saved": "✓ Saved"
+  },
+  "rules": {
+    "title": "Classification Rules",
+    "tabs": {
+      "active": "Active",
+      "suggested": "Suggested",
+      "review_queue": "Review Queue",
+      "conflicts": "Conflicts"
+    },
+    "approve_all_high": "Approve all with high confidence (>90%)",
+    "test_result": "{{count}} transactions would match this rule",
+    "no_matches": "No matching transactions in recent data",
+    "go_to_review": "Go to review queue"
+  }
+}

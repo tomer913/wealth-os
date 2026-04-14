@@ -1,30 +1,34 @@
 import { useState, useRef, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import Sidebar from './Sidebar'
 import CategoryFilter from './CategoryFilter'
 import PortfolioSelector from './PortfolioSelector'
+import LanguageSwitcher from './LanguageSwitcher'
 import { useRebuildSnapshot } from '../../hooks/usePortfolio'
 import { useAppStore } from '../../store'
 import { formatDateTime } from '../../utils/format'
 
-const PAGE_TITLES: Record<string, string> = {
-  '/': 'Dashboard',
-  '/assets': 'Assets',
-  '/accounts': 'Accounts',
-  '/transactions': 'Transactions',
-  '/valuations': 'Valuations',
-  '/connectors': 'Connectors',
-  '/fx-rates': 'FX Rates',
-  '/reports': 'Reports',
-  '/budget': 'Budget Dashboard',
-  '/budget/manage': 'Budget Management',
-  '/budget/rules': 'Budget Rules',
-  '/pipeline': 'Pipeline Status',
+const PAGE_TITLE_KEYS: Record<string, string> = {
+  '/': 'nav.dashboard',
+  '/assets': 'nav.assets',
+  '/accounts': 'nav.accounts',
+  '/transactions': 'nav.transactions',
+  '/valuations': 'nav.valuations',
+  '/connectors': 'nav.connectors',
+  '/fx-rates': 'nav.fx_rates',
+  '/reports': 'nav.reports',
+  '/budget': 'nav.budget_dashboard',
+  '/budget/manage': 'nav.budget_manage',
+  '/budget/rules': 'nav.budget_rules',
+  '/pipeline': 'nav.pipeline',
 }
 
 export default function AppShell() {
   const location = useLocation()
-  const title = PAGE_TITLES[location.pathname] ?? 'Wealth OS'
+  const { t: tc } = useTranslation('common')
+  const titleKey = PAGE_TITLE_KEYS[location.pathname] ?? 'app_name'
+  const title = tc(titleKey)
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -37,9 +41,10 @@ export default function AppShell() {
             <h1 className="text-[18px] font-medium text-gray-900 tracking-tight">{title}</h1>
           </div>
           <div className="flex items-center gap-3">
+            <LanguageSwitcher />
             <PortfolioSelector />
             <BuildSnapshotButton />
-            <div className="md:hidden text-gray-400 text-sm">Wealth OS</div>
+            <div className="md:hidden text-gray-400 text-sm">{tc('app_name')}</div>
           </div>
         </header>
         <CategoryFilter />
@@ -56,6 +61,7 @@ export default function AppShell() {
 function BuildSnapshotButton() {
   const { mutate: rebuild, isPending } = useRebuildSnapshot()
   const lastBuiltAt = useAppStore((s) => s.lastBuiltAt)
+  const { t: tc } = useTranslation('common')
   const [open, setOpen] = useState(false)
   const [customDate, setCustomDate] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -95,7 +101,7 @@ function BuildSnapshotButton() {
             <path d="M11 6.5A4.5 4.5 0 1 1 6.5 2" strokeLinecap="round"/>
             <polyline points="6.5,2 9,2 9,4.5"/>
           </svg>
-          {isPending ? 'Building…' : 'Build Snapshot'}
+          {isPending ? tc('building') : tc('build_snapshot')}
         </button>
         {/* Dropdown arrow */}
         <button
@@ -113,7 +119,7 @@ function BuildSnapshotButton() {
       {open && (
         <div className="absolute right-0 top-full mt-1.5 w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-50 p-4">
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Snapshot date
+            {tc('snapshot_date')}
           </p>
 
           {/* Today option */}
@@ -123,12 +129,12 @@ function BuildSnapshotButton() {
               <circle cx="7" cy="7" r="5.5"/>
               <path d="M7 4v3l1.5 1.5"/>
             </svg>
-            Today (default)
+            {tc('today')}
           </button>
 
           {/* Custom date */}
           <div className="mt-2 pt-2 border-t border-gray-100">
-            <p className="text-[11px] text-gray-400 mb-2">Custom date (historical)</p>
+            <p className="text-[11px] text-gray-400 mb-2">{tc('custom_date')}</p>
             <input
               type="date"
               value={customDate}
@@ -140,14 +146,14 @@ function BuildSnapshotButton() {
               onClick={runCustomDate}
               disabled={!customDate}
               className="w-full px-3 py-2 text-[12px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40 transition-colors">
-              Build for {customDate || '…'}
+              {tc('build_for', { date: customDate || '…' })}
             </button>
           </div>
 
           {/* Last built info */}
           {lastBuiltAt && (
             <p className="text-[10px] text-gray-400 text-center mt-3">
-              Last built: {formatDateTime(lastBuiltAt)}
+              {tc('last_built')}: {formatDateTime(lastBuiltAt)}
             </p>
           )}
         </div>

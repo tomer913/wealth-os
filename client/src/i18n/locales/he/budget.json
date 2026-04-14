@@ -1,0 +1,74 @@
+{
+  "title": "תקציב",
+  "dashboard": {
+    "title": "לוח תקציב",
+    "plan_vs_actual": "תכנון מול ביצוע",
+    "category_breakdown": "פירוט קטגוריות — {{month}} {{year}}",
+    "no_data_month": "אין נתוני תקציב לחודש זה",
+    "no_plan": "אין תכנון תקציב לתקופה זו",
+    "go_manage": "לחץ כאן להגדרת תקציב",
+    "unclassified_alert": "{{count}} עסקאות ממתינות לסיווג ידני",
+    "go_to_review": "עבור לתור בדיקה",
+    "cash_flow": "תזרים נטו",
+    "cash_flow_desc": "הכנסות פחות הוצאות",
+    "no_plan_label": "ללא תכנון",
+    "planned_of": "מתוך {{amount}} מתוכנן",
+    "columns": {
+      "category": "קטגוריה",
+      "plan": "תכנון",
+      "actual": "ביצוע",
+      "variance": "סטייה",
+      "progress": "התקדמות"
+    }
+  },
+  "category_types": {
+    "income": "הכנסות",
+    "expense": "הוצאות",
+    "saving": "חיסכון",
+    "investment": "השקעות"
+  },
+  "manage": {
+    "title": "ניהול תקציב",
+    "year_label": "שנה:",
+    "select_category": "בחר קטגוריה מהרשימה להגדרת תקציב",
+    "select_category_arrow": "←",
+    "generate_from_history_btn": "✦ הפק מהיסטוריה → {{year}}",
+    "import_from_year_btn": "↙ ייבא מ-{{year}}",
+    "generating": "מחשב…",
+    "importing": "מייבא…",
+    "plan_types": {
+      "fixed_monthly": "קבוע חודשי",
+      "annual_pool": "מאגר שנתי",
+      "one_time": "חד פעמי"
+    },
+    "plan_type_label": "סוג תכנון",
+    "has_plan": "✓",
+    "no_plan": "○",
+    "fields": {
+      "monthly_amount": "סכום חודשי (₪)",
+      "annual_equivalent": "שנתי: {{amount}}",
+      "annual_amount": "סכום שנתי (₪)",
+      "monthly_avg": "ממוצע חודשי: {{amount}}",
+      "monthly_overrides": "עקיפות חודשיות (אופציונלי)",
+      "notes": "הערות",
+      "notes_placeholder": "הערות אופציונליות…"
+    },
+    "create_plan": "צור תכנון",
+    "update_plan": "עדכן תכנון",
+    "saving": "שומר…",
+    "saved": "✓ נשמר"
+  },
+  "rules": {
+    "title": "חוקי סיווג",
+    "tabs": {
+      "active": "פעילים",
+      "suggested": "מוצעים",
+      "review_queue": "ממתינים לאישור",
+      "conflicts": "קונפליקטים"
+    },
+    "approve_all_high": "אשר את כל בעלי הביטחון הגבוה (>90%)",
+    "test_result": "{{count}} תנועות יתאימו לחוק זה",
+    "no_matches": "אין תנועות תואמות בנתונים האחרונים",
+    "go_to_review": "עבור לתור בדיקה"
+  }
+}
