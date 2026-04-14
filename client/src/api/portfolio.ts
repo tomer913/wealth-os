@@ -320,3 +320,18 @@ export async function triggerSnapshotRebuild() {
   })
   return data
 }
+
+export async function uploadBankStatement(
+  connectorType: string,
+  portfolioId: string,
+  file: File,
+): Promise<{ created: number; skipped: number; total: number; connector_name: string; source: string }> {
+  const form = new FormData()
+  form.append('connector_type', connectorType)
+  form.append('portfolio_id', portfolioId)
+  form.append('file', file)
+  const { data } = await apiClient.post('/api/v1/connectors/upload/', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}

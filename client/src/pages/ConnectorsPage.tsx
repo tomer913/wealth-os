@@ -58,7 +58,7 @@ interface ConnectorType {
 // ─── API functions ────────────────────────────────────────────────────────────
 
 import apiClient from '../api/client'
-import { DEFAULT_PORTFOLIO_ID } from '../api/portfolio'
+import { DEFAULT_PORTFOLIO_ID, uploadBankStatement } from '../api/portfolio'
 
 async function getConnectors(): Promise<ConnectorRead[]> {
   const { data } = await apiClient.get('/api/v1/connectors/', {
@@ -248,6 +248,9 @@ export default function ConnectorsPage() {
           ))}
         </div>
       )}
+
+      {/* Upload bank statement */}
+      <UploadSection connectors={connectors} onUploaded={() => qc.invalidateQueries({ queryKey: ['connectors'] })} />
 
       {/* Add/Edit Modal */}
       <Modal open={modalOpen} onClose={closeModal}
@@ -568,6 +571,109 @@ function RunHistoryDrawer({ connector, onClose }: { connector: ConnectorRead; on
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Upload Section ───────────────────────────────────────────────────────────
+
+const UPLOAD_TYPES = ['mizrachi_bank', 'fibi_bank']
+
+function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]; onUploaded: () => void }) {
+  const uploadable = connectors.filter(c => UPLOAD_TYPES.includes(c.type) && c.is_active)
+  const [selectedId, setSelectedId] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [result, setResult] = useState<{ created: number; skipped: number; total: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useMemo(() => ({ current: null as HTMLInputElement | null }), [])
+
+  const selected = uploadable.find(c => c.id === selectedId) ?? uploadable[0] ?? null
+
+  async function handleUpload() {
+    if (!file || !selected) return
+    setUploading(true)
+    setResult(null)
+    setError(null)
+    try {
+      const res = await uploadBankStatement(selected.type, selected.portfolio_id, file)
+      setResult(res)
+      setFile(null)
+      if (fileRef.current) fileRef.current.value = ''
+      onUploaded()
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(e)
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  if (uploadable.length === 0) return null
+
+  return (
+    <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+      <h3 className="text-[14px] font-semibold text-gray-900 mb-1">Upload bank statement</h3>
+      <p className="text-[12px] text-gray-400 mb-4">Manually import a PDF or XLSX export from your bank</p>
+
+      <div className="flex flex-wrap items-end gap-3">
+        {/* Connector picker */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-gray-500 font-medium">Bank</label>
+          <select
+            value={selectedId || selected?.id || ''}
+            onChange={e => setSelectedId(e.target.value)}
+            className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"
+          >
+            {uploadable.map(c => (
+              <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
+            ))}
+          </select>
+        </div>
+
+        {/* File picker */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-gray-500 font-medium">File</label>
+          <input
+            type="file"
+            accept=".pdf,.xlsx"
+            ref={el => { fileRef.current = el }}
+            onChange={e => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(null) }}
+            className="text-[13px] text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-[12px] file:bg-white file:text-gray-600 hover:file:bg-gray-50 cursor-pointer"
+          />
+        </div>
+
+        {/* Upload button */}
+        <button
+          onClick={handleUpload}
+          disabled={!file || uploading}
+          className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg disabled:opacity-50 transition-colors"
+        >
+          {uploading ? (
+            <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M6.5 9V2M3 5l3.5-3.5L10 5"/><path d="M1 11h11"/></svg>
+          )}
+          {uploading ? 'Uploading…' : 'Upload'}
+        </button>
+      </div>
+
+      {/* Result */}
+      {result && (
+        <div className="mt-3 flex items-center gap-2 text-[12px] text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 6.5l3 3 6-6"/></svg>
+          <span>
+            <strong>{result.created}</strong> new transactions imported,{' '}
+            <strong>{result.skipped}</strong> already existed
+            {result.total > 0 && ` (${result.total} total in file)`}
+          </span>
+        </div>
+      )}
+      {error && (
+        <div className="mt-3 text-[12px] text-rose-600 bg-rose-50 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
     </div>
   )
 }

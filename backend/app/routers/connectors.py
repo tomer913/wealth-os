@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -311,6 +311,137 @@ async def get_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
+
+
+# ── File upload endpoint ──────────────────────────────────────────────────────
+
+UPLOAD_SUPPORTED = {"mizrachi_bank", "fibi_bank"}
+
+
+@router.post("/upload/")
+async def upload_bank_statement(
+    file: UploadFile = File(...),
+    connector_type: str = Form(...),
+    portfolio_id: UUID = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Accept a PDF or XLSX bank statement, parse it, and write to raw_transactions.
+    Supported connector_type values: mizrachi_bank, fibi_bank.
+    """
+    if connector_type not in UPLOAD_SUPPORTED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Upload not supported for connector type '{connector_type}'. "
+                   f"Supported: {sorted(UPLOAD_SUPPORTED)}",
+        )
+
+    # Look up connector record
+    q = (
+        select(Connector)
+        .where(
+            Connector.type == connector_type,
+            Connector.portfolio_id == portfolio_id,
+            Connector.is_active.is_(True),
+        )
+        .limit(1)
+    )
+    connector = (await db.execute(q)).scalar_one_or_none()
+    if not connector:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No active connector of type '{connector_type}' found for this portfolio",
+        )
+
+    # Read file bytes
+    file_bytes = await file.read()
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    # Parse based on connector type and file extension
+    try:
+        if connector_type == "mizrachi_bank":
+            from app.connectors.parsers.mizrachi import parse_mizrachi_pdf
+            if ext not in ("pdf",):
+                raise HTTPException(status_code=400, detail="Mizrachi Bank accepts PDF files only")
+            rows = parse_mizrachi_pdf(file_bytes)
+
+        else:  # fibi_bank
+            if ext == "xlsx":
+                from app.connectors.parsers.fibi import parse_fibi_xlsx
+                rows = parse_fibi_xlsx(file_bytes)
+            elif ext == "pdf":
+                from app.connectors.parsers.fibi import parse_fibi_pdf
+                rows = parse_fibi_pdf(file_bytes)
+            else:
+                raise HTTPException(status_code=400, detail="FIBI Bank accepts PDF or XLSX files only")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed to parse file: {exc}") from exc
+
+    # Write rows to raw_transactions with same dedup logic as BaseConnector._run_raw
+    from app.models.raw_layer import RawTransaction
+    from app.utils.uuid7 import uuid7
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    source = connector_type
+    started_at = datetime.now(timezone.utc)
+    created = 0
+    skipped = 0
+
+    for row in rows:
+        stmt = pg_insert(RawTransaction).values(
+            id=uuid7(),
+            portfolio_id=portfolio_id,
+            source=source,
+            raw_date=row["raw_date"],
+            description=row["description"],
+            amount=row["amount"],
+            currency=row.get("currency", "ILS"),
+            reference=row.get("reference"),
+            extra_raw=row.get("extra_raw"),
+            external_ref_id=row["external_ref_id"],
+            imported_at=datetime.now(timezone.utc),
+        ).on_conflict_do_nothing(constraint="uq_raw_transactions_source_ref")
+
+        result = await db.execute(stmt)
+        if result.rowcount:
+            created += 1
+        else:
+            skipped += 1
+
+    # Create connector_run audit record
+    finished_at = datetime.now(timezone.utc)
+    run = ConnectorRun(
+        id=uuid.uuid4(),
+        connector_id=connector.id,
+        portfolio_id=portfolio_id,
+        status="success",
+        triggered_by="manual",
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_ms=int((finished_at - started_at).total_seconds() * 1000),
+        records_fetched=len(rows),
+        transactions_created=created,
+        transactions_skipped=skipped,
+    )
+    db.add(run)
+
+    # Update connector.last_run_at
+    connector.last_run_at = finished_at
+    connector.last_error = None
+
+    await db.commit()
+
+    return {
+        "created": created,
+        "skipped": skipped,
+        "total": len(rows),
+        "connector_name": connector.name,
+        "source": source,
+    }
 
 
 # ── Ingest endpoint (for GitHub Actions scraper) ──────────────────────────────

@@ -18,3 +18,6 @@ pytest-asyncio==0.25.0
 yfinance>=0.2.40
 apscheduler>=3.10.0
 pytz
+pypdf>=4.0.0
+openpyxl>=3.1.0
+python-multipart>=0.0.9
