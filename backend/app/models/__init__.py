@@ -7,6 +7,7 @@ from app.models.fx_rate import FXRate
 from app.models.snapshot import PerformanceSnapshot
 from app.models.position import Position
 from app.models.raw_layer import RawTransaction, ServiceCheckpoint, ProcessorRun
+from app.models.price_history import AssetPriceHistory
 from app.models.budget import (
     BudgetCategory, BudgetPlan, BudgetActual, BudgetCategoryRule, ClassificationLog,
 )
@@ -14,7 +15,7 @@ from app.models.budget import (
 __all__ = [
     "Portfolio", "Account", "Asset", "Transaction",
     "ManualValuation", "FXRate", "PerformanceSnapshot", "Position",
-    "RawTransaction", "ServiceCheckpoint", "ProcessorRun",
+    "RawTransaction", "ServiceCheckpoint", "ProcessorRun", "AssetPriceHistory",
     "BudgetCategory", "BudgetPlan", "BudgetActual", "BudgetCategoryRule",
     "ClassificationLog",
 ]
