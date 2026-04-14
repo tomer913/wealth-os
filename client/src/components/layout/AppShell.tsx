@@ -24,11 +24,16 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   '/pipeline': 'nav.pipeline',
 }
 
+const SHOW_BUILD_SNAPSHOT = new Set(['/connectors'])
+const SHOW_CATEGORY_FILTER = new Set(['/', '/assets', '/accounts', '/transactions', '/valuations', '/fx-rates', '/reports'])
+
 export default function AppShell() {
   const location = useLocation()
   const { t: tc } = useTranslation('common')
   const titleKey = PAGE_TITLE_KEYS[location.pathname] ?? 'app_name'
   const title = tc(titleKey)
+  const showBuild = SHOW_BUILD_SNAPSHOT.has(location.pathname)
+  const showFilter = SHOW_CATEGORY_FILTER.has(location.pathname)
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -43,11 +48,11 @@ export default function AppShell() {
           <div className="flex items-center gap-3">
             <LanguageSwitcher />
             <PortfolioSelector />
-            <BuildSnapshotButton />
+            {showBuild && <BuildSnapshotButton />}
             <div className="md:hidden text-gray-400 text-sm">{tc('app_name')}</div>
           </div>
         </header>
-        <CategoryFilter />
+        {showFilter && <CategoryFilter />}
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
