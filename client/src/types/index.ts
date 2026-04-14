@@ -195,6 +195,8 @@ export interface BudgetCategory {
   color: string | null
   sort_order: number
   is_active: boolean
+  created_at?: string | null
+  plan?: BudgetPlan | null
   children: BudgetCategory[]
 }
 

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
-  getBudgetCategories, getBudgetPlans, createBudgetPlan, updateBudgetPlan,
+  getBudgetCategories, createBudgetPlan, updateBudgetPlan,
   generatePlansFromHistory, importPlansFromYear,
 } from '../api/portfolio'
 import { useAppStore } from '../store'
@@ -31,30 +31,30 @@ export default function BudgetManagementPage() {
   const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set(['expense', 'income', 'saving']))
 
   const { data: categories = [] } = useQuery({
-    queryKey: ['budget-categories'],
-    queryFn: getBudgetCategories,
+    queryKey: ['budget-categories', activeBudgetYear],
+    queryFn: () => getBudgetCategories(activeBudgetYear),
   })
 
-  const { data: plans = [] } = useQuery({
-    queryKey: ['budget-plans', activeBudgetYear],
-    queryFn: () => getBudgetPlans(activeBudgetYear),
-  })
-
-  const planMap: Record<string, BudgetPlan> = plans.reduce((acc: Record<string, BudgetPlan>, p: BudgetPlan) => {
-    acc[p.category_id] = p
-    return acc
-  }, {})
+  // Build planMap from embedded plan in each category (set by backend when year is passed)
+  const planMap: Record<string, BudgetPlan> = {}
+  function extractPlans(cats: BudgetCategory[]) {
+    for (const cat of cats) {
+      if (cat.plan) planMap[cat.id] = cat.plan as BudgetPlan
+      extractPlans(cat.children ?? [])
+    }
+  }
+  extractPlans(categories)
 
   const selectedCat = selectedCatId ? findCat(categories, selectedCatId) : null
 
   const generateMutation = useMutation({
     mutationFn: () => generatePlansFromHistory(activeBudgetYear, 6),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget-plans'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget-categories', activeBudgetYear] }),
   })
 
   const importMutation = useMutation({
     mutationFn: () => importPlansFromYear(activeBudgetYear - 1, activeBudgetYear),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget-plans'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget-categories', activeBudgetYear] }),
   })
 
   function toggleType(type: string) {
@@ -153,7 +153,7 @@ export default function BudgetManagementPage() {
             category={selectedCat}
             year={activeBudgetYear}
             existingPlan={planMap[selectedCat.id] ?? null}
-            onSaved={() => qc.invalidateQueries({ queryKey: ['budget-plans'] })}
+            onSaved={() => qc.invalidateQueries({ queryKey: ['budget-categories', activeBudgetYear] })}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">

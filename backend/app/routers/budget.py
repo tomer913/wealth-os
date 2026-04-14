@@ -54,16 +54,66 @@ def _build_tree(cats: list) -> list:
 
 # ── Categories ─────────────────────────────────────────────────────────────────
 
-@router.get("/categories/", response_model=List[BudgetCategoryRead])
+@router.get("/categories/")
 async def list_categories(
     portfolio_id: UUID = Query(...),
+    year: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Return category tree. If year is provided, embed the budget plan for that year
+    inside each category as 'plan' so the manage page needs only one API call.
+    """
     q = select(BudgetCategory).where(
         BudgetCategory.portfolio_id == portfolio_id,
     ).order_by(BudgetCategory.sort_order)
     cats = (await db.execute(q)).scalars().all()
-    return _build_tree(cats)
+
+    # Load plans for requested year (if any)
+    plan_by_cat: dict = {}
+    if year:
+        plans_q = select(BudgetPlan).where(
+            BudgetPlan.portfolio_id == portfolio_id,
+            BudgetPlan.year == year,
+        )
+        for p in (await db.execute(plans_q)).scalars().all():
+            plan_by_cat[p.category_id] = {
+                "id": str(p.id),
+                "portfolio_id": str(p.portfolio_id),
+                "category_id": str(p.category_id),
+                "year": p.year,
+                "plan_type": p.plan_type,
+                "monthly_amount": float(p.monthly_amount) if p.monthly_amount is not None else None,
+                "annual_amount": float(p.annual_amount) if p.annual_amount is not None else None,
+                "monthly_overrides": p.monthly_overrides,
+                "notes": p.notes,
+                "budget_name": p.budget_name,
+                "created_at": p.created_at.isoformat() if getattr(p, "created_at", None) else None,
+            }
+
+    def to_dict(c) -> dict:
+        children_sorted = sorted(
+            [ch for ch in cats if ch.parent_id == c.id],
+            key=lambda x: x.sort_order,
+        )
+        return {
+            "id": str(c.id),
+            "portfolio_id": str(c.portfolio_id),
+            "parent_id": str(c.parent_id) if c.parent_id else None,
+            "name": c.name,
+            "name_en": c.name_en,
+            "category_type": c.category_type,
+            "icon": c.icon,
+            "color": c.color,
+            "sort_order": c.sort_order,
+            "is_active": c.is_active if c.is_active is not None else True,
+            "created_at": c.created_at.isoformat() if hasattr(c, "created_at") else None,
+            "plan": plan_by_cat.get(c.id),
+            "children": [to_dict(ch) for ch in children_sorted],
+        }
+
+    roots = sorted([c for c in cats if not c.parent_id], key=lambda x: x.sort_order)
+    return [to_dict(r) for r in roots]
 
 
 @router.post("/categories/", response_model=BudgetCategoryRead,
@@ -285,15 +335,18 @@ async def import_plans_from_year(
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 
-@router.get("/summary/", response_model=List[BudgetSummaryRow])
+@router.get("/summary/")
 async def get_summary(
     portfolio_id: UUID = Query(...),
     year: int = Query(...),
-    month: int = Query(...),
+    month: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Returns all categories that have either a plan or actuals for the given period.
+    month=None → annual aggregate (sum all months, compare to full-year plan).
+    month=N   → monthly view for that specific month.
+    Returns plain dicts with float values (avoids Decimal-as-string serialization).
     """
     # Load plans for year
     plans_q = select(BudgetPlan).where(
@@ -302,16 +355,34 @@ async def get_summary(
     )
     plans = {p.category_id: p for p in (await db.execute(plans_q)).scalars().all()}
 
-    # Load actuals for month
-    actuals_q = select(BudgetActual).where(
-        BudgetActual.portfolio_id == portfolio_id,
-        BudgetActual.year == year,
-        BudgetActual.month == month,
-    )
-    actuals = {a.category_id: a for a in (await db.execute(actuals_q)).scalars().all()}
+    if month is not None:
+        # Monthly mode: load actuals for specific month
+        actuals_q = select(BudgetActual).where(
+            BudgetActual.portfolio_id == portfolio_id,
+            BudgetActual.year == year,
+            BudgetActual.month == month,
+        )
+        monthly_actuals = {a.category_id: a for a in (await db.execute(actuals_q)).scalars().all()}
+        actual_amount_map: dict = {
+            cid: (float(a.actual_amount), a.transaction_count)
+            for cid, a in monthly_actuals.items()
+        }
+    else:
+        # Annual mode: aggregate all months for this year
+        agg_q = select(
+            BudgetActual.category_id,
+            func.sum(BudgetActual.actual_amount).label("total_amount"),
+            func.sum(BudgetActual.transaction_count).label("total_tx"),
+        ).where(
+            BudgetActual.portfolio_id == portfolio_id,
+            BudgetActual.year == year,
+        ).group_by(BudgetActual.category_id)
+        actual_amount_map = {}
+        for row in (await db.execute(agg_q)).all():
+            actual_amount_map[row.category_id] = (float(row.total_amount or 0), int(row.total_tx or 0))
 
     # Load categories that appear in either
-    cat_ids = set(plans.keys()) | set(actuals.keys())
+    cat_ids = set(plans.keys()) | set(actual_amount_map.keys())
     if not cat_ids:
         return []
 
@@ -325,49 +396,54 @@ async def get_summary(
             continue
 
         plan = plans.get(cat_id)
-        actual = actuals.get(cat_id)
+        actual_amount, tx_count = actual_amount_map.get(cat_id, (0.0, 0))
 
-        # Resolve plan amount for this month
-        plan_amount = None
+        # Resolve plan amount
+        plan_amount: float | None = None
         has_override = False
         if plan:
-            if plan.plan_type == "fixed_monthly":
-                overrides = plan.monthly_overrides or {}
-                if str(month) in overrides:
-                    plan_amount = Decimal(str(overrides[str(month)]))
-                    has_override = True
-                elif plan.monthly_amount is not None:
-                    plan_amount = plan.monthly_amount
+            if plan.plan_type == "fixed_monthly" and plan.monthly_amount is not None:
+                if month is not None:
+                    overrides = plan.monthly_overrides or {}
+                    if str(month) in overrides:
+                        plan_amount = float(overrides[str(month)])
+                        has_override = True
+                    else:
+                        plan_amount = float(plan.monthly_amount)
+                else:
+                    # Annual: base = monthly * 12, apply overrides
+                    base = float(plan.monthly_amount) * 12
+                    overrides = plan.monthly_overrides or {}
+                    for m in range(1, 13):
+                        if str(m) in overrides:
+                            base = base - float(plan.monthly_amount) + float(overrides[str(m)])
+                    plan_amount = base
             elif plan.plan_type == "annual_pool" and plan.annual_amount is not None:
-                plan_amount = plan.annual_amount / 12
-            elif plan.plan_type == "one_time":
-                plan_amount = plan.annual_amount
+                plan_amount = float(plan.annual_amount) if month is None else float(plan.annual_amount) / 12
+            elif plan.plan_type == "one_time" and plan.annual_amount is not None:
+                plan_amount = float(plan.annual_amount)
 
-        actual_amount = actual.actual_amount if actual else Decimal("0")
-        tx_count = actual.transaction_count if actual else 0
-
-        variance = None
-        variance_pct = None
+        variance: float | None = None
+        variance_pct: float | None = None
         if plan_amount is not None:
             variance = plan_amount - actual_amount
             if plan_amount != 0:
-                variance_pct = float(variance / plan_amount)
+                variance_pct = variance / plan_amount
 
-        rows.append(BudgetSummaryRow(
-            category_id=cat_id,
-            category_name=cat.name,
-            category_type=cat.category_type,
-            plan_amount=plan_amount,
-            actual_amount=actual_amount,
-            variance=variance,
-            variance_pct=variance_pct,
-            transaction_count=tx_count,
-            has_override=has_override,
-        ))
+        rows.append({
+            "category_id": str(cat_id),
+            "category_name": cat.name,
+            "category_type": cat.category_type,
+            "plan_amount": plan_amount,
+            "actual_amount": actual_amount,
+            "variance": variance,
+            "variance_pct": variance_pct,
+            "transaction_count": tx_count,
+            "has_override": has_override,
+        })
 
-    # Sort: income first, then expense, then saving, then investment
     type_order = {"income": 0, "expense": 1, "saving": 2, "investment": 3}
-    rows.sort(key=lambda r: (type_order.get(r.category_type, 9), r.category_name))
+    rows.sort(key=lambda r: (type_order.get(r["category_type"], 9), r["category_name"]))
     return rows
 
 

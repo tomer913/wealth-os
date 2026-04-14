@@ -12,8 +12,8 @@ function fmtILS(n: number | null | undefined) {
 }
 
 function fmtPct(n: number | null | undefined) {
-  if (n == null) return '–'
-  return `${(n * 100).toFixed(0)}%`
+  if (n == null || isNaN(n)) return '–'
+  return `${(Number(n) * 100).toFixed(0)}%`
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -28,9 +28,10 @@ export default function BudgetDashboardPage() {
   const { t: tc } = useTranslation('common')
   const { activeBudgetYear, activeBudgetMonth, budgetViewMode, setActiveBudgetYear, setActiveBudgetMonth, setBudgetViewMode } = useAppStore()
 
+  const isMonthly = budgetViewMode === 'monthly'
   const { data: summary = [], isLoading } = useQuery({
-    queryKey: ['budget-summary', activeBudgetYear, activeBudgetMonth],
-    queryFn: () => getBudgetSummary(activeBudgetYear, activeBudgetMonth),
+    queryKey: ['budget-summary', activeBudgetYear, isMonthly ? activeBudgetMonth : null],
+    queryFn: () => getBudgetSummary(activeBudgetYear, isMonthly ? activeBudgetMonth : undefined),
   })
 
   const { data: reviewQueue = [] } = useQuery({
@@ -43,20 +44,20 @@ export default function BudgetDashboardPage() {
   const expenses = summary.filter((r: BudgetSummaryRow) => r.category_type === 'expense')
   const savings = summary.filter((r: BudgetSummaryRow) => r.category_type === 'saving')
 
-  const totalPlanIncome = income.reduce((s: number, r: BudgetSummaryRow) => s + (r.plan_amount ?? 0), 0)
-  const totalActualIncome = income.reduce((s: number, r: BudgetSummaryRow) => s + r.actual_amount, 0)
-  const totalPlanExpense = expenses.reduce((s: number, r: BudgetSummaryRow) => s + (r.plan_amount ?? 0), 0)
-  const totalActualExpense = expenses.reduce((s: number, r: BudgetSummaryRow) => s + r.actual_amount, 0)
-  const totalPlanSaving = savings.reduce((s: number, r: BudgetSummaryRow) => s + (r.plan_amount ?? 0), 0)
-  const totalActualSaving = savings.reduce((s: number, r: BudgetSummaryRow) => s + r.actual_amount, 0)
+  const totalPlanIncome = income.reduce((s: number, r: BudgetSummaryRow) => s + Number(r.plan_amount ?? 0), 0)
+  const totalActualIncome = income.reduce((s: number, r: BudgetSummaryRow) => s + Number(r.actual_amount), 0)
+  const totalPlanExpense = expenses.reduce((s: number, r: BudgetSummaryRow) => s + Number(r.plan_amount ?? 0), 0)
+  const totalActualExpense = expenses.reduce((s: number, r: BudgetSummaryRow) => s + Number(r.actual_amount), 0)
+  const totalPlanSaving = savings.reduce((s: number, r: BudgetSummaryRow) => s + Number(r.plan_amount ?? 0), 0)
+  const totalActualSaving = savings.reduce((s: number, r: BudgetSummaryRow) => s + Number(r.actual_amount), 0)
   const cashflow = totalActualIncome - totalActualExpense
 
   // Chart data grouped by category_type
   const chartData = Object.entries(
     summary.reduce((acc: Record<string, { plan: number; actual: number }>, r: BudgetSummaryRow) => {
       if (!acc[r.category_type]) acc[r.category_type] = { plan: 0, actual: 0 }
-      acc[r.category_type].plan += r.plan_amount ?? 0
-      acc[r.category_type].actual += r.actual_amount
+      acc[r.category_type].plan += Number(r.plan_amount ?? 0)
+      acc[r.category_type].actual += Number(r.actual_amount)
       return acc
     }, {})
   ).map(([type, vals]) => ({
@@ -152,11 +153,13 @@ export default function BudgetDashboardPage() {
               <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} width={40} />
               <Tooltip formatter={(v: number) => fmtILS(v)} />
               <Bar dataKey="plan" name={t('dashboard.columns.plan')} fill="#94a3b8" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="actual" name={t('dashboard.columns.actual')} radius={[3, 3, 0, 0]}>
-                {chartData.map((entry, i) => (
-                  <Cell key={i} fill={TYPE_COLORS[entry.type] ?? '#6b7280'} />
-                ))}
-              </Bar>
+              {chartData.some(d => d.actual > 0) && (
+                <Bar dataKey="actual" name={t('dashboard.columns.actual')} radius={[3, 3, 0, 0]}>
+                  {chartData.map((entry, i) => (
+                    <Cell key={i} fill={TYPE_COLORS[entry.type] ?? '#6b7280'} />
+                  ))}
+                </Bar>
+              )}
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -184,8 +187,10 @@ export default function BudgetDashboardPage() {
                 </thead>
                 <tbody>
                   {summary.map((row: BudgetSummaryRow) => {
-                    const pct = row.plan_amount ? Math.min(row.actual_amount / row.plan_amount, 1) : 0
-                    const over = row.plan_amount != null && row.actual_amount > row.plan_amount
+                    const planAmt = Number(row.plan_amount ?? 0)
+                    const actualAmt = Number(row.actual_amount)
+                    const pct = planAmt > 0 ? Math.min(actualAmt / planAmt, 1) : 0
+                    const over = planAmt > 0 && actualAmt > planAmt
                     return (
                       <tr key={row.category_id} className="border-b border-gray-50 hover:bg-gray-50/50">
                         <td className="px-4 py-2.5">
@@ -200,13 +205,13 @@ export default function BudgetDashboardPage() {
                             {row.has_override && <span className="text-[9px] text-orange-400">✱</span>}
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-gray-600" dir="ltr">{fmtILS(row.plan_amount)}</td>
-                        <td className="px-4 py-2.5 text-gray-800 font-medium" dir="ltr">{fmtILS(row.actual_amount)}</td>
+                        <td className="px-4 py-2.5 text-gray-600" dir="ltr">{fmtILS(planAmt || null)}</td>
+                        <td className="px-4 py-2.5 text-gray-800 font-medium" dir="ltr">{fmtILS(actualAmt)}</td>
                         <td className={clsx('px-4 py-2.5 font-medium', over ? 'text-red-500' : 'text-emerald-600')} dir="ltr">
-                          {row.variance != null ? (over ? '-' : '+') + fmtILS(Math.abs(row.variance)) : '–'}
+                          {row.variance != null ? (over ? '-' : '+') + fmtILS(Math.abs(Number(row.variance))) : '–'}
                         </td>
                         <td className="px-4 py-2.5">
-                          {row.plan_amount != null ? (
+                          {planAmt > 0 ? (
                             <div className="flex items-center gap-1.5">
                               <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                 <div
@@ -241,16 +246,18 @@ export default function BudgetDashboardPage() {
 function KpiCard({ label, plan, actual, type }: { label: string; plan: number; actual: number; type: string }) {
   const { t } = useTranslation('budget')
   const color = TYPE_COLORS[type] ?? '#6b7280'
-  const pct = plan > 0 ? actual / plan : 0
-  const over = plan > 0 && actual > plan
+  const p = Number(plan)
+  const a = Number(actual)
+  const pct = p > 0 ? a / p : 0
+  const over = p > 0 && a > p
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 p-4">
       <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">{label}</p>
-      <p className="text-[22px] font-semibold text-gray-900">{fmtILS(actual)}</p>
-      {plan > 0 ? (
+      <p className="text-[22px] font-semibold text-gray-900">{fmtILS(a)}</p>
+      {p > 0 ? (
         <>
-          <p className="text-[11px] text-gray-400 mt-0.5">{t('dashboard.planned_of', { amount: fmtILS(plan) })}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">{t('dashboard.planned_of', { amount: fmtILS(p) })}</p>
           <div className="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all"

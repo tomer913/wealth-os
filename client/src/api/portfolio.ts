@@ -158,9 +158,9 @@ export async function deleteTransaction(id: string): Promise<void> {
 
 // ─── Budget ───────────────────────────────────────────────────────────────────
 
-export async function getBudgetCategories() {
+export async function getBudgetCategories(year?: number) {
   const { data } = await apiClient.get('/api/v1/budget/categories/', {
-    params: { portfolio_id: pid() },
+    params: { portfolio_id: pid(), ...(year ? { year } : {}) },
   })
   return Array.isArray(data) ? data : []
 }
@@ -227,9 +227,9 @@ export async function categorizePendingTx(
   return data
 }
 
-export async function getBudgetSummary(year: number, month: number) {
+export async function getBudgetSummary(year: number, month?: number) {
   const { data } = await apiClient.get('/api/v1/budget/summary/', {
-    params: { portfolio_id: pid(), year, month },
+    params: { portfolio_id: pid(), year, ...(month != null ? { month } : {}) },
   })
   return Array.isArray(data) ? data : []
 }
