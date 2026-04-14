@@ -7,7 +7,7 @@ import {
   getBudgetRules, getBudgetCategories, getBudgetReviewQueue,
   createBudgetRule, updateBudgetRule, deleteBudgetRule,
   approveBudgetRule, testBudgetRule, testBudgetConditions,
-  categorizePendingTx,
+  categorizePendingTx, createBudgetCategory,
 } from '../api/portfolio'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -612,23 +612,66 @@ function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
 
 // ─── Review Queue Tab ─────────────────────────────────────────────────────────
 
+const TYPE_ORDER = ['income', 'expense', 'saving', 'investment'] as const
+const TYPE_LABELS_HE: Record<string, string> = {
+  income: 'הכנסות',
+  expense: 'הוצאות',
+  saving: 'חיסכון',
+  investment: 'השקעות',
+}
+
 function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
   const qc = useQueryClient()
+
+  // Group flat category list by type for <optgroup>
   const flatCats = flattenCategories(categories)
+  const grouped = TYPE_ORDER.reduce((acc: Record<string, BudgetCategory[]>, type) => {
+    acc[type] = flatCats.filter((c) => c.category_type === type)
+    return acc
+  }, {} as Record<string, BudgetCategory[]>)
+
   const { data: queue = [], isLoading } = useQuery({
     queryKey: ['budget-review'],
     queryFn: getBudgetReviewQueue,
   })
+
   const [selected, setSelected] = useState<Record<string, string>>({})
   const [genRule, setGenRule] = useState<Record<string, boolean>>({})
+
+  // Inline new-category state
+  const [newCatFor, setNewCatFor] = useState<string | null>(null)
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatType, setNewCatType] = useState('expense')
 
   const categorizeMut = useMutation({
     mutationFn: ({ logId, catId, gr }: { logId: string; catId: string; gr: boolean }) =>
       categorizePendingTx(logId, catId, gr),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['budget-review'] })
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget-review'] }),
+  })
+
+  const createCatMut = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => createBudgetCategory(payload),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['budget-categories'] })
+      if (newCatFor) setSelected((prev) => ({ ...prev, [newCatFor]: data.id }))
+      setNewCatFor(null)
+      setNewCatName('')
+      setNewCatType('expense')
     },
   })
+
+  function handleSelectChange(itemId: string, value: string) {
+    if (value === '__new__') {
+      setNewCatFor(itemId)
+      setNewCatName('')
+      setNewCatType('expense')
+      // clear selection so Confirm stays disabled until category is created
+      setSelected((prev) => { const n = { ...prev }; delete n[itemId]; return n })
+    } else {
+      setSelected((prev) => ({ ...prev, [itemId]: value }))
+      setNewCatFor(null)
+    }
+  }
 
   if (isLoading) return <p className="text-[12px] text-gray-400 text-center py-10">Loading…</p>
 
@@ -646,24 +689,84 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
           <tr><td colSpan={6} className="py-10 text-center text-gray-400">Review queue is empty</td></tr>
         )}
         {(queue as ReviewItem[]).map((item) => (
-          <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-            <td className="py-2.5 px-3 text-gray-400">{formatDate(item.raw_date)}</td>
+          <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors align-top">
+            <td className="py-2.5 px-3 text-gray-400 whitespace-nowrap">{formatDate(item.raw_date)}</td>
             <td className="py-2.5 px-3 text-gray-700 max-w-[200px] truncate" dir="rtl">{item.raw_description ?? '—'}</td>
-            <td className="py-2.5 px-3 font-mono text-gray-600">
+            <td className="py-2.5 px-3 font-mono text-gray-600 whitespace-nowrap">
               {item.raw_amount != null ? Math.abs(item.raw_amount).toLocaleString() : '—'}
             </td>
             <td className="py-2.5 px-3 text-gray-400">{item.raw_source}</td>
-            <td className="py-2.5 px-3">
+            <td className="py-2.5 px-3 min-w-[200px]">
               <Select
-                value={selected[item.id] ?? ''}
-                onChange={(e) => setSelected({ ...selected, [item.id]: e.target.value })}
+                value={newCatFor === item.id ? '__new__' : (selected[item.id] ?? '')}
+                onChange={(e) => handleSelectChange(item.id, e.target.value)}
                 className="text-[12px]"
               >
-                <option value="">Pick category…</option>
-                {flatCats.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
+                <option value="">בחר קטגוריה…</option>
+                {TYPE_ORDER.map((type) => {
+                  const cats = grouped[type]
+                  if (!cats?.length) return null
+                  return (
+                    <optgroup key={type} label={`── ${TYPE_LABELS_HE[type]} ──`}>
+                      {cats.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </optgroup>
+                  )
+                })}
+                <optgroup label="────────────">
+                  <option value="__new__">+ קטגוריה חדשה</option>
+                </optgroup>
               </Select>
+
+              {/* Inline new-category form */}
+              {newCatFor === item.id && (
+                <div className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-lg space-y-2" dir="rtl">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    placeholder="שם הקטגוריה"
+                    className="w-full px-2.5 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white"
+                    dir="rtl"
+                  />
+                  <div className="flex gap-1 flex-wrap">
+                    {TYPE_ORDER.map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setNewCatType(type)}
+                        className={clsx(
+                          'px-2 py-1 text-[10px] font-medium rounded-md border transition-colors',
+                          newCatType === type
+                            ? 'bg-teal-600 text-white border-teal-600'
+                            : 'bg-white text-gray-500 border-gray-200 hover:border-teal-300',
+                        )}
+                      >
+                        {TYPE_LABELS_HE[type]}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={!newCatName.trim() || createCatMut.isPending}
+                      onClick={() => createCatMut.mutate({ name: newCatName.trim(), category_type: newCatType })}
+                      className="flex-1 py-1.5 text-[11px] font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-40 transition-colors"
+                    >
+                      {createCatMut.isPending ? 'יוצר…' : 'צור ובחר'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewCatFor(null)}
+                      className="px-3 py-1.5 text-[11px] text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg bg-white transition-colors"
+                    >
+                      ביטול
+                    </button>
+                  </div>
+                </div>
+              )}
             </td>
             <td className="py-2.5 px-3">
               <div className="flex items-center gap-2">
