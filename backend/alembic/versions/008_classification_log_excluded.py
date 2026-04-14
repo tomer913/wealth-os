@@ -5,7 +5,6 @@ Revises: 007_accounts_bool_defaults
 Create Date: 2026-04-14
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = "008_classification_log_excluded"
 down_revision = "007_accounts_bool_defaults"
@@ -14,14 +13,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "classification_log",
-        sa.Column(
-            "excluded",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.false(),
-        ),
+    # IF NOT EXISTS is safe to run even if column was added manually in production
+    op.execute(
+        "ALTER TABLE classification_log "
+        "ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT false"
     )
 
 
