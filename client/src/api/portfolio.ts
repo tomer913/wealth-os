@@ -216,12 +216,16 @@ export async function getBudgetReviewQueue() {
 
 export async function categorizePendingTx(
   logId: string,
-  categoryId: string,
+  categoryId: string | null,
   generateRule: boolean,
+  excluded = false,
 ) {
+  const body = excluded
+    ? { excluded: true }
+    : { category_id: categoryId, generate_rule: generateRule }
   const { data } = await apiClient.post(
     `/api/v1/budget/review/${logId}/categorize/`,
-    { category_id: categoryId, generate_rule: generateRule },
+    body,
     { params: { portfolio_id: pid() } },
   )
   return data

@@ -213,6 +213,9 @@ class ClassificationLog(Base):
     ai_prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     ai_completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    excluded: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False,
+    )
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )

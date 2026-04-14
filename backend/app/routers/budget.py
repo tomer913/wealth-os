@@ -628,6 +628,16 @@ async def categorize_review_item(
     if not log_entry:
         raise HTTPException(status_code=404, detail="Log entry not found")
 
+    # Handle exclusion (internal transfers, investment txns, cc payments, etc.)
+    if body.get("excluded"):
+        log_entry.excluded = True
+        log_entry.needs_review = False
+        log_entry.method = "excluded"
+        log_entry.reviewed_at = datetime.now(timezone.utc)
+        log_entry.reviewed_by = "user"
+        await db.flush()
+        return {"status": "ok", "log_id": str(log_id), "excluded": True}
+
     cat_id = UUID(body["category_id"])
     cat = await db.get(BudgetCategory, cat_id)
     if not cat:

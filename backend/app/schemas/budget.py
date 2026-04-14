@@ -152,6 +152,7 @@ class ClassificationLogRead(BaseModel):
     ai_prompt_tokens: Optional[int] = None
     ai_completion_tokens: Optional[int] = None
     needs_review: bool
+    excluded: bool = False
     reviewed_at: Optional[datetime] = None
     created_at: datetime
     # Denormalized for UI

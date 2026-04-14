@@ -644,8 +644,8 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
   const [newCatType, setNewCatType] = useState('expense')
 
   const categorizeMut = useMutation({
-    mutationFn: ({ logId, catId, gr }: { logId: string; catId: string; gr: boolean }) =>
-      categorizePendingTx(logId, catId, gr),
+    mutationFn: ({ logId, catId, gr, excluded }: { logId: string; catId: string | null; gr: boolean; excluded?: boolean }) =>
+      categorizePendingTx(logId, catId, gr, excluded),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['budget-review'] }),
   })
 
@@ -668,6 +668,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
       // clear selection so Confirm stays disabled until category is created
       setSelected((prev) => { const n = { ...prev }; delete n[itemId]; return n })
     } else {
+      // __exclude__ is stored as-is so Confirm becomes enabled
       setSelected((prev) => ({ ...prev, [itemId]: value }))
       setNewCatFor(null)
     }
@@ -716,6 +717,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                 })}
                 <optgroup label="────────────">
                   <option value="__new__">+ קטגוריה חדשה</option>
+                  <option value="__exclude__">🚫 אל תכלל בתקציב</option>
                 </optgroup>
               </Select>
 
@@ -770,25 +772,39 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
             </td>
             <td className="py-2.5 px-3">
               <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1 text-[11px] text-gray-400">
-                  <input
-                    type="checkbox"
-                    checked={genRule[item.id] ?? false}
-                    onChange={(e) => setGenRule({ ...genRule, [item.id]: e.target.checked })}
-                  />
-                  Gen rule
-                </label>
-                <button
-                  disabled={!selected[item.id] || categorizeMut.isPending}
-                  onClick={() => categorizeMut.mutate({
-                    logId: item.id,
-                    catId: selected[item.id],
-                    gr: genRule[item.id] ?? false,
-                  })}
-                  className="px-2.5 py-1 text-[11px] font-medium bg-teal-600 hover:bg-teal-700 text-white rounded transition-colors disabled:opacity-40"
-                >
-                  Confirm
-                </button>
+                {selected[item.id] !== '__exclude__' && (
+                  <label className="flex items-center gap-1 text-[11px] text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={genRule[item.id] ?? false}
+                      onChange={(e) => setGenRule({ ...genRule, [item.id]: e.target.checked })}
+                    />
+                    Gen rule
+                  </label>
+                )}
+                {(() => {
+                  const sel = selected[item.id]
+                  const isExclude = sel === '__exclude__'
+                  return (
+                    <button
+                      disabled={!sel || categorizeMut.isPending}
+                      onClick={() => categorizeMut.mutate({
+                        logId: item.id,
+                        catId: isExclude ? null : sel,
+                        gr: genRule[item.id] ?? false,
+                        excluded: isExclude,
+                      })}
+                      className={clsx(
+                        'px-2.5 py-1 text-[11px] font-medium text-white rounded transition-colors disabled:opacity-40',
+                        isExclude
+                          ? 'bg-gray-500 hover:bg-gray-600'
+                          : 'bg-teal-600 hover:bg-teal-700',
+                      )}
+                    >
+                      {isExclude ? 'Exclude' : 'Confirm'}
+                    </button>
+                  )
+                })()}
               </div>
             </td>
           </tr>
