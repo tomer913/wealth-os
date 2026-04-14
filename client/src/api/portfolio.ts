@@ -28,10 +28,8 @@ export async function rebuildSnapshot(asOfDate?: string): Promise<PortfolioSnaps
 }
 
 export async function getLatestSnapshot(): Promise<PortfolioSnapshot> {
-  // If you have a GET endpoint for cached snapshot, use it here.
-  // For now we call rebuild (you can swap this later without touching components).
-  const { data } = await apiClient.post(`/api/v1/snapshots/rebuild`, {
-    portfolio_id: pid(),
+  const { data } = await apiClient.get(`/api/v1/snapshots/latest`, {
+    params: { portfolio_id: pid() },
   })
   return data
 }
