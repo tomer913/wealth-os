@@ -114,6 +114,10 @@ class BudgetProcessor(BaseProcessor):
 
             # ── Step 2: AI fallback ─────────────────────────────────────────
             elif os.environ.get("ANTHROPIC_API_KEY"):
+                log.info(
+                    "AI classifier invoked for: %s (amount=%.2f %s)",
+                    row.description, float(row.amount), row.currency,
+                )
                 try:
                     from app.processors.ai_classifier import AIClassifier
                     classifier = AIClassifier()
@@ -123,6 +127,11 @@ class BudgetProcessor(BaseProcessor):
                     ai_model = "claude-haiku-4-5-20251001"
                     ai_prompt_tokens = getattr(classifier, "_last_prompt_tokens", None)
                     ai_completion_tokens = getattr(classifier, "_last_completion_tokens", None)
+
+                    log.info(
+                        "AI result: cat_id=%s confidence=%.2f reason=%s",
+                        ai_cat_id, ai_conf, ai_reason,
+                    )
 
                     if ai_cat_id and ai_conf >= AI_CONFIDENCE_THRESHOLD:
                         category_id = ai_cat_id
@@ -150,11 +159,18 @@ class BudgetProcessor(BaseProcessor):
                                 ai_reasoning=ai_reason,
                             )
                             db.add(new_rule)
+                    else:
+                        log.info(
+                            "AI confidence %.2f below threshold %.2f — marking needs_review",
+                            ai_conf, AI_CONFIDENCE_THRESHOLD,
+                        )
 
                 except Exception as e:
-                    log.warning("AI classifier failed for row %s: %s", row.id, e)
+                    log.warning("AI classifier failed for row %s: %s", row.id, e, exc_info=True)
 
-            # ── Step 3: Write classification log ────────────────────────────
+            # ── Step 3: Write classification log ────────────────────────
+            if needs_review and not os.environ.get("ANTHROPIC_API_KEY"):
+                log.debug("ANTHROPIC_API_KEY not set — skipping AI, marking needs_review")────
             log_entry = ClassificationLog(
                 id=uuid.uuid4(),
                 raw_transaction_id=row.id,
