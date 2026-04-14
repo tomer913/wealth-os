@@ -15,6 +15,9 @@
   "budget_processor_desc": "מסווג עסקאות לקטגוריות תקציב",
   "engine_desc": "מחשב ערכי תיק עדכניים",
   "engine_endpoint": "POST /api/v1/snapshots/rebuild",
+  "engine_date_label": "תאריך חישוב",
+  "engine_build_for": "בנה Snapshot ל-{{date}}",
+  "engine_recent_snapshots": "Snapshots אחרונים",
   "processor": {
     "last_run": "הרצה אחרונה: {{time}}",
     "rows": "שורות: {{read}} קרא / {{written}} כתב / {{skipped}} דילג",
@@ -23,6 +26,8 @@
     "no_runs": "אין הרצות",
     "trigger": "▶ הפעל",
     "triggering": "…",
+    "running": "מעבד…",
+    "run_again": "▶ הפעל שוב",
     "reset_title": "↺",
     "reset_warning": "לאפס נקודת ביקורת? כל העסקאות יעובדו מחדש."
   },

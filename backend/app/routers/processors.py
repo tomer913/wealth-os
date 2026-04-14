@@ -1,7 +1,9 @@
 """
 Processor router — exposes processor run history and manual trigger.
 """
-from typing import Optional
+import uuid as _uuid
+from datetime import datetime, timezone
+from typing import Optional, Tuple
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,6 +14,24 @@ from app.database import get_db
 from app.models.raw_layer import ProcessorRun
 
 router = APIRouter(prefix="/processors", tags=["processors"])
+
+
+async def _create_pending_run(
+    processor_name: str, portfolio_id: UUID, db: AsyncSession
+) -> Tuple[UUID, ProcessorRun]:
+    """Create a ProcessorRun with status='pending', flush, and return (run_id, record)."""
+    run_id = _uuid.uuid4()
+    proc_run = ProcessorRun(
+        id=run_id,
+        processor_name=processor_name,
+        portfolio_id=portfolio_id,
+        status="pending",
+        triggered_by="manual",
+    )
+    db.add(proc_run)
+    await db.flush()
+    await db.commit()
+    return run_id, proc_run
 
 
 @router.get("/runs/", response_model=list[dict])
@@ -80,14 +100,16 @@ async def get_processor_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
 @router.post("/bank/run")
 async def trigger_bank_processor(
     portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
 ):
     """Manually trigger BankProcessor for a portfolio (runs in background)."""
     import asyncio
     from app.processors.bank_processor import BankProcessor
 
+    run_id, proc_run = await _create_pending_run("bank_processor", portfolio_id, db)
     processor = BankProcessor()
-    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual"))
-    return {"status": "triggered", "processor": "bank_processor", "portfolio_id": str(portfolio_id)}
+    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual", run_id=run_id))
+    return {"status": "started", "run_id": str(run_id), "processor": "bank_processor"}
 
 
 @router.post("/bank/reset-checkpoint")
@@ -105,14 +127,16 @@ async def reset_bank_checkpoint(
 @router.post("/budget/run")
 async def trigger_budget_processor(
     portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
 ):
     """Manually trigger BudgetProcessor for a portfolio (runs in background)."""
     import asyncio
     from app.processors.budget_processor import BudgetProcessor
 
+    run_id, proc_run = await _create_pending_run("budget_processor", portfolio_id, db)
     processor = BudgetProcessor()
-    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual"))
-    return {"status": "triggered", "processor": "budget_processor", "portfolio_id": str(portfolio_id)}
+    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual", run_id=run_id))
+    return {"status": "started", "run_id": str(run_id), "processor": "budget_processor"}
 
 
 @router.post("/budget/reset-checkpoint")
@@ -131,8 +155,9 @@ async def reset_budget_checkpoint(
 async def trigger_processor(
     processor_name: str = Query(...),
     portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Generic: trigger any processor by name."""
+    """Generic: trigger any processor by name. Returns run_id for polling."""
     import asyncio
 
     if processor_name == "bank_processor":
@@ -144,8 +169,9 @@ async def trigger_processor(
     else:
         raise HTTPException(status_code=400, detail=f"Unknown processor: {processor_name}")
 
-    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual"))
-    return {"status": "triggered", "processor": processor_name, "portfolio_id": str(portfolio_id)}
+    run_id, _ = await _create_pending_run(processor_name, portfolio_id, db)
+    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual", run_id=run_id))
+    return {"status": "started", "run_id": str(run_id), "processor": processor_name}
 
 
 @router.post("/reset-checkpoint")

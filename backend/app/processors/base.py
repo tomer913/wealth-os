@@ -45,16 +45,23 @@ class BaseProcessor(ABC):
         self,
         portfolio_id: UUID,
         triggered_by: str = "scheduler",
+        run_id: Optional[UUID] = None,
     ):
         """
         Run the processor for a single portfolio.
         Manages checkpoint, batching, and audit record.
+
+        If run_id is supplied the caller already created a ProcessorRun with
+        status='pending' — this method updates that record to 'running' rather
+        than inserting a new one.  This lets the trigger endpoint return the
+        run_id immediately so the frontend can poll for it.
+
         Returns the ProcessorRun ORM object.
         """
         from app.database import AsyncSessionLocal
         from app.models.raw_layer import ProcessorRun, RawTransaction, ServiceCheckpoint
 
-        run_id = uuid.uuid4()
+        actual_run_id = run_id or uuid.uuid4()
         started_at = datetime.now(timezone.utc)
 
         async with AsyncSessionLocal() as db:
@@ -65,17 +72,20 @@ class BaseProcessor(ABC):
             )
             checkpoint_from: Optional[UUID] = checkpoint.last_raw_id if checkpoint else None
 
-            # Create ProcessorRun audit record
-            proc_run = ProcessorRun(
-                id=run_id,
-                processor_name=self.processor_name,
-                portfolio_id=portfolio_id,
-                status="running",
-                triggered_by=triggered_by,
-                checkpoint_from=checkpoint_from,
-                started_at=started_at,
-            )
-            db.add(proc_run)
+            # Use pre-created record if run_id was provided, else create fresh
+            proc_run = await db.get(ProcessorRun, actual_run_id) if run_id else None
+            if proc_run is None:
+                proc_run = ProcessorRun(
+                    id=actual_run_id,
+                    processor_name=self.processor_name,
+                    portfolio_id=portfolio_id,
+                    triggered_by=triggered_by,
+                )
+                db.add(proc_run)
+
+            proc_run.status = "running"
+            proc_run.checkpoint_from = checkpoint_from
+            proc_run.started_at = started_at
             await db.flush()
 
             total_read = 0

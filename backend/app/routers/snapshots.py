@@ -5,7 +5,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, func as sqlfunc2, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, SessionLocal
@@ -15,6 +15,38 @@ from app.schemas.snapshot import PerformanceSnapshotRead, SnapshotRebuildRequest
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/snapshots", tags=["snapshots"])
+
+
+@router.get("/recent", summary="Last N distinct snapshot dates with asset count")
+async def recent_snapshots(
+    portfolio_id: UUID = Query(...),
+    limit: int = Query(5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns the last `limit` distinct snapshot dates for a portfolio,
+    with asset_count and built_at per date.
+    """
+    q = text("""
+        SELECT
+            snapshot_date,
+            COUNT(DISTINCT asset_id)  AS asset_count,
+            MAX(created_at)           AS built_at
+        FROM performance_snapshots
+        WHERE portfolio_id = :portfolio_id
+        GROUP BY snapshot_date
+        ORDER BY snapshot_date DESC
+        LIMIT :limit
+    """)
+    rows = (await db.execute(q, {"portfolio_id": str(portfolio_id), "limit": limit})).all()
+    return [
+        {
+            "snapshot_date": str(r.snapshot_date),
+            "asset_count": r.asset_count,
+            "built_at": r.built_at.isoformat() if r.built_at else None,
+        }
+        for r in rows
+    ]
 
 
 @router.get("/latest", summary="Get latest cached snapshot from DB (fast)")

@@ -15,6 +15,9 @@
   "budget_processor_desc": "Classifies transactions into budget categories",
   "engine_desc": "Computes current portfolio values",
   "engine_endpoint": "POST /api/v1/snapshots/rebuild",
+  "engine_date_label": "Snapshot date",
+  "engine_build_for": "Build Snapshot for {{date}}",
+  "engine_recent_snapshots": "Recent Snapshots",
   "processor": {
     "last_run": "Last run: {{time}}",
     "rows": "Rows: {{read}} read / {{written}} written / {{skipped}} skipped",
@@ -23,6 +26,8 @@
     "no_runs": "No runs yet",
     "trigger": "▶ Run",
     "triggering": "…",
+    "running": "Processing…",
+    "run_again": "▶ Run again",
     "reset_title": "↺",
     "reset_warning": "Reset checkpoint? All transactions will be reprocessed from the beginning."
   },

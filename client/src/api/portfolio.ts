@@ -300,11 +300,28 @@ export async function getProcessorRuns(processorName?: string, limit = 50) {
   return Array.isArray(data) ? data : []
 }
 
-export async function triggerProcessorRun(processorName: string) {
+export async function triggerProcessorRun(processorName: string): Promise<{ run_id: string; status: string; processor: string }> {
   const { data } = await apiClient.post('/api/v1/processors/run', null, {
     params: { processor_name: processorName, portfolio_id: pid() },
   })
   return data
+}
+
+export async function getProcessorRun(runId: string): Promise<{
+  id: string; status: string; rows_read: number | null; rows_written: number | null;
+  rows_skipped: number | null; error_message: string | null; finished_at: string | null;
+}> {
+  const { data } = await apiClient.get(`/api/v1/processors/runs/${runId}`)
+  return data
+}
+
+export async function getRecentSnapshots(limit = 5): Promise<{
+  snapshot_date: string; asset_count: number; built_at: string | null;
+}[]> {
+  const { data } = await apiClient.get('/api/v1/snapshots/recent', {
+    params: { portfolio_id: pid(), limit },
+  })
+  return Array.isArray(data) ? data : []
 }
 
 export async function resetProcessorCheckpoint(processorName: string) {
