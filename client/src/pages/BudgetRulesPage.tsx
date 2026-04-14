@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import { Field, Input, Select, FormGrid, FormSection, Divider } from '../components/shared/Form'
 import {
-  getBudgetRules, getBudgetCategories, getBudgetReviewQueue,
+  getBudgetRules, getBudgetCategories, getBudgetReviewQueue, getBudgetSummary,
   createBudgetRule, updateBudgetRule, deleteBudgetRule,
   approveBudgetRule, testBudgetRule, testBudgetConditions,
   categorizePendingTx, createBudgetCategory,
@@ -612,7 +612,6 @@ function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
 
 // ─── Review Queue Tab ─────────────────────────────────────────────────────────
 
-const TYPE_ORDER = ['income', 'expense', 'saving', 'investment'] as const
 const TYPE_LABELS_HE: Record<string, string> = {
   income: 'הכנסות',
   expense: 'הוצאות',
@@ -622,13 +621,27 @@ const TYPE_LABELS_HE: Record<string, string> = {
 
 function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
   const qc = useQueryClient()
+  const currentYear = new Date().getFullYear()
 
-  // Group flat category list by type for <optgroup>
+  // Fetch annual usage counts to sort categories by frequency
+  const { data: annualSummary = [] } = useQuery({
+    queryKey: ['budget-summary', currentYear, null],
+    queryFn: () => getBudgetSummary(currentYear),
+    staleTime: 5 * 60 * 1000,
+  })
+  const usageCount: Record<string, number> = {}
+  for (const row of annualSummary as { category_id: string; transaction_count: number }[]) {
+    usageCount[row.category_id] = row.transaction_count
+  }
+
+  // Flat sorted list: most-used first, then alphabetical for ties / zero-count
   const flatCats = flattenCategories(categories)
-  const grouped = TYPE_ORDER.reduce((acc: Record<string, BudgetCategory[]>, type) => {
-    acc[type] = flatCats.filter((c) => c.category_type === type)
-    return acc
-  }, {} as Record<string, BudgetCategory[]>)
+  const sortedCats = [...flatCats].sort((a, b) => {
+    const ua = usageCount[a.id] ?? 0
+    const ub = usageCount[b.id] ?? 0
+    if (ub !== ua) return ub - ua
+    return a.name.localeCompare(b.name, 'he')
+  })
 
   const { data: queue = [], isLoading } = useQuery({
     queryKey: ['budget-review'],
@@ -636,6 +649,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
   })
 
   const [selected, setSelected] = useState<Record<string, string>>({})
+  // Default "Remember this rule" to true
   const [genRule, setGenRule] = useState<Record<string, boolean>>({})
 
   // Inline new-category state
@@ -665,10 +679,8 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
       setNewCatFor(itemId)
       setNewCatName('')
       setNewCatType('expense')
-      // clear selection so Confirm stays disabled until category is created
       setSelected((prev) => { const n = { ...prev }; delete n[itemId]; return n })
     } else {
-      // __exclude__ is stored as-is so Confirm becomes enabled
       setSelected((prev) => ({ ...prev, [itemId]: value }))
       setNewCatFor(null)
     }
@@ -697,28 +709,25 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
               {item.raw_amount != null ? Math.abs(item.raw_amount).toLocaleString() : '—'}
             </td>
             <td className="py-2.5 px-3 text-gray-400">{item.raw_source}</td>
-            <td className="py-2.5 px-3 min-w-[200px]">
+            <td className="py-2.5 px-3 min-w-[220px]">
               <Select
                 value={newCatFor === item.id ? '__new__' : (selected[item.id] ?? '')}
                 onChange={(e) => handleSelectChange(item.id, e.target.value)}
                 className="text-[12px]"
               >
                 <option value="">בחר קטגוריה…</option>
-                {TYPE_ORDER.map((type) => {
-                  const cats = grouped[type]
-                  if (!cats?.length) return null
-                  return (
-                    <optgroup key={type} label={`── ${TYPE_LABELS_HE[type]} ──`}>
-                      {cats.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </optgroup>
-                  )
+                {/* Special actions — always at top */}
+                <option value="__exclude__">⊘ Exclude from budget</option>
+                <option value="__new__">+ New category</option>
+                <optgroup label="─────────────────────" />
+                {/* Categories sorted by usage frequency */}
+                {sortedCats.map((c) => {
+                  const count = usageCount[c.id]
+                  const label = count
+                    ? `${c.name}  (${count}×)`
+                    : c.name
+                  return <option key={c.id} value={c.id}>{label}</option>
                 })}
-                <optgroup label="────────────">
-                  <option value="__new__">+ קטגוריה חדשה</option>
-                  <option value="__exclude__">🚫 אל תכלל בתקציב</option>
-                </optgroup>
               </Select>
 
               {/* Inline new-category form */}
@@ -734,7 +743,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                     dir="rtl"
                   />
                   <div className="flex gap-1 flex-wrap">
-                    {TYPE_ORDER.map((type) => (
+                    {(['expense', 'income', 'saving', 'investment'] as const).map((type) => (
                       <button
                         key={type}
                         type="button"
@@ -757,29 +766,34 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                       onClick={() => createCatMut.mutate({ name: newCatName.trim(), category_type: newCatType })}
                       className="flex-1 py-1.5 text-[11px] font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-40 transition-colors"
                     >
-                      {createCatMut.isPending ? 'יוצר…' : 'צור ובחר'}
+                      {createCatMut.isPending ? 'Creating…' : 'Create & Select'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewCatFor(null)}
                       className="px-3 py-1.5 text-[11px] text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg bg-white transition-colors"
                     >
-                      ביטול
+                      Cancel
                     </button>
                   </div>
                 </div>
               )}
             </td>
             <td className="py-2.5 px-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-1.5 items-start">
                 {selected[item.id] !== '__exclude__' && (
-                  <label className="flex items-center gap-1 text-[11px] text-gray-400">
+                  <label className="relative flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer group">
                     <input
                       type="checkbox"
-                      checked={genRule[item.id] ?? false}
+                      checked={genRule[item.id] ?? true}
                       onChange={(e) => setGenRule({ ...genRule, [item.id]: e.target.checked })}
+                      className="accent-teal-600"
                     />
-                    Gen rule
+                    <span>Remember this rule</span>
+                    {/* Tooltip */}
+                    <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-56 rounded-lg bg-gray-800 px-2.5 py-2 text-[10px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 z-20">
+                      Automatically categorize similar transactions in the future using an AI-generated rule
+                    </span>
                   </label>
                 )}
                 {(() => {
@@ -791,11 +805,11 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                       onClick={() => categorizeMut.mutate({
                         logId: item.id,
                         catId: isExclude ? null : sel,
-                        gr: genRule[item.id] ?? false,
+                        gr: genRule[item.id] ?? true,
                         excluded: isExclude,
                       })}
                       className={clsx(
-                        'px-2.5 py-1 text-[11px] font-medium text-white rounded transition-colors disabled:opacity-40',
+                        'px-3 py-1.5 text-[11px] font-medium text-white rounded-lg transition-colors disabled:opacity-40',
                         isExclude
                           ? 'bg-gray-500 hover:bg-gray-600'
                           : 'bg-teal-600 hover:bg-teal-700',
