@@ -46,6 +46,9 @@ class AccountRead(AccountBase):
     portfolio_id: UUID
     created_at: datetime
     updated_at: datetime
+    # DB rows inserted before these columns existed may have NULL — coerce to False
+    is_liquid: Optional[bool] = False
+    is_income_generating: Optional[bool] = False
     model_config = {"from_attributes": True}
 
 
