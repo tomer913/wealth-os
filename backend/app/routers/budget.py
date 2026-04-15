@@ -20,7 +20,8 @@ log = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models.budget import (
-    BudgetActual, BudgetCategory, BudgetCategoryRule, BudgetPlan, ClassificationLog,
+    BudgetActual, BudgetActualTransaction, BudgetCategory, BudgetCategoryRule,
+    BudgetPlan, ClassificationLog,
 )
 from app.models.raw_layer import RawTransaction
 from app.schemas.budget import (
@@ -33,10 +34,30 @@ from app.schemas.budget import (
 router = APIRouter(prefix="/budget", tags=["budget"])
 
 
-# ── Helper ─────────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _pid(portfolio_id: UUID = Query(...)) -> UUID:
     return portfolio_id
+
+
+async def _recalculate_budget_actual(
+    db: AsyncSession,
+    actual_id: UUID,
+    now: datetime,
+) -> None:
+    """Recalculate budget_actuals row from the sum of its junction rows."""
+    from sqlalchemy import func
+    result = (await db.execute(
+        select(
+            func.sum(BudgetActualTransaction.amount).label("total"),
+            func.count(BudgetActualTransaction.raw_transaction_id).label("cnt"),
+        ).where(BudgetActualTransaction.budget_actual_id == actual_id)
+    )).one()
+    actual = await db.get(BudgetActual, actual_id)
+    if actual:
+        actual.actual_amount = result.total or Decimal(0)
+        actual.transaction_count = result.cnt or 0
+        actual.last_updated = now
 
 
 def _build_tree(cats: list) -> list:
@@ -653,7 +674,16 @@ async def categorize_review_item(
         log_entry.method = "excluded"
         log_entry.reviewed_at = now
         log_entry.reviewed_by = "manual"
-        # No rule, no actuals update for excluded rows
+
+        # Remove junction row (if any) and recalculate affected bucket
+        existing_bat = await db.get(BudgetActualTransaction, log_entry.raw_transaction_id)
+        if existing_bat:
+            old_actual_id = existing_bat.budget_actual_id
+            await db.delete(existing_bat)
+            await db.flush()  # flush delete before recalculate
+            await _recalculate_budget_actual(db, old_actual_id, now)
+            log.info(f"Junction row deleted; recalculated budget_actual={old_actual_id}")
+
         await db.flush()
         log.info(f"log_id={log_id} marked as excluded")
         return {"status": "ok", "log_id": str(log_id), "excluded": True}
@@ -702,31 +732,66 @@ async def categorize_review_item(
             except Exception:
                 log.exception("Rule generation failed (best-effort, continuing)")
 
-    # ── Step 8: Upsert budget_actuals ─────────────────────────────────────────
+    # ── Step 8: Idempotent budget_actuals update via junction table ────────────
     raw_tx = await db.get(RawTransaction, log_entry.raw_transaction_id)
     if raw_tx and raw_tx.raw_date:
         year = raw_tx.raw_date.year
         month = raw_tx.raw_date.month
         amount = abs(raw_tx.amount)
-        stmt = pg_insert(BudgetActual).values(
-            id=uuid.uuid4(),
-            portfolio_id=portfolio_id,
-            category_id=cat_id,
-            year=year,
-            month=month,
-            actual_amount=amount,
-            transaction_count=1,
-            last_updated=now,
-        ).on_conflict_do_update(
-            constraint="uq_budget_actuals_category_month",
-            set_={
-                "actual_amount": BudgetActual.actual_amount + amount,
-                "transaction_count": BudgetActual.transaction_count + 1,
-                "last_updated": now,
-            },
+
+        # Check for existing junction row (detect category change)
+        existing_bat = await db.get(BudgetActualTransaction, log_entry.raw_transaction_id)
+        old_actual_id = existing_bat.budget_actual_id if existing_bat else None
+
+        # Get or create budget_actual for this category/month
+        actual_stmt = (
+            pg_insert(BudgetActual)
+            .values(
+                id=uuid.uuid4(),
+                portfolio_id=portfolio_id,
+                category_id=cat_id,
+                year=year,
+                month=month,
+                actual_amount=Decimal(0),
+                transaction_count=0,
+                last_updated=now,
+            )
+            .on_conflict_do_update(
+                constraint="uq_budget_actuals_category_month",
+                set_={"last_updated": now},
+            )
+            .returning(BudgetActual.__table__.c.id)
         )
-        await db.execute(stmt)
-        log.info(f"budget_actuals upserted: category={cat_id} {year}-{month:02d} +{amount}")
+        actual_id: UUID = (await db.execute(actual_stmt)).scalar_one()
+
+        # Upsert junction row
+        bat_stmt = (
+            pg_insert(BudgetActualTransaction)
+            .values(
+                raw_transaction_id=log_entry.raw_transaction_id,
+                budget_actual_id=actual_id,
+                amount=amount,
+                categorized_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=["raw_transaction_id"],
+                set_={
+                    "budget_actual_id": actual_id,
+                    "amount": amount,
+                    "categorized_at": now,
+                },
+            )
+        )
+        await db.execute(bat_stmt)
+
+        # Recalculate new bucket
+        await _recalculate_budget_actual(db, actual_id, now)
+
+        # Recalculate old bucket if category changed
+        if old_actual_id and old_actual_id != actual_id:
+            await _recalculate_budget_actual(db, old_actual_id, now)
+
+        log.info(f"budget_actuals recalculated: category={cat_id} {year}-{month:02d} amount={amount}")
 
     # ── Step 9: Commit (via get_db dependency after return) ───────────────────
     await db.flush()

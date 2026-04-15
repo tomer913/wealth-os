@@ -3,23 +3,29 @@ BudgetProcessor — classifies raw transactions into budget categories.
 
 Sources: bank + credit card sources
 Flow per raw_transaction:
+  0. Skip if reviewed_at IS NOT NULL (human has reviewed — never overwrite)
   1. Load active rules ordered by priority asc, match_count desc
   2. Run RuleEngine.evaluate() — if confidence >= threshold → categorize
   3. Else call AIClassifier (if ANTHROPIC_API_KEY set) — if AI confidence >= threshold
      → categorize, auto-generate suggested rule
   4. Else → log as unclassified, needs_review=True
-  5. Upsert budget_actuals
-  6. Update rule.match_count + last_matched_at if rule fired
-  7. Write classification_log entry
+  5. Upsert budget_actual_transactions (idempotent junction table)
+  6. Recalculate budget_actuals.actual_amount = SUM of junction rows
+  7. Update rule.match_count + last_matched_at if rule fired
+  8. Write / update classification_log entry with processed_at = now()
+
+On rerun: skip rows with reviewed_at IS NOT NULL (human reviewed).
+          Re-classify all others; junction table + SUM ensures no double-counting.
 """
 import logging
 import os
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +36,34 @@ from app.processors.ai_classifier import AI_CONFIDENCE_THRESHOLD
 log = logging.getLogger(__name__)
 
 _rule_engine = RuleEngine()
+
+
+async def _recalculate_budget_actual(
+    db: AsyncSession,
+    actual_id: UUID,
+    now: datetime,
+) -> None:
+    """
+    Recalculate budget_actuals.actual_amount and transaction_count
+    from the sum of all budget_actual_transactions for this bucket.
+    """
+    from app.models.budget import BudgetActual, BudgetActualTransaction
+
+    result = (await db.execute(
+        select(
+            func.sum(BudgetActualTransaction.amount).label("total"),
+            func.count(BudgetActualTransaction.raw_transaction_id).label("cnt"),
+        ).where(BudgetActualTransaction.budget_actual_id == actual_id)
+    )).one()
+
+    total = result.total or Decimal(0)
+    cnt = result.cnt or 0
+
+    actual = await db.get(BudgetActual, actual_id)
+    if actual:
+        actual.actual_amount = total
+        actual.transaction_count = cnt
+        actual.last_updated = now
 
 
 class BudgetProcessor(BaseProcessor):
@@ -46,7 +80,8 @@ class BudgetProcessor(BaseProcessor):
         portfolio_id: UUID,
     ) -> ProcessResult:
         from app.models.budget import (
-            BudgetActual, BudgetCategory, BudgetCategoryRule, ClassificationLog,
+            BudgetActual, BudgetActualTransaction, BudgetCategory,
+            BudgetCategoryRule, ClassificationLog,
         )
 
         # Load all active rules once per batch
@@ -70,15 +105,18 @@ class BudgetProcessor(BaseProcessor):
         )
         categories = (await db.execute(cats_q)).scalars().all()
 
+        now = datetime.now(timezone.utc)
         written = 0
         skipped = 0
 
         for row in rows:
-            # Skip if already classified
-            existing_q = select(ClassificationLog.id).where(
+            # ── Step 0: Skip rows that a human has reviewed ─────────────────
+            existing_q = select(ClassificationLog).where(
                 ClassificationLog.raw_transaction_id == row.id,
             )
-            if (await db.execute(existing_q)).scalar_one_or_none():
+            existing_log = (await db.execute(existing_q)).scalar_one_or_none()
+
+            if existing_log is not None and existing_log.reviewed_at is not None:
                 skipped += 1
                 continue
 
@@ -101,7 +139,7 @@ class BudgetProcessor(BaseProcessor):
             ai_prompt_tokens = None
             ai_completion_tokens = None
 
-            # ── Step 1: rule engine ─────────────────────────────────────────
+            # ── Step 1: Rule engine ─────────────────────────────────────────
             matched_rule, rule_confidence = _rule_engine.evaluate(tx_dict, active_rules)
             if matched_rule and rule_confidence >= RULE_CONFIDENCE_THRESHOLD:
                 category_id = matched_rule.category_id
@@ -110,7 +148,7 @@ class BudgetProcessor(BaseProcessor):
                 confidence = rule_confidence
                 needs_review = False
                 matched_rule.match_count += 1
-                matched_rule.last_matched_at = datetime.now(timezone.utc)
+                matched_rule.last_matched_at = now
 
             # ── Step 2: AI fallback ─────────────────────────────────────────
             elif os.environ.get("ANTHROPIC_API_KEY"):
@@ -167,48 +205,86 @@ class BudgetProcessor(BaseProcessor):
 
                 except Exception as e:
                     log.warning("AI classifier failed for row %s: %s", row.id, e, exc_info=True)
+            else:
+                log.debug("ANTHROPIC_API_KEY not set — skipping AI, marking needs_review")
 
-            # ── Step 3: Write classification log ────────────────────────
-            if needs_review and not os.environ.get("ANTHROPIC_API_KEY"):
-                log.debug("ANTHROPIC_API_KEY not set — skipping AI, marking needs_review")────
-            log_entry = ClassificationLog(
-                id=uuid.uuid4(),
-                raw_transaction_id=row.id,
-                category_id=category_id,
-                rule_id=rule_matched.id if rule_matched else None,
-                method=method,
-                confidence=confidence,
-                ai_model=ai_model,
-                ai_prompt_tokens=ai_prompt_tokens,
-                ai_completion_tokens=ai_completion_tokens,
-                needs_review=needs_review,
-            )
-            db.add(log_entry)
+            # ── Step 3: Create or update classification_log ─────────────────
+            if existing_log is None:
+                log_entry = ClassificationLog(
+                    id=uuid.uuid4(),
+                    raw_transaction_id=row.id,
+                )
+                db.add(log_entry)
+            else:
+                log_entry = existing_log
 
-            # ── Step 4: Upsert budget_actuals ───────────────────────────────
+            log_entry.category_id = category_id
+            log_entry.rule_id = rule_matched.id if rule_matched else None
+            log_entry.method = method
+            log_entry.confidence = confidence
+            log_entry.ai_model = ai_model
+            log_entry.ai_prompt_tokens = ai_prompt_tokens
+            log_entry.ai_completion_tokens = ai_completion_tokens
+            log_entry.needs_review = needs_review
+            log_entry.processed_at = now  # always updated; reviewed_at is never touched here
+
+            # ── Steps 4–6: Idempotent budget_actuals update ─────────────────
             if category_id and row.raw_date:
                 year = row.raw_date.year
                 month = row.raw_date.month
                 amount = abs(row.amount)
 
-                stmt = pg_insert(BudgetActual).values(
-                    id=uuid.uuid4(),
-                    portfolio_id=portfolio_id,
-                    category_id=category_id,
-                    year=year,
-                    month=month,
-                    actual_amount=amount,
-                    transaction_count=1,
-                    last_updated=datetime.now(timezone.utc),
-                ).on_conflict_do_update(
-                    constraint="uq_budget_actuals_category_month",
-                    set_={
-                        "actual_amount": BudgetActual.actual_amount + amount,
-                        "transaction_count": BudgetActual.transaction_count + 1,
-                        "last_updated": datetime.now(timezone.utc),
-                    },
+                # Check if junction row already exists (detect category change on rerun)
+                existing_bat = await db.get(BudgetActualTransaction, row.id)
+                old_budget_actual_id = existing_bat.budget_actual_id if existing_bat else None
+
+                # Step 4a: Get or create budget_actual row for this category/month
+                actual_stmt = (
+                    pg_insert(BudgetActual)
+                    .values(
+                        id=uuid.uuid4(),
+                        portfolio_id=portfolio_id,
+                        category_id=category_id,
+                        year=year,
+                        month=month,
+                        actual_amount=Decimal(0),
+                        transaction_count=0,
+                        last_updated=now,
+                    )
+                    .on_conflict_do_update(
+                        constraint="uq_budget_actuals_category_month",
+                        set_={"last_updated": now},
+                    )
+                    .returning(BudgetActual.__table__.c.id)
                 )
-                await db.execute(stmt)
+                actual_id: UUID = (await db.execute(actual_stmt)).scalar_one()
+
+                # Step 4b: Upsert junction row (idempotent: one row per raw_transaction)
+                bat_stmt = (
+                    pg_insert(BudgetActualTransaction)
+                    .values(
+                        raw_transaction_id=row.id,
+                        budget_actual_id=actual_id,
+                        amount=amount,
+                        categorized_at=now,
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["raw_transaction_id"],
+                        set_={
+                            "budget_actual_id": actual_id,
+                            "amount": amount,
+                            "categorized_at": now,
+                        },
+                    )
+                )
+                await db.execute(bat_stmt)
+
+                # Step 4c: Recalculate new bucket from junction totals
+                await _recalculate_budget_actual(db, actual_id, now)
+
+                # Step 4d: If category changed (rerun), recalculate old bucket too
+                if old_budget_actual_id and old_budget_actual_id != actual_id:
+                    await _recalculate_budget_actual(db, old_budget_actual_id, now)
 
             written += 1
 

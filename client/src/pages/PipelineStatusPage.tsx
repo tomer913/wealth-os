@@ -46,11 +46,11 @@ function useProcessorTrigger(processorName: string, onComplete: () => void) {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
   }
 
-  async function trigger() {
+  async function trigger(dateFrom?: string | null, dateTo?: string | null) {
     if (state.phase === 'running') return
     setState({ phase: 'running' })
     try {
-      const { run_id } = await triggerProcessorRun(processorName)
+      const { run_id } = await triggerProcessorRun(processorName, dateFrom, dateTo)
       deadlineRef.current = Date.now() + POLL_TIMEOUT_MS
 
       timerRef.current = setInterval(async () => {
@@ -100,6 +100,195 @@ function useProcessorTrigger(processorName: string, onComplete: () => void) {
   return { state, trigger, reset }
 }
 
+// ─── Budget processor card (with date-range rerun) ────────────────────────────
+function BudgetProcessorCard({
+  lastRun,
+  canControl,
+  onComplete,
+}: {
+  lastRun: ProcessorRun | null
+  canControl: boolean
+  onComplete: () => void
+}) {
+  const { t } = useTranslation('pipeline')
+  const { t: tc } = useTranslation('common')
+
+  const todayStr = new Date().toISOString().split('T')[0]
+  const [showDateRange, setShowDateRange] = useState(false)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState(todayStr)
+
+  const { state, trigger, reset } = useProcessorTrigger('budget_processor', onComplete)
+
+  function fmtDuration(ms: number | null) {
+    if (ms == null) return '–'
+    if (ms < 1000) return `${ms}ms`
+    return `${(ms / 1000).toFixed(1)}s`
+  }
+
+  function fmtRelative(iso: string | null) {
+    if (!iso) return '–'
+    const diff = Date.now() - new Date(iso).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 2) return tc('time.just_now')
+    if (mins < 60) return tc('time.minutes_ago', { count: mins })
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return tc('time.hours_ago', { count: hrs })
+    return tc('time.days_ago', { count: Math.floor(hrs / 24) })
+  }
+
+  const STATUS_STYLES: Record<string, string> = {
+    completed: 'bg-emerald-100 text-emerald-700',
+    running:   'bg-blue-100 text-blue-700 animate-pulse',
+    failed:    'bg-red-100 text-red-600',
+    partial:   'bg-amber-100 text-amber-700',
+    success:   'bg-emerald-100 text-emerald-700',
+    pending:   'bg-gray-100 text-gray-500',
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🏷</span>
+          <div>
+            <p className="text-[13px] font-semibold text-gray-800">{t('stages.budget_processor')}</p>
+            <p className="text-[11px] text-gray-400">{t('budget_processor_desc')}</p>
+          </div>
+        </div>
+        {state.phase === 'idle' && lastRun && (
+          <span className={clsx('text-[10px] px-2 py-0.5 rounded-full font-medium', STATUS_STYLES[lastRun.status] ?? 'bg-gray-100 text-gray-500')}>
+            {tc(`status.${lastRun.status}`)}
+          </span>
+        )}
+        {state.phase === 'running' && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 animate-pulse">
+            {tc('status.running')}
+          </span>
+        )}
+        {state.phase === 'done' && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700">
+            {tc('status.completed')}
+          </span>
+        )}
+        {state.phase === 'error' && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-600">
+            {tc('status.failed')}
+          </span>
+        )}
+      </div>
+
+      {/* Last run info */}
+      {state.phase === 'idle' && lastRun ? (
+        <div className="text-[11px] text-gray-500 space-y-1">
+          <p>{t('processor.last_run', { time: fmtRelative(lastRun.started_at) })}</p>
+          <p>{t('processor.rows', { read: lastRun.rows_read, written: lastRun.rows_written, skipped: lastRun.rows_skipped })}</p>
+          <p>{t('processor.duration', { duration: fmtDuration(lastRun.duration_ms) })}</p>
+          {lastRun.error_message && (
+            <p className="text-red-500 text-[10px] truncate" title={lastRun.error_message}>
+              {t('processor.error', { message: lastRun.error_message })}
+            </p>
+          )}
+        </div>
+      ) : state.phase === 'idle' ? (
+        <p className="text-[11px] text-gray-400">{t('processor.no_runs')}</p>
+      ) : null}
+
+      {state.phase === 'running' && (
+        <div className="text-[11px] text-blue-600 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <svg className="animate-spin flex-shrink-0" width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5.5 1v2M5.5 8v2M1 5.5h2M8 5.5h2" strokeLinecap="round"/></svg>
+            <span>{t('processor.running')}</span>
+          </div>
+          {(state.rows_read != null || state.rows_written != null) && (
+            <p className="text-gray-500">{t('processor.rows', { read: state.rows_read ?? 0, written: state.rows_written ?? 0, skipped: state.rows_skipped ?? 0 })}</p>
+          )}
+        </div>
+      )}
+      {state.phase === 'done' && (
+        <div className="text-[11px] text-emerald-700 space-y-1">
+          <p>{t('processor.rows', { read: state.rows_read ?? 0, written: state.rows_written ?? 0, skipped: state.rows_skipped ?? 0 })}</p>
+        </div>
+      )}
+      {state.phase === 'error' && (
+        <p className="text-[11px] text-red-500 truncate" title={state.error ?? undefined}>
+          {state.error ?? t('processor.error', { message: '?' })}
+        </p>
+      )}
+
+      {canControl && (
+        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+          {/* Date range toggle */}
+          <button
+            onClick={() => setShowDateRange(v => !v)}
+            className="w-full text-left text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-1"
+          >
+            <span>{showDateRange ? '▾' : '▸'}</span>
+            {t('processor.date_range_label')}
+          </button>
+
+          {showDateRange && (
+            <div className="flex gap-1.5 items-center">
+              <input
+                type="date"
+                value={dateFrom}
+                max={dateTo || todayStr}
+                onChange={e => setDateFrom(e.target.value)}
+                className="flex-1 px-2 py-1 text-[11px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400"
+                dir="ltr"
+              />
+              <span className="text-[10px] text-gray-400">→</span>
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                max={todayStr}
+                onChange={e => setDateTo(e.target.value)}
+                className="flex-1 px-2 py-1 text-[11px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400"
+                dir="ltr"
+              />
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (state.phase === 'idle') {
+                  trigger(showDateRange && dateFrom ? dateFrom : null, showDateRange && dateTo ? dateTo : null)
+                } else {
+                  reset()
+                }
+              }}
+              disabled={state.phase === 'running'}
+              className="flex-1 py-1.5 text-[11px] bg-teal-50 text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-100 disabled:opacity-50 transition-colors"
+            >
+              {state.phase === 'running'
+                ? t('processor.triggering')
+                : state.phase === 'done' || state.phase === 'error'
+                  ? t('processor.run_again')
+                  : showDateRange && dateFrom
+                    ? t('processor.rerun_date_range')
+                    : t('processor.trigger')}
+            </button>
+            <button
+              onClick={async () => {
+                if (confirm(t('processor.reset_warning'))) {
+                  await resetProcessorCheckpoint('budget_processor')
+                }
+              }}
+              disabled={state.phase === 'running'}
+              className="py-1.5 px-2 text-[11px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              title={t('processor.reset_title')}
+            >
+              {t('processor.reset_title')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function PipelineStatusPage() {
   const { t } = useTranslation('pipeline')
@@ -128,13 +317,9 @@ export default function PipelineStatusPage() {
     setTimeout(() => qc.invalidateQueries({ queryKey: ['processor-runs'] }), 1500)
   }
 
-  const bankTrigger   = useProcessorTrigger('bank_processor', invalidateRuns)
-  const budgetTrigger = useProcessorTrigger('budget_processor', invalidateRuns)
+  const bankTrigger = useProcessorTrigger('bank_processor', invalidateRuns)
 
-  const processorDefs = [
-    { name: 'bank_processor',   labelKey: 'stages.bank_processor',   descKey: 'bank_processor_desc',   trigger: bankTrigger   },
-    { name: 'budget_processor', labelKey: 'stages.budget_processor',  descKey: 'budget_processor_desc', trigger: budgetTrigger },
-  ]
+  const bankDef = { name: 'bank_processor', labelKey: 'stages.bank_processor', descKey: 'bank_processor_desc', trigger: bankTrigger }
 
   function getLastRun(processorName: string): ProcessorRun | null {
     return allRuns.find((r: ProcessorRun) => r.processor_name === processorName) ?? null
@@ -169,17 +354,17 @@ export default function PipelineStatusPage() {
           </div>
         </div>
 
-        {/* Processor cards */}
-        {processorDefs.map((proc) => {
+        {/* Bank processor card */}
+        {(() => {
+          const proc = bankDef
           const lastRun = getLastRun(proc.name)
           const canControl = isEnabled('processor_controls')
           const { state, trigger } = proc.trigger
-
           return (
             <div key={proc.name} className="bg-white rounded-xl border border-gray-100 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">{proc.name === 'bank_processor' ? '🏦' : '🏷'}</span>
+                  <span className="text-xl">🏦</span>
                   <div>
                     <p className="text-[13px] font-semibold text-gray-800">{t(proc.labelKey)}</p>
                     <p className="text-[11px] text-gray-400">{t(proc.descKey)}</p>
@@ -191,65 +376,36 @@ export default function PipelineStatusPage() {
                   </span>
                 )}
                 {state.phase === 'running' && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 animate-pulse">
-                    {tc('status.running')}
-                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 animate-pulse">{tc('status.running')}</span>
                 )}
                 {state.phase === 'done' && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700">
-                    {tc('status.completed')}
-                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700">{tc('status.completed')}</span>
                 )}
                 {state.phase === 'error' && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-600">
-                    {tc('status.failed')}
-                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-600">{tc('status.failed')}</span>
                 )}
               </div>
-
-              {/* Last run info (idle) */}
               {state.phase === 'idle' && lastRun ? (
                 <div className="text-[11px] text-gray-500 space-y-1">
                   <p>{t('processor.last_run', { time: fmtRelative(lastRun.started_at) })}</p>
                   <p>{t('processor.rows', { read: lastRun.rows_read, written: lastRun.rows_written, skipped: lastRun.rows_skipped })}</p>
                   <p>{t('processor.duration', { duration: fmtDuration(lastRun.duration_ms) })}</p>
-                  {lastRun.error_message && (
-                    <p className="text-red-500 text-[10px] truncate" title={lastRun.error_message}>
-                      {t('processor.error', { message: lastRun.error_message })}
-                    </p>
-                  )}
+                  {lastRun.error_message && <p className="text-red-500 text-[10px] truncate" title={lastRun.error_message}>{t('processor.error', { message: lastRun.error_message })}</p>}
                 </div>
               ) : state.phase === 'idle' ? (
                 <p className="text-[11px] text-gray-400">{t('processor.no_runs')}</p>
               ) : null}
-
-              {/* Running state */}
               {state.phase === 'running' && (
                 <div className="text-[11px] text-blue-600 space-y-1">
                   <div className="flex items-center gap-1.5">
                     <svg className="animate-spin flex-shrink-0" width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5.5 1v2M5.5 8v2M1 5.5h2M8 5.5h2" strokeLinecap="round"/></svg>
                     <span>{t('processor.running')}</span>
                   </div>
-                  {(state.rows_read != null || state.rows_written != null) && (
-                    <p className="text-gray-500">{t('processor.rows', { read: state.rows_read ?? 0, written: state.rows_written ?? 0, skipped: state.rows_skipped ?? 0 })}</p>
-                  )}
+                  {(state.rows_read != null || state.rows_written != null) && <p className="text-gray-500">{t('processor.rows', { read: state.rows_read ?? 0, written: state.rows_written ?? 0, skipped: state.rows_skipped ?? 0 })}</p>}
                 </div>
               )}
-
-              {/* Done state */}
-              {state.phase === 'done' && (
-                <div className="text-[11px] text-emerald-700 space-y-1">
-                  <p>{t('processor.rows', { read: state.rows_read ?? 0, written: state.rows_written ?? 0, skipped: state.rows_skipped ?? 0 })}</p>
-                </div>
-              )}
-
-              {/* Error state */}
-              {state.phase === 'error' && (
-                <p className="text-[11px] text-red-500 truncate" title={state.error ?? undefined}>
-                  {state.error ?? t('processor.error', { message: '?' })}
-                </p>
-              )}
-
+              {state.phase === 'done' && <div className="text-[11px] text-emerald-700"><p>{t('processor.rows', { read: state.rows_read ?? 0, written: state.rows_written ?? 0, skipped: state.rows_skipped ?? 0 })}</p></div>}
+              {state.phase === 'error' && <p className="text-[11px] text-red-500 truncate" title={state.error ?? undefined}>{state.error ?? t('processor.error', { message: '?' })}</p>}
               {canControl && (
                 <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
                   <button
@@ -257,29 +413,26 @@ export default function PipelineStatusPage() {
                     disabled={state.phase === 'running'}
                     className="flex-1 py-1.5 text-[11px] bg-teal-50 text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-100 disabled:opacity-50 transition-colors"
                   >
-                    {state.phase === 'running'
-                      ? t('processor.triggering')
-                      : state.phase === 'done' || state.phase === 'error'
-                        ? t('processor.run_again')
-                        : t('processor.trigger')}
+                    {state.phase === 'running' ? t('processor.triggering') : state.phase === 'done' || state.phase === 'error' ? t('processor.run_again') : t('processor.trigger')}
                   </button>
                   <button
-                    onClick={async () => {
-                      if (confirm(t('processor.reset_warning'))) {
-                        await resetProcessorCheckpoint(proc.name)
-                      }
-                    }}
+                    onClick={async () => { if (confirm(t('processor.reset_warning'))) await resetProcessorCheckpoint(proc.name) }}
                     disabled={state.phase === 'running'}
                     className="py-1.5 px-2 text-[11px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
                     title={t('processor.reset_title')}
-                  >
-                    {t('processor.reset_title')}
-                  </button>
+                  >{t('processor.reset_title')}</button>
                 </div>
               )}
             </div>
           )
-        })}
+        })()}
+
+        {/* Budget processor card — has date-range rerun */}
+        <BudgetProcessorCard
+          lastRun={getLastRun('budget_processor')}
+          canControl={isEnabled('processor_controls')}
+          onComplete={invalidateRuns}
+        />
 
         {/* Engine / Snapshot card */}
         <EngineCard />

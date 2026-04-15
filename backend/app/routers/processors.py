@@ -2,11 +2,13 @@
 Processor router — exposes processor run history and manual trigger.
 """
 import uuid as _uuid
+from datetime import date as date_type
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,13 @@ from app.database import get_db
 from app.models.raw_layer import ProcessorRun
 
 router = APIRouter(prefix="/processors", tags=["processors"])
+
+
+class ProcessorRunRequest(BaseModel):
+    processor_name: str
+    portfolio_id: UUID
+    date_from: Optional[date_type] = None
+    date_to: Optional[date_type] = None
 
 
 async def _create_pending_run(
@@ -66,6 +75,8 @@ async def list_processor_runs(
             "duration_ms": r.duration_ms,
             "error_message": r.error_message,
             "created_at": r.created_at.isoformat(),
+            "date_from": r.date_from.isoformat() if r.date_from else None,
+            "date_to": r.date_to.isoformat() if r.date_to else None,
         }
         for r in runs
     ]
@@ -153,25 +164,36 @@ async def reset_budget_checkpoint(
 
 @router.post("/run")
 async def trigger_processor(
-    processor_name: str = Query(...),
-    portfolio_id: UUID = Query(...),
+    body: ProcessorRunRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generic: trigger any processor by name. Returns run_id for polling."""
+    """
+    Generic: trigger any processor by name. Returns run_id for polling.
+    Body: { processor_name, portfolio_id, date_from?, date_to? }
+    If date_from/date_to supplied: date-range rerun (ignores/doesn't advance checkpoint).
+    """
     import asyncio
 
-    if processor_name == "bank_processor":
+    if body.processor_name == "bank_processor":
         from app.processors.bank_processor import BankProcessor
         processor = BankProcessor()
-    elif processor_name == "budget_processor":
+    elif body.processor_name == "budget_processor":
         from app.processors.budget_processor import BudgetProcessor
         processor = BudgetProcessor()
     else:
-        raise HTTPException(status_code=400, detail=f"Unknown processor: {processor_name}")
+        raise HTTPException(status_code=400, detail=f"Unknown processor: {body.processor_name}")
 
-    run_id, _ = await _create_pending_run(processor_name, portfolio_id, db)
-    asyncio.create_task(processor.run(portfolio_id, triggered_by="manual", run_id=run_id))
-    return {"status": "started", "run_id": str(run_id), "processor": processor_name}
+    run_id, _ = await _create_pending_run(body.processor_name, body.portfolio_id, db)
+    asyncio.create_task(
+        processor.run(
+            body.portfolio_id,
+            triggered_by="manual",
+            run_id=run_id,
+            date_from=body.date_from,
+            date_to=body.date_to,
+        )
+    )
+    return {"status": "started", "run_id": str(run_id), "processor": body.processor_name}
 
 
 @router.post("/reset-checkpoint")

@@ -154,6 +154,7 @@ class ClassificationLogRead(BaseModel):
     needs_review: bool
     excluded: bool = False
     reviewed_at: Optional[datetime] = None
+    processed_at: Optional[datetime] = None
     created_at: datetime
     # Denormalized for UI
     raw_description: Optional[str] = None

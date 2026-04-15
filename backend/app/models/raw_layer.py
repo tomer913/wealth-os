@@ -6,12 +6,13 @@ service_checkpoints — consumer offset per processor per portfolio
 processor_runs    — audit log for processor executions
 """
 import uuid
+from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Dict, Optional
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Index, Integer, Numeric,
+    Date, DateTime, ForeignKey, Index, Integer, Numeric,
     String, Text, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -149,6 +150,10 @@ class ProcessorRun(Base):
     # Error details
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_traceback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Date range for reruns (NULL = checkpoint-based run)
+    date_from: Mapped[Optional[date_type]] = mapped_column(Date(), nullable=True)
+    date_to: Mapped[Optional[date_type]] = mapped_column(Date(), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

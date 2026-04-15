@@ -29,7 +29,9 @@
     "running": "Processing…",
     "run_again": "▶ Run again",
     "reset_title": "↺",
-    "reset_warning": "Reset checkpoint? All transactions will be reprocessed from the beginning."
+    "reset_warning": "Reset checkpoint? All transactions will be reprocessed from the beginning.",
+    "date_range_label": "Re-run for date range",
+    "rerun_date_range": "▶ Re-run range"
   },
   "recent_runs": "Recent Runs",
   "filter_all": "All",

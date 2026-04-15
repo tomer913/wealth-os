@@ -29,7 +29,9 @@
     "running": "מעבד…",
     "run_again": "▶ הפעל שוב",
     "reset_title": "↺",
-    "reset_warning": "לאפס נקודת ביקורת? כל העסקאות יעובדו מחדש."
+    "reset_warning": "לאפס נקודת ביקורת? כל העסקאות יעובדו מחדש.",
+    "date_range_label": "הרץ מחדש לטווח תאריכים",
+    "rerun_date_range": "▶ הרץ טווח"
   },
   "recent_runs": "הרצות אחרונות",
   "filter_all": "הכל",

@@ -304,9 +304,16 @@ export async function getProcessorRuns(processorName?: string, limit = 50) {
   return Array.isArray(data) ? data : []
 }
 
-export async function triggerProcessorRun(processorName: string): Promise<{ run_id: string; status: string; processor: string }> {
-  const { data } = await apiClient.post('/api/v1/processors/run', null, {
-    params: { processor_name: processorName, portfolio_id: pid() },
+export async function triggerProcessorRun(
+  processorName: string,
+  dateFrom?: string | null,
+  dateTo?: string | null,
+): Promise<{ run_id: string; status: string; processor: string }> {
+  const { data } = await apiClient.post('/api/v1/processors/run', {
+    processor_name: processorName,
+    portfolio_id: pid(),
+    date_from: dateFrom ?? null,
+    date_to: dateTo ?? null,
   })
   return data
 }

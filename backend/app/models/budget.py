@@ -141,6 +141,9 @@ class BudgetActual(Base):
 
     portfolio: Mapped["Portfolio"] = relationship("Portfolio")
     category: Mapped["BudgetCategory"] = relationship("BudgetCategory", back_populates="actuals")
+    actual_transactions: Mapped[List["BudgetActualTransaction"]] = relationship(
+        "BudgetActualTransaction", back_populates="budget_actual", cascade="all, delete-orphan",
+    )
 
 
 class BudgetCategoryRule(Base):
@@ -216,10 +219,15 @@ class ClassificationLog(Base):
     excluded: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False,
     )
+    # Set ONLY by human manual review — engine never overwrites this.
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
     reviewed_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Set on every engine run (first classification or rerun) — human review never sets this.
+    processed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )
@@ -227,3 +235,33 @@ class ClassificationLog(Base):
     raw_transaction: Mapped["RawTransaction"] = relationship("RawTransaction")
     category: Mapped[Optional["BudgetCategory"]] = relationship("BudgetCategory")
     rule: Mapped[Optional["BudgetCategoryRule"]] = relationship("BudgetCategoryRule")
+
+
+class BudgetActualTransaction(Base):
+    """
+    Idempotent junction between raw_transactions and budget_actuals.
+    PK = raw_transaction_id — exactly one row per raw transaction.
+    Upsert replaces the previous categorization; recalculate budget_actuals after.
+    """
+    __tablename__ = "budget_actual_transactions"
+
+    raw_transaction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("raw_transactions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    budget_actual_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("budget_actuals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    categorized_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    raw_transaction: Mapped["RawTransaction"] = relationship("RawTransaction")
+    budget_actual: Mapped["BudgetActual"] = relationship(
+        "BudgetActual", back_populates="actual_transactions",
+    )

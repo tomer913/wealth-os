@@ -9,13 +9,14 @@ from app.models.position import Position
 from app.models.raw_layer import RawTransaction, ServiceCheckpoint, ProcessorRun
 from app.models.price_history import AssetPriceHistory
 from app.models.budget import (
-    BudgetCategory, BudgetPlan, BudgetActual, BudgetCategoryRule, ClassificationLog,
+    BudgetCategory, BudgetPlan, BudgetActual, BudgetActualTransaction,
+    BudgetCategoryRule, ClassificationLog,
 )
 
 __all__ = [
     "Portfolio", "Account", "Asset", "Transaction",
     "ManualValuation", "FXRate", "PerformanceSnapshot", "Position",
     "RawTransaction", "ServiceCheckpoint", "ProcessorRun", "AssetPriceHistory",
-    "BudgetCategory", "BudgetPlan", "BudgetActual", "BudgetCategoryRule",
-    "ClassificationLog",
+    "BudgetCategory", "BudgetPlan", "BudgetActual", "BudgetActualTransaction",
+    "BudgetCategoryRule", "ClassificationLog",
 ]
