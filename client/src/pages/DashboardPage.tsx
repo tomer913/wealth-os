@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSnapshot } from '../hooks/usePortfolio'
 import { useFilteredSummary, useFilteredAssets, useFilteredCategories, useAppStore } from '../store'
 import {
@@ -10,6 +11,7 @@ import { CATEGORY_COLORS } from '../types'
 import clsx from 'clsx'
 
 export default function DashboardPage() {
+  const { t } = useTranslation('dashboard')
   const { isLoading, isError } = useSnapshot()
   const summary = useFilteredSummary()
   const assets = useFilteredAssets()
@@ -60,40 +62,40 @@ export default function DashboardPage() {
       {lastBuiltAt && (
         <p className="text-[12px] text-gray-400 flex items-center gap-1.5">
           <ClockIcon />
-          Last updated: {new Date(lastBuiltAt).toLocaleString('en-IL')}
+          {t('last_updated')}: {new Date(lastBuiltAt).toLocaleString('en-IL')}
         </p>
       )}
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          label="PORTFOLIO VALUE"
+          label={t('portfolio_value')}
           value={formatILS(totalValue)}
-          sub={`${summary.asset_count} assets`}
+          sub={t('assets_count', { count: summary.asset_count })}
           icon="$" iconColor="bg-blue-50 text-blue-500"
-          tooltip="Total current market value of all assets in your portfolio, converted to ILS. Calculated by the snapshot engine using latest valuations, prices × quantities, and FX rates."
+          tooltip={t('tooltip_portfolio_value')}
         />
         <KpiCard
-          label="TOTAL PROFIT / LOSS"
+          label={t('total_profit_loss')}
           value={formatILS(summary.total_return_ils)}
-          sub={formatPct(returnPct) + ' total return'}
+          sub={formatPct(returnPct) + ' ' + t('total_return')}
           subPositive={summary.total_return_ils >= 0}
           icon="↗" iconColor="bg-emerald-50 text-emerald-500"
-          tooltip="Total gain or loss in ILS: current portfolio value minus total invested capital (cost basis). The percentage is return ÷ total invested."
+          tooltip={t('tooltip_profit_loss')}
         />
         <KpiCard
-          label="NET EQUITY"
+          label={t('net_equity')}
           value={formatILS(summary.net_equity_ils)}
-          sub={`Debt: ${formatILSShort(summary.total_debt_ils)}`}
+          sub={t('debt', { amount: formatILSShort(summary.total_debt_ils) })}
           icon="%" iconColor="bg-violet-50 text-violet-500"
-          tooltip="Portfolio value minus all liabilities (mortgages, loans). This is your actual net worth from this portfolio. Debt shown is the outstanding loan balance on leveraged assets like real estate."
+          tooltip={t('tooltip_net_equity')}
         />
         <KpiCard
-          label="TOTAL INVESTED"
+          label={t('total_invested')}
           value={formatILS(summary.total_invested_ils)}
-          sub="Cost basis"
+          sub={t('cost_basis')}
           icon="◎" iconColor="bg-teal-50 text-teal-500"
-          tooltip="Total capital you have invested — the sum of all purchase costs, deposits, and BUY transactions across all assets. This is your cost basis used to calculate P&L."
+          tooltip={t('tooltip_total_invested')}
         />
       </div>
 
@@ -101,9 +103,9 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
           <div className="mb-1">
-            <p className="text-[15px] font-semibold text-gray-900">Portfolio Value Over Time</p>
+            <p className="text-[15px] font-semibold text-gray-900">{t('portfolio_value_over_time')}</p>
             <p className="text-[12px] font-semibold mt-0.5" style={{ color: returnPct >= 0 ? '#059669' : '#dc2626' }}>
-              {formatPct(returnPct)} total return · {formatILS(summary.total_return_ils)} gain
+              {formatPct(returnPct)} {t('total_return')} · {formatILS(summary.total_return_ils)} {t('gain')}
             </p>
           </div>
           <div className="mt-4">
@@ -128,7 +130,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <p className="text-[15px] font-semibold text-gray-900 mb-4">Portfolio Allocation</p>
+          <p className="text-[15px] font-semibold text-gray-900 mb-4">{t('portfolio_allocation')}</p>
           <div className="flex flex-col items-center">
             <div style={{ width: 130, height: 130 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -161,10 +163,10 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <p className="text-[15px] font-semibold text-gray-900 mb-4">Top Holdings</p>
+          <p className="text-[15px] font-semibold text-gray-900 mb-4">{t('top_holdings')}</p>
           <div>
             <div className="grid grid-cols-[1fr_64px_52px_76px] gap-2 pb-2 border-b border-gray-100">
-              {['Asset', 'Return %', 'Weight', 'Value'].map((h, i) => (
+              {[t('col_asset'), t('col_return_pct'), t('col_weight'), t('col_value')].map((h, i) => (
                 <span key={h} className={clsx('text-[11px] text-gray-400 font-medium', i > 0 && 'text-right')}>{h}</span>
               ))}
             </div>
@@ -177,9 +179,9 @@ export default function DashboardPage() {
                     <div className="text-[13px] font-semibold text-gray-900 truncate">{a.name}</div>
                     <CategoryBadge cat={a.category} />
                   </div>
-                  <span className={clsx('text-[12px] font-mono font-semibold text-right', gainClass(ret))}>{formatPct(ret)}</span>
-                  <span className="text-[12px] font-mono text-right text-gray-400">{weight.toFixed(1)}%</span>
-                  <span className="text-[13px] font-mono font-semibold text-right text-gray-800">{formatILSShort(a.current_value_ils)}</span>
+                  <span className={clsx('text-[12px] font-mono font-semibold text-right', gainClass(ret))} dir="ltr">{formatPct(ret)}</span>
+                  <span className="text-[12px] font-mono text-right text-gray-400" dir="ltr">{weight.toFixed(1)}%</span>
+                  <span className="text-[13px] font-mono font-semibold text-right text-gray-800" dir="ltr">{formatILSShort(a.current_value_ils)}</span>
                 </div>
               )
             })}
@@ -190,7 +192,7 @@ export default function DashboardPage() {
           <div>
             <div className="flex items-center gap-2 mb-3">
               <span className="text-emerald-500 font-bold text-[15px]">↗</span>
-              <p className="text-[15px] font-semibold text-gray-900">Top Gainers</p>
+              <p className="text-[15px] font-semibold text-gray-900">{t('top_gainers')}</p>
             </div>
             {gainers.map((a) => (
               <div key={a.symbol} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
@@ -198,10 +200,10 @@ export default function DashboardPage() {
                   <div className="text-[13px] font-semibold text-gray-900 truncate">{a.name}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <CategoryBadge cat={a.category} />
-                    <span className="text-[11px] text-gray-400 font-mono">{formatILSShort(a.current_value_ils)}</span>
+                    <span className="text-[11px] text-gray-400 font-mono" dir="ltr">{formatILSShort(a.current_value_ils)}</span>
                   </div>
                 </div>
-                <span className={clsx('text-[14px] font-bold font-mono flex-shrink-0', gainClass(a.total_return_pct))}>
+                <span className={clsx('text-[14px] font-bold font-mono flex-shrink-0', gainClass(a.total_return_pct))} dir="ltr">
                   {formatPct(a.total_return_pct != null ? a.total_return_pct * 100 : null)}
                 </span>
               </div>
@@ -211,7 +213,7 @@ export default function DashboardPage() {
           <div className="border-t border-gray-100 pt-4">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-rose-500 font-bold text-[15px]">↘</span>
-              <p className="text-[15px] font-semibold text-gray-900">Top Losers</p>
+              <p className="text-[15px] font-semibold text-gray-900">{t('top_losers')}</p>
             </div>
             {losers.map((a) => (
               <div key={a.symbol} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
@@ -219,10 +221,10 @@ export default function DashboardPage() {
                   <div className="text-[13px] font-semibold text-gray-900 truncate">{a.name}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <CategoryBadge cat={a.category} />
-                    <span className="text-[11px] text-gray-400 font-mono">{formatILSShort(a.current_value_ils)}</span>
+                    <span className="text-[11px] text-gray-400 font-mono" dir="ltr">{formatILSShort(a.current_value_ils)}</span>
                   </div>
                 </div>
-                <span className={clsx('text-[14px] font-bold font-mono flex-shrink-0', gainClass(a.total_return_pct))}>
+                <span className={clsx('text-[14px] font-bold font-mono flex-shrink-0', gainClass(a.total_return_pct))} dir="ltr">
                   {formatPct(a.total_return_pct != null ? a.total_return_pct * 100 : null)}
                 </span>
               </div>
@@ -271,7 +273,7 @@ function KpiCard({ label, value, sub, subPositive, icon, iconColor, tooltip }: {
           {icon}
         </span>
       </div>
-      <div className="text-[28px] font-bold text-gray-900 num leading-tight tracking-tight">{value}</div>
+      <div className="text-[28px] font-bold text-gray-900 num leading-tight tracking-tight" dir="ltr">{value}</div>
       <div className={clsx('text-[12px] mt-1.5 font-medium',
         subPositive === true ? 'text-emerald-600' :
         subPositive === false ? 'text-rose-600' : 'text-gray-400'
@@ -305,29 +307,32 @@ function CategoryBadge({ cat }: { cat: string }) {
 
 // ─── States ───────────────────────────────────────────────────────────────────
 function LoadingState() {
+  const { t } = useTranslation('dashboard')
   return (
     <div className="flex items-center justify-center h-64">
       <div className="text-center">
         <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-        <p className="text-[13px] text-gray-400">Loading portfolio…</p>
+        <p className="text-[13px] text-gray-400">{t('loading_portfolio')}</p>
       </div>
     </div>
   )
 }
 function ErrorState() {
+  const { t } = useTranslation('dashboard')
   return (
     <div className="flex items-center justify-center h-64">
       <div className="text-center">
-        <p className="text-[14px] font-semibold text-gray-700 mb-1">Could not load snapshot</p>
-        <p className="text-[12px] text-gray-400">Check that your Railway API is running and VITE_API_URL is set</p>
+        <p className="text-[14px] font-semibold text-gray-700 mb-1">{t('could_not_load')}</p>
+        <p className="text-[12px] text-gray-400">{t('check_api')}</p>
       </div>
     </div>
   )
 }
 function EmptyState() {
+  const { t } = useTranslation('dashboard')
   return (
     <div className="flex items-center justify-center h-64">
-      <p className="text-[13px] text-gray-400">Press "Build Snapshot" in the sidebar to load your portfolio</p>
+      <p className="text-[13px] text-gray-400">{t('press_build')}</p>
     </div>
   )
 }

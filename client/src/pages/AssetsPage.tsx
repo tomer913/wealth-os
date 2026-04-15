@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getAssets, createAsset, updateAsset, deleteAsset } from '../api/portfolio'
 import { useAppStore } from '../store'
 import { useCategoryFilter } from '../hooks/usePortfolio'
@@ -138,6 +139,8 @@ export default function AssetsPage() {
 
   function closeModal() { setModalOpen(false); setEditTarget(null); setImportError('') }
 
+  const { t } = useTranslation('assets')
+
   function handleImportJson() {
     try {
       const parsed = JSON.parse(importText) as Record<string, unknown>
@@ -151,15 +154,15 @@ export default function AssetsPage() {
       setMetaPairs(jsonToPairs(extra))
       setImportError(''); setShowImport(false); setImportText('')
     } catch {
-      setImportError('Invalid JSON — check your format and try again')
+      setImportError(t('invalid_json'))
     }
   }
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!form.name.trim()) e.name = 'Name is required'
-    if (!form.symbol.trim()) e.symbol = 'Symbol is required'
-    if (!form.asset_behavior) e.asset_behavior = 'Behavior is required'
+    if (!form.name.trim()) e.name = t('error_name_required')
+    if (!form.symbol.trim()) e.symbol = t('error_symbol_required')
+    if (!form.asset_behavior) e.asset_behavior = t('error_behavior_required')
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -192,15 +195,17 @@ export default function AssetsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-[16px] font-semibold text-gray-900">Assets</h2>
+          <h2 className="text-[16px] font-semibold text-gray-900">{t('title')}</h2>
           <p className="text-[12px] text-gray-400 mt-0.5">
-            {filtered.length}{filtered.length !== assets.length ? ` of ${assets.length}` : ''} assets
+            {filtered.length !== assets.length
+              ? t('count_of', { filtered: filtered.length, total: assets.length })
+              : t('count', { count: filtered.length })}
           </p>
         </div>
         <button onClick={openAdd}
           className="flex items-center gap-2 px-4 py-2 bg-[#0d9488] hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M6 1v10M1 6h10"/></svg>
-          New asset
+          {t('new_asset')}
         </button>
       </div>
 
@@ -209,17 +214,17 @@ export default function AssetsPage() {
         <div className="relative flex-1 min-w-[200px]">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="6" cy="6" r="4"/><path d="M10 10l3 3"/></svg>
           <input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name or symbol…"
+            placeholder={t('search_placeholder')}
             className="w-full pl-8 pr-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white" />
         </div>
         <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white">
-          <option value="">All categories</option>
+          <option value="">{t('all_categories')}</option>
           {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
         </select>
         <select value={filterBehavior} onChange={(e) => setFilterBehavior(e.target.value)}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white">
-          <option value="">All behaviors</option>
+          <option value="">{t('all_behaviors')}</option>
           {BEHAVIORS.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
         {(search || filterCategory || filterBehavior) && (
@@ -237,7 +242,7 @@ export default function AssetsPage() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Asset', 'Category', 'Behavior', 'Currency', 'Current value', 'Return', 'Status', ''].map((h) => (
+                  {[t('col_asset'),t('col_category'),t('col_behavior'),t('col_currency'),t('col_current_value'),t('col_return'),t('col_status'),''].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -280,7 +285,7 @@ export default function AssetsPage() {
 
       {/* Add / Edit Modal */}
       <Modal open={modalOpen} onClose={closeModal}
-        title={editTarget ? `Edit — ${editTarget.name}` : 'New asset'}
+        title={editTarget ? t('edit_asset', { name: editTarget.name }) : t('new_asset')}
         width="max-w-2xl">
         <div className="space-y-5">
 
@@ -290,7 +295,7 @@ export default function AssetsPage() {
               <button type="button" onClick={() => setShowImport((v) => !v)}
                 className="flex items-center gap-1.5 text-[12px] text-teal-600 hover:text-teal-700 font-medium">
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M2 9v2h9V9M6.5 1v7M4 5l2.5 3L9 5"/></svg>
-                Import from JSON
+                {t('import_from_json')}
               </button>
               {showImport && (
                 <div className="mt-2 space-y-2">
@@ -312,31 +317,31 @@ export default function AssetsPage() {
           <Divider />
 
           {/* Identity */}
-          <FormSection title="Identity">
+          <FormSection title={t('section_identity')}>
             <FormGrid>
-              <Field label="Asset name" required error={errors.name}>
+              <Field label={t('field_name')} required error={errors.name}>
                 <Input value={form.name}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, name: e.target.value })}
                   placeholder="e.g. Apple Inc." error={!!errors.name} />
               </Field>
-              <Field label="Symbol" required error={errors.symbol} hint="Unique identifier e.g. AAPL, BTC">
+              <Field label={t('field_symbol')} required error={errors.symbol} hint={t('field_symbol_hint')}>
                 <Input value={form.symbol}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, symbol: e.target.value.toUpperCase() })}
                   placeholder="e.g. AAPL" error={!!errors.symbol} className="font-mono" />
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="Category">
+              <Field label={t('field_category')}>
                 <Select value={form.category}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, category: e.target.value })}>
                   <option value="">— none —</option>
                   {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
                 </Select>
               </Field>
-              <Field label="Asset type">
+              <Field label={t('field_asset_type')}>
                 <Input value={form.asset_type}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, asset_type: e.target.value })}
-                  placeholder="e.g. security, fund, property" />
+                  placeholder={t('field_asset_type_placeholder')} />
               </Field>
             </FormGrid>
           </FormSection>
@@ -344,16 +349,16 @@ export default function AssetsPage() {
           <Divider />
 
           {/* Behavior & Pricing */}
-          <FormSection title="Behavior & pricing">
+          <FormSection title={t('section_behavior')}>
             <FormGrid>
-              <Field label="Behavior" required error={errors.asset_behavior}>
+              <Field label={t('field_behavior')} required error={errors.asset_behavior}>
                 <Select value={form.asset_behavior}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, asset_behavior: e.target.value })}
                   error={!!errors.asset_behavior}>
                   {BEHAVIORS.map((b) => <option key={b} value={b}>{b}</option>)}
                 </Select>
               </Field>
-              <Field label="Pricing mode">
+              <Field label={t('field_pricing_mode')}>
                 <Select value={form.pricing_mode}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, pricing_mode: e.target.value })}>
                   {PRICING_MODES.map((p) => <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>)}
@@ -361,13 +366,13 @@ export default function AssetsPage() {
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="Currency" required>
+              <Field label={t('field_currency')} required>
                 <Select value={form.currency}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, currency: e.target.value })}>
                   {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
               </Field>
-              <Field label="Current price" hint="Leave blank for manual valuation assets">
+              <Field label={t('field_current_price')} hint={t('field_current_price_hint')}>
                 <Input type="number" value={form.current_price}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, current_price: e.target.value })}
                   placeholder="0.00" className="font-mono" />
@@ -378,32 +383,32 @@ export default function AssetsPage() {
           <Divider />
 
           {/* Market data */}
-          <FormSection title="Market data">
+          <FormSection title={t('section_market_data')}>
             <FormGrid>
-              <Field label="Exchange">
+              <Field label={t('field_exchange')}>
                 <Input value={form.exchange}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, exchange: e.target.value })}
-                  placeholder="e.g. NASDAQ, TASE" />
+                  placeholder={t('field_exchange_placeholder')} />
               </Field>
-              <Field label="Country">
+              <Field label={t('field_country')}>
                 <Input value={form.country}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, country: e.target.value })}
-                  placeholder="e.g. US, IL" />
+                  placeholder={t('field_country_placeholder')} />
               </Field>
             </FormGrid>
-            <Field label="Sector">
+            <Field label={t('field_sector')}>
               <Input value={form.sector}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, sector: e.target.value })}
-                placeholder="e.g. Technology, Real Estate" />
+                placeholder={t('field_sector_placeholder')} />
             </Field>
           </FormSection>
 
           <Divider />
 
           {/* Status */}
-          <FormSection title="Status">
+          <FormSection title={t('section_status')}>
             <FormGrid>
-              <Field label="Status">
+              <Field label={t('field_status')}>
                 <Select value={form.status}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, status: e.target.value })}>
                   {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -414,7 +419,7 @@ export default function AssetsPage() {
               <input type="checkbox" checked={form.is_manual}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, is_manual: e.target.checked })}
                 className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-              <span className="text-[13px] text-gray-700">Manual asset (no automatic price fetching)</span>
+              <span className="text-[13px] text-gray-700">{t('field_manual')}</span>
             </label>
           </FormSection>
 
@@ -430,26 +435,26 @@ export default function AssetsPage() {
                     style={{ transform: showOpeningData ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
                     <path d="M5 3l4 4-4 4"/>
                   </svg>
-                  Opening data (optional)
+                  {t('opening_data')}
                 </button>
                 <p className="text-[11px] text-gray-400 mt-0.5 ml-5">
-                  Creates a BUY transaction + ManualValuation for the start date
+                  {t('opening_data_hint')}
                 </p>
                 {showOpeningData && (
                   <div className="mt-3 ml-5 space-y-3">
                     <FormGrid>
-                      <Field label="Current value (ILS)" hint="Creates a ManualValuation for today">
+                      <Field label={t('field_opening_value')} hint={t('field_opening_value_hint')}>
                         <Input type="number" value={openingValue}
                           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOpeningValue(e.target.value)}
                           placeholder="120,000" className="font-mono" />
                       </Field>
-                      <Field label="Cost basis (ILS)" hint="Creates a BUY transaction">
+                      <Field label={t('field_opening_cost')} hint={t('field_opening_cost_hint')}>
                         <Input type="number" value={openingCost}
                           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOpeningCost(e.target.value)}
                           placeholder="100,000" className="font-mono" />
                       </Field>
                     </FormGrid>
-                    <Field label="Start date" hint="Date of the initial BUY transaction">
+                    <Field label={t('field_opening_date')} hint={t('field_opening_date_hint')}>
                       <Input type="date" value={openingDate}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOpeningDate(e.target.value)} />
                     </Field>
@@ -483,7 +488,7 @@ export default function AssetsPage() {
               </button>
               <button onClick={handleSubmit} disabled={isSaving}
                 className="px-4 py-2 text-[13px] font-medium bg-[#0d9488] hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-60">
-                {isSaving ? 'Saving…' : editTarget ? 'Save changes' : 'Add asset'}
+                {isSaving ? 'Saving…' : editTarget ? 'Save changes' : t('add_asset')}
               </button>
             </div>
           </div>
@@ -493,8 +498,8 @@ export default function AssetsPage() {
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title={`Delete "${deleteTarget?.name}"?`}
-        message={deleteError || 'This cannot be undone. The asset and all its valuations will be permanently removed.'}
+        title={deleteTarget ? t('delete_title', { name: deleteTarget.name }) : ''}
+        message={deleteError || t('delete_message')}
         confirmLabel="Delete" danger
         onConfirm={() => {
           if (!deleteTarget) return
@@ -502,7 +507,7 @@ export default function AssetsPage() {
           deleteMut.mutate(deleteTarget.id, {
             onError: (err: unknown) => {
               const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-              setDeleteError(detail ?? 'Cannot delete this asset')
+              setDeleteError(detail ?? t('cannot_delete'))
             },
           })
         }}
@@ -561,11 +566,12 @@ function LoadingRows() {
   )
 }
 function EmptyState({ onAdd }: { onAdd: () => void }) {
+  const { t } = useTranslation('assets')
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
-      <p className="text-[14px] font-medium text-gray-600 mb-1">No assets yet</p>
-      <p className="text-[12px] text-gray-400 mb-4">Add your first asset to start tracking</p>
-      <button onClick={onAdd} className="px-4 py-2 bg-[#0d9488] text-white text-[13px] font-medium rounded-lg hover:bg-teal-700">New asset</button>
+      <p className="text-[14px] font-medium text-gray-600 mb-1">{t('no_assets_title')}</p>
+      <p className="text-[12px] text-gray-400 mb-4">{t('no_assets_sub')}</p>
+      <button onClick={onAdd} className="px-4 py-2 bg-[#0d9488] text-white text-[13px] font-medium rounded-lg hover:bg-teal-700">{t('new_asset')}</button>
     </div>
   )
 }

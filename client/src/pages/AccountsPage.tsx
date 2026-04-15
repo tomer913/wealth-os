@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getAccounts, createAccount, updateAccount, deleteAccount } from '../api/portfolio'
 import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { Account } from '../types'
@@ -41,6 +42,7 @@ function emptyForm(): AccountForm {
 }
 
 export default function AccountsPage() {
+  const { t } = useTranslation('accounts')
   const qc = useQueryClient()
   const categoryFilter = useCategoryFilter()
 
@@ -136,14 +138,14 @@ export default function AccountsPage() {
       setShowImport(false)
       setImportText('')
     } catch {
-      setImportError('Invalid JSON — check your format and try again')
+      setImportError(t('invalid_json'))
     }
   }
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!form.name.trim()) e.name = 'Name is required'
-    if (!form.symbol.trim()) e.symbol = 'Symbol is required'
+    if (!form.name.trim()) e.name = t('error_name_required')
+    if (!form.symbol.trim()) e.symbol = t('error_symbol_required')
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -169,7 +171,7 @@ export default function AccountsPage() {
       onError: (err: unknown) => {
         const detail = (err as { response?: { data?: { detail?: string } } })
           ?.response?.data?.detail
-        setDeleteError(detail ?? 'Cannot delete — this account has linked assets')
+        setDeleteError(detail ?? t('cannot_delete'))
       },
     })
   }
@@ -182,8 +184,8 @@ export default function AccountsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-[16px] font-semibold text-gray-900">Accounts</h2>
-          <p className="text-[12px] text-gray-400 mt-0.5">{accounts.length} accounts</p>
+          <h2 className="text-[16px] font-semibold text-gray-900">{t('title')}</h2>
+          <p className="text-[12px] text-gray-400 mt-0.5">{t('count', { count: accounts.length })}</p>
         </div>
         <button
           onClick={openAdd}
@@ -192,7 +194,7 @@ export default function AccountsPage() {
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
             <path d="M6 1v10M1 6h10"/>
           </svg>
-          Add account
+          {t('add_account')}
         </button>
       </div>
 
@@ -202,7 +204,7 @@ export default function AccountsPage() {
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
-                {['Account', 'Type', 'Institution', 'Currency', 'Positions', 'Status', ''].map((h) => (
+                {[t('col_account'),t('col_type'),t('col_institution'),t('col_currency'),t('col_positions'),t('col_status'),''].map((h) => (
                   <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
@@ -212,12 +214,12 @@ export default function AccountsPage() {
                 <tr key={acc.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
                   <td className="px-4 py-3">
                     <div className="font-semibold text-gray-900">{acc.name}</div>
-                    <div className="text-[11px] text-gray-400 font-mono mt-0.5">{acc.symbol}</div>
+                    <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{acc.symbol}</div>
                   </td>
                   <td className="px-4 py-3"><TypeBadge type={acc.account_type ?? ''} /></td>
                   <td className="px-4 py-3 text-gray-600">{acc.institution ?? '—'}</td>
-                  <td className="px-4 py-3 font-mono text-gray-600">{acc.currency}</td>
-                  <td className="px-4 py-3"><PositionCountBadge count={acc.position_count} /></td>
+                  <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">{acc.currency}</td>
+                  <td className="px-4 py-3"><PositionCountBadge count={acc.position_count} assetsLabel={t('assets_count', { count: acc.position_count, plural: acc.position_count !== 1 ? 's' : '' })} /></td>
                   <td className="px-4 py-3"><StatusBadge status={acc.status} /></td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
@@ -226,7 +228,7 @@ export default function AccountsPage() {
                         onClick={() => { setDeleteTarget(acc); setDeleteError('') }}
                         icon="delete"
                         title={acc.position_count > 0
-                          ? `Cannot delete — ${acc.position_count} linked asset${acc.position_count !== 1 ? 's' : ''}`
+                          ? t('cannot_delete_linked', { count: acc.position_count, plural: acc.position_count !== 1 ? 's' : '' })
                           : 'Delete account'}
                         danger
                         disabled={acc.position_count > 0}
@@ -241,7 +243,9 @@ export default function AccountsPage() {
       )}
 
       {/* Add / Edit Modal */}
-      <Modal open={modalOpen} onClose={closeModal} title={editTarget ? `Edit — ${editTarget.name}` : 'Add account'} width="max-w-lg">
+      <Modal open={modalOpen} onClose={closeModal}
+        title={editTarget ? t('edit_account', { name: editTarget.name }) : t('add_account')}
+        width="max-w-lg">
         <div className="space-y-5">
 
           {/* JSON Import */}
@@ -251,7 +255,7 @@ export default function AccountsPage() {
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                 <path d="M2 9v2h9V9M6.5 1v7M4 5l2.5 3L9 5"/>
               </svg>
-              Import from JSON
+              {t('import_from_json')}
             </button>
             {showImport && (
               <div className="mt-2 space-y-2">
@@ -273,33 +277,33 @@ export default function AccountsPage() {
           <Divider />
 
           {/* Basic details */}
-          <FormSection title="Basic details">
-            <Field label="Account name" required error={errors.name}>
+          <FormSection title={t('section_basic')}>
+            <Field label={t('field_name')} required error={errors.name}>
               <Input value={form.name}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, name: e.target.value })}
                 placeholder="e.g. IBI Broker" error={!!errors.name} />
             </Field>
-            <Field label="Symbol / code" required error={errors.symbol}
-              hint="Short unique identifier, e.g. IBI_BROKER">
+            <Field label={t('field_symbol')} required error={errors.symbol}
+              hint={t('field_symbol_hint')}>
               <Input value={form.symbol}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, symbol: e.target.value })}
                 placeholder="e.g. IBI_BROKER" error={!!errors.symbol} />
             </Field>
             <FormGrid>
-              <Field label="Account type">
+              <Field label={t('field_type')}>
                 <Select value={form.account_type}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, account_type: e.target.value })}>
-                  {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1).replace('_', ' ')}</option>)}
+                  {ACCOUNT_TYPES.map((tp) => <option key={tp} value={tp}>{tp.charAt(0).toUpperCase() + tp.slice(1).replace('_', ' ')}</option>)}
                 </Select>
               </Field>
-              <Field label="Currency">
+              <Field label={t('field_currency')}>
                 <Select value={form.currency}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, currency: e.target.value })}>
                   {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
               </Field>
             </FormGrid>
-            <Field label="Institution / provider">
+            <Field label={t('field_institution')}>
               <Input value={form.institution}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, institution: e.target.value })}
                 placeholder="e.g. IBI Bank, Interactive Brokers" />
@@ -309,14 +313,14 @@ export default function AccountsPage() {
           <Divider />
 
           {/* Settings */}
-          <FormSection title="Settings">
+          <FormSection title={t('section_settings')}>
             <FormGrid>
-              <Field label="Status">
+              <Field label={t('field_status')}>
                 <Select value={form.status}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, status: e.target.value })}>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="closed">Closed</option>
+                  <option value="active">{t('status_active')}</option>
+                  <option value="inactive">{t('status_inactive')}</option>
+                  <option value="closed">{t('status_closed')}</option>
                 </Select>
               </Field>
             </FormGrid>
@@ -324,7 +328,7 @@ export default function AccountsPage() {
               <input type="checkbox" checked={form.include_in_portfolio}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, include_in_portfolio: e.target.checked })}
                 className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-              <span className="text-[13px] text-gray-700">Include in portfolio calculations</span>
+              <span className="text-[13px] text-gray-700">{t('field_include_portfolio')}</span>
             </label>
           </FormSection>
 
@@ -352,7 +356,7 @@ export default function AccountsPage() {
               </button>
               <button onClick={handleSubmit} disabled={isSaving}
                 className="px-4 py-2 text-[13px] font-medium bg-[#0d9488] hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-60">
-                {isSaving ? 'Saving…' : editTarget ? 'Save changes' : 'Add account'}
+                {isSaving ? 'Saving…' : editTarget ? 'Save changes' : t('add_account')}
               </button>
             </div>
           </div>
@@ -362,8 +366,8 @@ export default function AccountsPage() {
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title={`Delete "${deleteTarget?.name}"?`}
-        message={deleteError || 'This cannot be undone. The account will be permanently removed.'}
+        title={deleteTarget ? t('delete_title', { name: deleteTarget.name }) : ''}
+        message={deleteError || t('delete_message')}
         confirmLabel="Delete"
         danger
         onConfirm={handleDelete}
@@ -392,11 +396,11 @@ function TypeBadge({ type }: { type: string }) {
   )
 }
 
-function PositionCountBadge({ count }: { count: number }) {
+function PositionCountBadge({ count, assetsLabel }: { count: number; assetsLabel: string }) {
   return (
     <span className={clsx('text-[11px] px-2 py-0.5 rounded font-semibold tabular-nums',
       count > 0 ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400')}>
-      {count} asset{count !== 1 ? 's' : ''}
+      {assetsLabel}
     </span>
   )
 }
@@ -448,12 +452,13 @@ function LoadingRows() {
 }
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
+  const { t } = useTranslation('accounts')
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
-      <p className="text-[14px] font-medium text-gray-600 mb-1">No accounts yet</p>
-      <p className="text-[12px] text-gray-400 mb-4">Add your first account to start tracking</p>
+      <p className="text-[14px] font-medium text-gray-600 mb-1">{t('no_accounts_title')}</p>
+      <p className="text-[12px] text-gray-400 mb-4">{t('no_accounts_sub')}</p>
       <button onClick={onAdd} className="px-4 py-2 bg-[#0d9488] text-white text-[13px] font-medium rounded-lg hover:bg-teal-700">
-        Add account
+        {t('add_account')}
       </button>
     </div>
   )
