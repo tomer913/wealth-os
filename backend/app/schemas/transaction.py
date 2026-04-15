@@ -64,3 +64,7 @@ class TransactionRead(TransactionBase):
     asset_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
+    # Override strict enum fields — bank connectors write values not in the enums
+    source: Optional[str] = None
+    type: Optional[str] = None
+    economic_type: Optional[str] = None
