@@ -2,15 +2,21 @@
 Budget router — categories, plans, actuals, rules, review queue.
 All endpoints require ?portfolio_id= query param.
 """
+import os
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+
+log = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models.budget import (
@@ -626,23 +632,34 @@ async def categorize_review_item(
 ):
     """
     Manually categorize a review-queue item.
-    Body: { "category_id": "...", "generate_rule": true }
+    Body: { "category_id": "uuid-or-exclude", "generate_rule": true }
+    Everything is committed atomically — any failure rolls back all changes.
     """
+    category_id_raw: str = body.get("category_id", "")
+    generate_rule: bool = bool(body.get("generate_rule", False))
+
     log_entry = await db.get(ClassificationLog, log_id)
     if not log_entry:
         raise HTTPException(status_code=404, detail="Log entry not found")
 
-    # Handle exclusion (internal transfers, investment txns, cc payments, etc.)
-    if body.get("excluded"):
+    log.info(f"Categorizing {log_id} → {category_id_raw} (generate_rule={generate_rule})")
+
+    now = datetime.now(timezone.utc)
+
+    # ── Step 7: Handle exclusion ──────────────────────────────────────────────
+    if category_id_raw == "exclude":
         log_entry.excluded = True
         log_entry.needs_review = False
         log_entry.method = "excluded"
-        log_entry.reviewed_at = datetime.now(timezone.utc)
-        log_entry.reviewed_by = "user"
+        log_entry.reviewed_at = now
+        log_entry.reviewed_by = "manual"
+        # No rule, no actuals update for excluded rows
         await db.flush()
+        log.info(f"log_id={log_id} marked as excluded")
         return {"status": "ok", "log_id": str(log_id), "excluded": True}
 
-    cat_id = UUID(body["category_id"])
+    # ── Steps 1–5: Classify ───────────────────────────────────────────────────
+    cat_id = UUID(category_id_raw)
     cat = await db.get(BudgetCategory, cat_id)
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
@@ -651,11 +668,11 @@ async def categorize_review_item(
     log_entry.method = "manual"
     log_entry.confidence = 1.0
     log_entry.needs_review = False
-    log_entry.reviewed_at = datetime.now(timezone.utc)
-    log_entry.reviewed_by = "user"
+    log_entry.reviewed_at = now
+    log_entry.reviewed_by = "manual"
 
-    # Optionally generate a rule
-    if body.get("generate_rule") and os.environ.get("ANTHROPIC_API_KEY"):
+    # ── Step 6: Optionally generate a suggested rule ───────────────────────────
+    if generate_rule and os.environ.get("ANTHROPIC_API_KEY"):
         raw = await db.get(RawTransaction, log_entry.raw_transaction_id)
         if raw:
             try:
@@ -675,16 +692,45 @@ async def categorize_review_item(
                         category_id=cat_id,
                         name=f"User: {raw.description[:60]}",
                         priority=100,
-                        status="active",
+                        status="suggested",
                         conditions=conditions,
                         confidence=1.0,
                         source="user_confirmed",
                     )
                     db.add(new_rule)
-            except Exception as e:
-                pass  # Rule generation is best-effort
+                    log.info(f"Suggested rule created for category={cat_id}")
+            except Exception:
+                log.exception("Rule generation failed (best-effort, continuing)")
 
+    # ── Step 8: Upsert budget_actuals ─────────────────────────────────────────
+    raw_tx = await db.get(RawTransaction, log_entry.raw_transaction_id)
+    if raw_tx and raw_tx.raw_date:
+        year = raw_tx.raw_date.year
+        month = raw_tx.raw_date.month
+        amount = abs(raw_tx.amount)
+        stmt = pg_insert(BudgetActual).values(
+            id=uuid.uuid4(),
+            portfolio_id=portfolio_id,
+            category_id=cat_id,
+            year=year,
+            month=month,
+            actual_amount=amount,
+            transaction_count=1,
+            last_updated=now,
+        ).on_conflict_do_update(
+            constraint="uq_budget_actuals_category_month",
+            set_={
+                "actual_amount": BudgetActual.actual_amount + amount,
+                "transaction_count": BudgetActual.transaction_count + 1,
+                "last_updated": now,
+            },
+        )
+        await db.execute(stmt)
+        log.info(f"budget_actuals upserted: category={cat_id} {year}-{month:02d} +{amount}")
+
+    # ── Step 9: Commit (via get_db dependency after return) ───────────────────
     await db.flush()
+    log.info(f"log_id={log_id} categorized → {cat_id} ✓")
     return {"status": "ok", "log_id": str(log_id), "category_id": str(cat_id)}
 
 
@@ -727,4 +773,3 @@ async def get_classification_log(
     return result
 
 
-import os  # noqa: E402
