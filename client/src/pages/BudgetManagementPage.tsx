@@ -30,20 +30,29 @@ export default function BudgetManagementPage() {
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null)
   const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set(['expense', 'income', 'saving']))
 
-  const { data: categories = [] } = useQuery({
+  const { data: categories = [], isLoading, isError, error } = useQuery({
     queryKey: ['budget-categories', activeBudgetYear],
-    queryFn: () => getBudgetCategories(activeBudgetYear),
+    queryFn: async () => {
+      console.log('[BudgetManage] fetching categories, year=', activeBudgetYear)
+      const data = await getBudgetCategories(activeBudgetYear)
+      console.log('[BudgetManage] categories response:', data?.length, 'items', data)
+      return data
+    },
   })
 
   // Build planMap from embedded plan in each category (set by backend when year is passed)
   const planMap: Record<string, BudgetPlan> = {}
-  function extractPlans(cats: BudgetCategory[]) {
+  const walkForPlans = (cats: BudgetCategory[]) => {
     for (const cat of cats) {
       if (cat.plan) planMap[cat.id] = cat.plan as BudgetPlan
-      extractPlans(cat.children ?? [])
+      walkForPlans(cat.children ?? [])
     }
   }
-  extractPlans(categories)
+  walkForPlans(categories)
+
+  if (isError) {
+    console.error('[BudgetManage] categories query failed:', error)
+  }
 
   const selectedCat = selectedCatId ? findCat(categories, selectedCatId) : null
 
@@ -93,6 +102,17 @@ export default function BudgetManagementPage() {
 
         {/* Tree */}
         <div className="flex-1 overflow-y-auto py-2">
+          {isLoading && (
+            <p className="px-4 py-3 text-[12px] text-gray-400">{tc('status.loading')}</p>
+          )}
+          {isError && (
+            <p className="px-4 py-3 text-[11px] text-red-500">
+              Failed to load categories. Check browser console.
+            </p>
+          )}
+          {!isLoading && !isError && categories.length === 0 && (
+            <p className="px-4 py-3 text-[12px] text-gray-400">No categories found</p>
+          )}
           {(['income', 'expense', 'saving', 'investment'] as const).map((type) => {
             const cats = byType[type] ?? []
             if (cats.length === 0) return null

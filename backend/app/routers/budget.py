@@ -91,10 +91,14 @@ async def list_categories(
                 "created_at": p.created_at.isoformat() if getattr(p, "created_at", None) else None,
             }
 
+    def _sort_key(x) -> int:
+        # Guard against NULL sort_order in existing DB rows
+        return x.sort_order if x.sort_order is not None else 0
+
     def to_dict(c) -> dict:
         children_sorted = sorted(
             [ch for ch in cats if ch.parent_id == c.id],
-            key=lambda x: x.sort_order,
+            key=_sort_key,
         )
         return {
             "id": str(c.id),
@@ -105,14 +109,14 @@ async def list_categories(
             "category_type": c.category_type,
             "icon": c.icon,
             "color": c.color,
-            "sort_order": c.sort_order,
+            "sort_order": c.sort_order if c.sort_order is not None else 0,
             "is_active": c.is_active if c.is_active is not None else True,
-            "created_at": c.created_at.isoformat() if hasattr(c, "created_at") else None,
+            "created_at": c.created_at.isoformat() if getattr(c, "created_at", None) else None,
             "plan": plan_by_cat.get(c.id),
             "children": [to_dict(ch) for ch in children_sorted],
         }
 
-    roots = sorted([c for c in cats if not c.parent_id], key=lambda x: x.sort_order)
+    roots = sorted([c for c in cats if not c.parent_id], key=_sort_key)
     return [to_dict(r) for r in roots]
 
 
