@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import { Field, Input, Select, FormGrid, FormSection, Divider } from '../components/shared/Form'
@@ -319,11 +320,13 @@ function RuleFormModal({ open, onClose, rule, categories }: {
 
   const saving = createMut.isPending || updateMut.isPending
 
+  const { t } = useTranslation('budget')
+
   return (
-    <Modal open={open} onClose={onClose} title={rule ? 'Edit Rule' : 'New Rule'} width="max-w-2xl">
+    <Modal open={open} onClose={onClose} title={rule ? t('rules.form_edit_title') : t('rules.form_new_title')} width="max-w-2xl">
       <form onSubmit={handleSubmit} className="space-y-4">
         <FormGrid>
-          <Field label="Rule Name" required>
+          <Field label={t('rules.form_name_label')} required>
             <Input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -331,13 +334,13 @@ function RuleFormModal({ open, onClose, rule, categories }: {
               required
             />
           </Field>
-          <Field label="Category" required>
+          <Field label={t('rules.form_category_label')} required>
             <Select
               value={form.category_id}
               onChange={(e) => setForm({ ...form, category_id: e.target.value })}
               required
             >
-              <option value="">Select category…</option>
+              <option value="">{t('rules.select_category_placeholder')}</option>
               {Object.entries(grouped).map(([type, cats]) => (
                 <optgroup key={type} label={CATEGORY_TYPE_LABELS[type] ?? type}>
                   {(cats as BudgetCategory[]).map((c) => (
@@ -347,7 +350,7 @@ function RuleFormModal({ open, onClose, rule, categories }: {
               ))}
             </Select>
           </Field>
-          <Field label="Priority">
+          <Field label={t('rules.form_priority_label')}>
             <Input
               type="number"
               value={form.priority}
@@ -356,7 +359,7 @@ function RuleFormModal({ open, onClose, rule, categories }: {
               max={9999}
             />
           </Field>
-          <Field label="Status">
+          <Field label={t('rules.form_status_label')}>
             <Select
               value={form.status}
               onChange={(e) => setForm({ ...form, status: e.target.value })}
@@ -369,7 +372,7 @@ function RuleFormModal({ open, onClose, rule, categories }: {
         </FormGrid>
 
         <Divider />
-        <FormSection title="Conditions">
+        <FormSection title={t('rules.form_conditions_label')}>
           <ConditionBuilder
             conditions={form.conditions}
             onChange={(c) => setForm({ ...form, conditions: c })}
@@ -384,12 +387,12 @@ function RuleFormModal({ open, onClose, rule, categories }: {
             disabled={testing}
             className="text-[12px] text-teal-600 hover:text-teal-700 font-medium underline"
           >
-            {testing ? 'Testing…' : 'Test this rule against recent transactions'}
+            {testing ? t('rules.form_testing') : t('rules.form_test_btn')}
           </button>
           {testResult && (
             <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 text-[12px]">
               <p className="font-semibold text-gray-700 mb-2">
-                {testResult.count} matching transactions (showing up to 5)
+                {t('rules.form_test_matches', { count: testResult.count })}
               </p>
               {testResult.sample.map((tx) => (
                 <div key={tx.id} className="flex items-center gap-3 py-1 border-b border-gray-100 last:border-0" dir="rtl">
@@ -415,7 +418,7 @@ function RuleFormModal({ open, onClose, rule, categories }: {
             disabled={saving}
             className="px-4 py-2 text-[13px] font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-50"
           >
-            {saving ? 'Saving…' : rule ? 'Save Changes' : 'Create Rule'}
+            {saving ? t('rules.form_saving') : rule ? t('rules.form_save_changes') : t('rules.form_create_rule')}
           </button>
         </div>
       </form>
@@ -428,11 +431,12 @@ function RuleFormModal({ open, onClose, rule, categories }: {
 function TestModal({ open, onClose, result, ruleName }: {
   open: boolean; onClose: () => void; result: TestResult | null; ruleName: string
 }) {
+  const { t } = useTranslation('budget')
   if (!result) return null
   return (
     <Modal open={open} onClose={onClose} title={`Test: ${ruleName}`}>
       <p className="text-[13px] text-gray-600 mb-4">
-        <span className="font-semibold text-gray-900">{result.count}</span> matching transactions in the last 90 days
+        {t('rules.test_modal_matches', { count: result.count })}
       </p>
       <div className="space-y-1">
         {result.sample.map((tx) => (
@@ -442,7 +446,7 @@ function TestModal({ open, onClose, result, ruleName }: {
             <span className="text-gray-500 font-mono flex-shrink-0">{tx.amount.toLocaleString()} {tx.currency}</span>
           </div>
         ))}
-        {result.count === 0 && <p className="text-[12px] text-gray-400 text-center py-6">No matches found</p>}
+        {result.count === 0 && <p className="text-[12px] text-gray-400 text-center py-6">{t('rules.test_no_matches')}</p>}
       </div>
     </Modal>
   )
@@ -455,6 +459,7 @@ function ActiveRulesTab({ rules, categories, onEdit }: {
   categories: BudgetCategory[]
   onEdit: (r: BudgetRule) => void
 }) {
+  const { t } = useTranslation('budget')
   const qc = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState<BudgetRule | null>(null)
   const [testTarget, setTestTarget] = useState<BudgetRule | null>(null)
@@ -483,14 +488,14 @@ function ActiveRulesTab({ rules, categories, onEdit }: {
         <table className="w-full text-[12px]">
           <thead>
             <tr className="border-b border-gray-100">
-              {['Priority', 'Name', 'Category', 'Conditions', 'Matches', 'Status', 'Actions'].map((h) => (
+              {[t('rules.active_cols.priority'),t('rules.active_cols.name'),t('rules.active_cols.category'),t('rules.active_cols.conditions'),t('rules.active_cols.matches'),t('rules.active_cols.status'),t('rules.active_cols.actions')].map((h) => (
                 <th key={h} className="py-2.5 px-3 text-left text-[11px] text-gray-400 font-medium">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {active.length === 0 && (
-              <tr><td colSpan={7} className="py-10 text-center text-gray-400">No active rules yet</td></tr>
+              <tr><td colSpan={7} className="py-10 text-center text-gray-400">{t('rules.no_active_rules')}</td></tr>
             )}
             {active.map((rule) => (
               <tr key={rule.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
@@ -504,9 +509,9 @@ function ActiveRulesTab({ rules, categories, onEdit }: {
                 <td className="py-2.5 px-3"><StatusBadge status={rule.status} /></td>
                 <td className="py-2.5 px-3">
                   <div className="flex items-center gap-2">
-                    <button onClick={() => onEdit(rule)} className="text-teal-600 hover:text-teal-700 font-medium">Edit</button>
-                    <button onClick={() => handleTest(rule)} className="text-blue-600 hover:text-blue-700 font-medium">Test</button>
-                    <button onClick={() => setDeleteTarget(rule)} className="text-rose-500 hover:text-rose-600 font-medium">Delete</button>
+                    <button onClick={() => onEdit(rule)} className="text-teal-600 hover:text-teal-700 font-medium">{t('rules.btn_edit')}</button>
+                    <button onClick={() => handleTest(rule)} className="text-blue-600 hover:text-blue-700 font-medium">{t('rules.btn_test')}</button>
+                    <button onClick={() => setDeleteTarget(rule)} className="text-rose-500 hover:text-rose-600 font-medium">{t('rules.btn_delete')}</button>
                   </div>
                 </td>
               </tr>
@@ -517,9 +522,9 @@ function ActiveRulesTab({ rules, categories, onEdit }: {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete rule"
-        message={`Delete "${deleteTarget?.name}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        title={t('rules.delete_rule_title')}
+        message={deleteTarget ? t('rules.delete_rule_msg', { name: deleteTarget.name }) : ''}
+        confirmLabel={t('rules.btn_delete')}
         danger
         onConfirm={() => { deleteMut.mutate(deleteTarget!.id); setDeleteTarget(null) }}
         onCancel={() => setDeleteTarget(null)}
@@ -537,6 +542,7 @@ function ActiveRulesTab({ rules, categories, onEdit }: {
 // ─── Suggested Rules Tab ──────────────────────────────────────────────────────
 
 function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
+  const { t } = useTranslation('budget')
   const qc = useQueryClient()
   const suggested = rules.filter((r) => r.status === 'suggested')
 
@@ -562,21 +568,21 @@ function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
             onClick={approveAll}
             className="px-3 py-1.5 text-[12px] font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
           >
-            Approve all high confidence (&gt;0.9)
+            {t('rules.approve_all_high')}
           </button>
         </div>
       )}
       <table className="w-full text-[12px]">
         <thead>
           <tr className="border-b border-gray-100">
-            {['Category', 'Conditions', 'AI Reasoning', 'Confidence', 'Actions'].map((h) => (
+            {[t('rules.suggested_cols.category'),t('rules.suggested_cols.conditions'),t('rules.suggested_cols.ai_reasoning'),t('rules.suggested_cols.confidence'),t('rules.suggested_cols.actions')].map((h) => (
               <th key={h} className="py-2.5 px-3 text-left text-[11px] text-gray-400 font-medium">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {suggested.length === 0 && (
-            <tr><td colSpan={5} className="py-10 text-center text-gray-400">No suggested rules</td></tr>
+            <tr><td colSpan={5} className="py-10 text-center text-gray-400">{t('rules.no_suggested_rules')}</td></tr>
           )}
           {suggested.map((rule) => (
             <tr key={rule.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
@@ -595,11 +601,11 @@ function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
                   <button
                     onClick={() => approveMut.mutate(rule.id)}
                     className="text-emerald-600 hover:text-emerald-700 font-medium"
-                  >Approve</button>
+                  >{t('rules.btn_approve')}</button>
                   <button
                     onClick={() => deleteMut.mutate(rule.id)}
                     className="text-rose-500 hover:text-rose-600 font-medium"
-                  >Reject</button>
+                  >{t('rules.btn_reject')}</button>
                 </div>
               </td>
             </tr>
@@ -620,6 +626,7 @@ const TYPE_LABELS_HE: Record<string, string> = {
 }
 
 function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
+  const { t } = useTranslation('budget')
   const qc = useQueryClient()
   const currentYear = new Date().getFullYear()
 
@@ -686,20 +693,20 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
     }
   }
 
-  if (isLoading) return <p className="text-[12px] text-gray-400 text-center py-10">Loading…</p>
+  if (isLoading) return <p className="text-[12px] text-gray-400 text-center py-10">{t('rules.loading')}</p>
 
   return (
     <table className="w-full text-[12px]">
       <thead>
         <tr className="border-b border-gray-100">
-          {['Date', 'Description', 'Amount', 'Source', 'Category', 'Actions'].map((h) => (
+          {[t('rules.review_cols.date'),t('rules.review_cols.description'),t('rules.review_cols.amount'),t('rules.review_cols.source'),t('rules.review_cols.category'),t('rules.review_cols.actions')].map((h) => (
             <th key={h} className="py-2.5 px-3 text-left text-[11px] text-gray-400 font-medium">{h}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {queue.length === 0 && (
-          <tr><td colSpan={6} className="py-10 text-center text-gray-400">Review queue is empty</td></tr>
+          <tr><td colSpan={6} className="py-10 text-center text-gray-400">{t('rules.review_empty')}</td></tr>
         )}
         {(queue as ReviewItem[]).map((item) => (
           <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors align-top">
@@ -715,10 +722,10 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                 onChange={(e) => handleSelectChange(item.id, e.target.value)}
                 className="text-[12px]"
               >
-                <option value="">בחר קטגוריה…</option>
+                <option value="">{t('rules.select_category_placeholder')}</option>
                 {/* Special actions — always at top */}
-                <option value="__exclude__">⊘ Exclude from budget</option>
-                <option value="__new__">+ New category</option>
+                <option value="__exclude__">{t('rules.exclude_from_budget')}</option>
+                <option value="__new__">{t('rules.new_category')}</option>
                 <optgroup label="─────────────────────" />
                 {/* Categories sorted by usage frequency */}
                 {sortedCats.map((c) => {
@@ -766,7 +773,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                       onClick={() => createCatMut.mutate({ name: newCatName.trim(), category_type: newCatType })}
                       className="flex-1 py-1.5 text-[11px] font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-40 transition-colors"
                     >
-                      {createCatMut.isPending ? 'Creating…' : 'Create & Select'}
+                      {createCatMut.isPending ? '…' : t('rules.btn_create_select')}
                     </button>
                     <button
                       type="button"
@@ -789,10 +796,10 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                       onChange={(e) => setGenRule({ ...genRule, [item.id]: e.target.checked })}
                       className="accent-teal-600"
                     />
-                    <span>Remember this rule</span>
+                    <span>{t('rules.remember_rule')}</span>
                     {/* Tooltip */}
                     <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-56 rounded-lg bg-gray-800 px-2.5 py-2 text-[10px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 z-20">
-                      Automatically categorize similar transactions in the future using an AI-generated rule
+                      {t('rules.remember_rule_tooltip')}
                     </span>
                   </label>
                 )}
@@ -815,7 +822,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                           : 'bg-teal-600 hover:bg-teal-700',
                       )}
                     >
-                      {isExclude ? 'Exclude' : 'Confirm'}
+                      {isExclude ? t('rules.btn_exclude') : t('rules.btn_confirm')}
                     </button>
                   )
                 })()}
@@ -831,6 +838,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function BudgetRulesPage() {
+  const { t } = useTranslation('budget')
   const [activeTab, setActiveTab] = useState<Tab>('Active')
   const [showForm, setShowForm] = useState(false)
   const [editingRule, setEditingRule] = useState<BudgetRule | null>(null)
@@ -862,16 +870,16 @@ export default function BudgetRulesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[20px] font-bold text-gray-900">Budget Rules</h1>
+          <h1 className="text-[20px] font-bold text-gray-900">{t('rules.page_title')}</h1>
           <p className="text-[12px] text-gray-400 mt-0.5">
-            Classification rules that map bank transactions to budget categories
+            {t('rules.page_subtitle')}
           </p>
         </div>
         <button
           onClick={() => { setEditingRule(null); setShowForm(true) }}
           className="px-4 py-2 text-[13px] font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors"
         >
-          + New Rule
+          {t('rules.new_rule')}
         </button>
       </div>
 
@@ -889,7 +897,7 @@ export default function BudgetRulesPage() {
                   : 'text-gray-500 hover:text-gray-700'
               )}
             >
-              {tab}
+              {tab === 'Active' ? t('rules.tabs.active') : tab === 'Suggested' ? t('rules.tabs.suggested') : tab === 'Review Queue' ? t('rules.tabs.review_queue') : t('rules.tabs.conflicts')}
               {tab === 'Suggested' && suggestedCount > 0 && (
                 <span className="ml-1.5 bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                   {suggestedCount}
@@ -901,7 +909,7 @@ export default function BudgetRulesPage() {
 
         <div className="p-5">
           {rulesLoading ? (
-            <p className="text-[12px] text-gray-400 text-center py-10">Loading rules…</p>
+            <p className="text-[12px] text-gray-400 text-center py-10">{t('rules.loading_rules')}</p>
           ) : activeTab === 'Active' ? (
             <ActiveRulesTab
               rules={rules as BudgetRule[]}
@@ -914,7 +922,7 @@ export default function BudgetRulesPage() {
             <ReviewQueueTab categories={categories as BudgetCategory[]} />
           ) : (
             <div className="py-10 text-center text-[13px] text-gray-400">
-              Conflict detection coming soon
+              {t('rules.conflict_coming_soon')}
             </div>
           )}
         </div>
