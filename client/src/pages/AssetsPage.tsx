@@ -254,15 +254,15 @@ export default function AssetsPage() {
                     <tr key={asset.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
                       <td className="px-4 py-3">
                         <div className="font-semibold text-gray-900">{asset.name}</div>
-                        <div className="text-[11px] text-gray-400 font-mono mt-0.5">{asset.symbol}</div>
+                        <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{asset.symbol}</div>
                       </td>
                       <td className="px-4 py-3"><CategoryBadge cat={asset.category ?? ''} /></td>
                       <td className="px-4 py-3"><BehaviorBadge behavior={asset.asset_behavior} /></td>
-                      <td className="px-4 py-3 font-mono text-gray-600">{asset.currency}</td>
-                      <td className="px-4 py-3 font-mono font-semibold text-gray-800">
+                      <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">{asset.currency}</td>
+                      <td className="px-4 py-3 font-mono font-semibold text-gray-800" dir="ltr">
                         {snap ? formatILSShort(snap.current_value_ils) : '—'}
                       </td>
-                      <td className={clsx('px-4 py-3 font-mono font-semibold', gainClass(snap?.total_return_pct ?? null))}>
+                      <td className={clsx('px-4 py-3 font-mono font-semibold', gainClass(snap?.total_return_pct ?? null))} dir="ltr">
                         {snap?.total_return_pct != null ? formatPct(snap.total_return_pct * 100) : '—'}
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={asset.status} /></td>

@@ -270,7 +270,7 @@ export default function ValuationsPage() {
                       <td className="px-4 py-3">
                         {asset ? (
                           <>
-                            <div className="font-semibold text-gray-900">{asset.symbol}</div>
+                            <div className="font-semibold text-gray-900" dir="ltr">{asset.symbol}</div>
                             <div className="text-[11px] text-gray-400 truncate max-w-[140px]">{asset.name}</div>
                           </>
                         ) : <span className="text-gray-300">—</span>}
@@ -278,14 +278,14 @@ export default function ValuationsPage() {
                       <td className="px-4 py-3 text-[12px] text-gray-500">
                         {account?.name ?? <span className="text-gray-300">—</span>}
                       </td>
-                      <td className="px-4 py-3 font-mono font-semibold text-gray-800">
+                      <td className="px-4 py-3 font-mono font-semibold text-gray-800" dir="ltr">
                         {formatILS(Number(v.market_value))}
                       </td>
-                      <td className="px-4 py-3 font-mono text-gray-500">{v.currency}</td>
-                      <td className="px-4 py-3 font-mono text-gray-500 text-[12px]">
+                      <td className="px-4 py-3 font-mono text-gray-500" dir="ltr">{v.currency}</td>
+                      <td className="px-4 py-3 font-mono text-gray-500 text-[12px]" dir="ltr">
                         {Number(v.fx_rate_to_ils).toFixed(4)}
                       </td>
-                      <td className="px-4 py-3 font-mono font-semibold text-emerald-700">
+                      <td className="px-4 py-3 font-mono font-semibold text-emerald-700" dir="ltr">
                         {v.value_ils != null ? formatILS(Number(v.value_ils)) : '—'}
                       </td>
                       <td className="px-4 py-3"><MethodBadge method={v.valuation_method} /></td>
