@@ -842,7 +842,7 @@ export default function BudgetRulesPage() {
 
   const { data: categories = [] } = useQuery({
     queryKey: ['budget-categories'],
-    queryFn: getBudgetCategories,
+    queryFn: () => getBudgetCategories(),
   })
 
   const suggestedCount = (rules as BudgetRule[]).filter((r) => r.status === 'suggested').length
