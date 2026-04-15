@@ -90,7 +90,7 @@ export default function ValuationsPage() {
   const totalPages = data?.pages ?? 1
 
   // Summary stats
-  const totalValueILS = valuations.reduce((sum, v) => sum + (v.value_ils ?? 0), 0)
+  const totalValueILS = valuations.reduce((sum, v) => sum + (Number(v.value_ils) || 0), 0)
   const uniqueAssets = new Set(valuations.map((v) => v.asset_id)).size
 
   const createMut = useMutation({
