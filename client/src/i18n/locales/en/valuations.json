@@ -1,6 +1,8 @@
 {
   "title": "Valuations",
   "count": "{{count}} records",
+  "label_records": "Total records",
+  "label_assets": "Assets covered",
   "assets_covered": "{{count}} assets",
   "total_value": "Total value (ILS)",
   "add_valuation": "Add valuation",

@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getValuations, createValuation, updateValuation, deleteValuation, getAssets, getAccounts } from '../api/portfolio'
 import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { ManualValuation } from '../types'
@@ -41,6 +42,7 @@ function emptyForm(): ValForm {
 }
 
 export default function ValuationsPage() {
+  const { t } = useTranslation('valuations')
   const qc = useQueryClient()
   const categoryFilter = useCategoryFilter()
 
@@ -142,9 +144,9 @@ export default function ValuationsPage() {
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!form.asset_id) e.asset_id = 'Asset is required'
-    if (!form.valuation_date) e.valuation_date = 'Date is required'
-    if (!form.market_value) e.market_value = 'Market value is required'
+    if (!form.asset_id) e.asset_id = t('error_asset_required')
+    if (!form.valuation_date) e.valuation_date = t('error_date_required')
+    if (!form.market_value) e.market_value = t('error_value_required')
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -196,31 +198,31 @@ export default function ValuationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-[16px] font-semibold text-gray-900">Valuations</h2>
+          <h2 className="text-[16px] font-semibold text-gray-900">{t('title')}</h2>
           <p className="text-[12px] text-gray-400 mt-0.5">
-            {total} records · {uniqueAssets} assets
-            {totalPages > 1 && ` · page ${page} of ${totalPages}`}
+            {t('count', { count: total })} · {t('assets_covered', { count: uniqueAssets })}
+            {totalPages > 1 && ` · ${t('page_of', { page, total: totalPages })}`}
           </p>
         </div>
         <button onClick={openAdd}
           className="flex items-center gap-2 px-4 py-2 bg-[#0d9488] hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M6 1v10M1 6h10"/></svg>
-          Add valuation
+          {t('add_valuation')}
         </button>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3 mb-5">
         <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-          <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Total records</p>
+          <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">{t('label_records')}</p>
           <p className="text-[22px] font-bold text-gray-900 num">{total}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-          <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Assets covered</p>
+          <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">{t('label_assets')}</p>
           <p className="text-[22px] font-bold text-gray-900 num">{uniqueAssets}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-          <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Total value (ILS)</p>
+          <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">{t('total_value')}</p>
           <p className="text-[22px] font-bold text-gray-900 num">{formatILSShort(totalValueILS)}</p>
         </div>
       </div>
@@ -229,7 +231,7 @@ export default function ValuationsPage() {
       <div className="flex gap-3 mb-4 flex-wrap">
         <select value={filterAsset} onChange={(e) => { setFilterAsset(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white flex-1 max-w-[240px]">
-          <option value="">All assets</option>
+          <option value="">{t('all_assets')}</option>
           {assetList.map((a) => <option key={a.id} value={a.id}>{a.symbol} — {a.name}</option>)}
         </select>
         <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
@@ -245,13 +247,13 @@ export default function ValuationsPage() {
       </div>
 
       {/* Table */}
-      {isLoading ? <LoadingRows /> : valuations.length === 0 ? <EmptyState onAdd={openAdd} /> : (
+      {isLoading ? <LoadingRows /> : valuations.length === 0 ? <EmptyState onAdd={openAdd} noLabel={t('no_valuations')} noDesc={t('no_valuations_desc')} addLabel={t('add_valuation')} /> : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Date','Asset','Account','Market value','Currency','FX rate','Value ILS','Method','Confidence',''].map((h) => (
+                  {[t('col_date'),t('col_asset'),t('col_account'),t('col_market_value'),t('col_currency'),t('col_fx_rate'),t('col_value_ils'),t('col_method'),t('col_confidence'),''].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -307,7 +309,7 @@ export default function ValuationsPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
           <p className="text-[12px] text-gray-400">
-            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+            {t('showing', { from: (page - 1) * PAGE_SIZE + 1, to: Math.min(page * PAGE_SIZE, total), total })}
           </p>
           <div className="flex items-center gap-1">
             <PagBtn onClick={() => setPage(1)} disabled={page === 1} label="«" />
@@ -331,12 +333,12 @@ export default function ValuationsPage() {
 
       {/* Add / Edit Modal */}
       <Modal open={modalOpen} onClose={closeModal}
-        title={editTarget ? 'Edit valuation' : 'Add valuation'}
+        title={editTarget ? t('edit_valuation') : t('add_valuation')}
         width="max-w-xl">
         <div className="space-y-5">
 
-          <FormSection title="Asset & date">
-            <Field label="Asset" required error={errors.asset_id}>
+          <FormSection title={t('section_asset_date')}>
+            <Field label={t('field_asset')} required error={errors.asset_id}>
               <Select value={form.asset_id}
                 onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, asset_id: e.target.value })}
                 error={!!errors.asset_id}>
@@ -345,12 +347,12 @@ export default function ValuationsPage() {
               </Select>
             </Field>
             <FormGrid>
-              <Field label="Valuation date" required error={errors.valuation_date}>
+              <Field label={t('field_date')} required error={errors.valuation_date}>
                 <Input type="date" value={form.valuation_date}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, valuation_date: e.target.value })}
                   error={!!errors.valuation_date} />
               </Field>
-              <Field label="Account">
+              <Field label={t('field_account')}>
                 <Select value={form.account_id}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, account_id: e.target.value })}>
                   <option value="">— None —</option>
@@ -362,14 +364,14 @@ export default function ValuationsPage() {
 
           <Divider />
 
-          <FormSection title="Value">
+          <FormSection title={t('section_value')}>
             <FormGrid>
-              <Field label="Market value" required error={errors.market_value}>
+              <Field label={t('field_market_value')} required error={errors.market_value}>
                 <Input type="number" value={form.market_value}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleMarketValueChange(e.target.value)}
                   placeholder="0.00" className="font-mono" error={!!errors.market_value} />
               </Field>
-              <Field label="Currency" required>
+              <Field label={t('field_currency')} required>
                 <Select value={form.currency}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, currency: e.target.value })}>
                   {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -377,12 +379,12 @@ export default function ValuationsPage() {
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="FX rate to ILS" hint="1.0 for ILS assets">
+              <Field label={t('field_fx_rate')} hint={t('field_fx_rate_hint')}>
                 <Input type="number" value={form.fx_rate_to_ils}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleFxRateChange(e.target.value)}
                   placeholder="1.0" className="font-mono" />
               </Field>
-              <Field label="Value ILS" hint="Auto-computed from market value × FX rate">
+              <Field label={t('field_value_ils')} hint={t('field_value_ils_hint')}>
                 <Input type="number" value={form.value_ils}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, value_ils: e.target.value })}
                   placeholder="Auto" className="font-mono" />
@@ -392,15 +394,15 @@ export default function ValuationsPage() {
 
           <Divider />
 
-          <FormSection title="Metadata">
+          <FormSection title={t('section_metadata')}>
             <FormGrid>
-              <Field label="Valuation method">
+              <Field label={t('field_method')}>
                 <Select value={form.valuation_method}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, valuation_method: e.target.value })}>
                   {METHODS.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
                 </Select>
               </Field>
-              <Field label="Confidence level">
+              <Field label={t('field_confidence')}>
                 <Select value={form.confidence_level}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, confidence_level: e.target.value })}>
                   {CONFIDENCE.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -408,13 +410,13 @@ export default function ValuationsPage() {
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="Source">
+              <Field label={t('field_source')}>
                 <Select value={form.source}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, source: e.target.value })}>
                   {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </Select>
               </Field>
-              <Field label="Valuation source" hint="e.g. broker report, appraisal firm">
+              <Field label={t('field_valuation_source')} hint={t('field_valuation_source_hint')}>
                 <Input value={form.valuation_source}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, valuation_source: e.target.value })}
                   placeholder="Optional source name" />
@@ -424,13 +426,13 @@ export default function ValuationsPage() {
               <input type="checkbox" checked={form.is_estimated}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, is_estimated: e.target.checked })}
                 className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-              <span className="text-[13px] text-gray-700">Estimated value (not confirmed)</span>
+              <span className="text-[13px] text-gray-700">{t('field_estimated')}</span>
             </label>
           </FormSection>
 
           <Divider />
 
-          <FormSection title="Notes">
+          <FormSection title={t('section_notes')}>
             <Textarea rows={3} value={form.notes} placeholder="Optional notes…"
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setForm({ ...form, notes: e.target.value })} />
           </FormSection>
@@ -443,7 +445,7 @@ export default function ValuationsPage() {
             </button>
             <button onClick={handleSubmit} disabled={isSaving}
               className="px-4 py-2 text-[13px] font-medium bg-[#0d9488] hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-60">
-              {isSaving ? 'Saving…' : editTarget ? 'Save changes' : 'Add valuation'}
+              {isSaving ? 'Saving…' : editTarget ? 'Save changes' : t('add_valuation')}
             </button>
           </div>
         </div>
@@ -452,8 +454,8 @@ export default function ValuationsPage() {
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete valuation?"
-        message={deleteError || 'This cannot be undone.'}
+        title={t('delete_title')}
+        message={deleteError || t('delete_message')}
         confirmLabel="Delete" danger
         onConfirm={() => {
           if (!deleteTarget) return
@@ -529,13 +531,13 @@ function LoadingRows() {
   )
 }
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+function EmptyState({ onAdd, noLabel, noDesc, addLabel }: { onAdd: () => void; noLabel: string; noDesc: string; addLabel: string }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
-      <p className="text-[14px] font-medium text-gray-600 mb-1">No valuations yet</p>
-      <p className="text-[12px] text-gray-400 mb-4">Add your first manual valuation</p>
+      <p className="text-[14px] font-medium text-gray-600 mb-1">{noLabel}</p>
+      <p className="text-[12px] text-gray-400 mb-4">{noDesc}</p>
       <button onClick={onAdd} className="px-4 py-2 bg-[#0d9488] text-white text-[13px] font-medium rounded-lg hover:bg-teal-700">
-        Add valuation
+        {addLabel}
       </button>
     </div>
   )

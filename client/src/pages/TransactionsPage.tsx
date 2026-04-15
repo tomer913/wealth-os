@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getTransactions, createTransaction, updateTransaction, deleteTransaction, getAssets, getAccounts } from '../api/portfolio'
 import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { Transaction } from '../types'
@@ -58,6 +59,7 @@ function emptyForm(): TxnForm {
 const INFLOWS = new Set(['SELL','DEPOSIT','INCOME','FINANCING_INFLOW','INVESTMENT_INFLOW'])
 
 export default function TransactionsPage() {
+  const { t } = useTranslation('transactions')
   const qc = useQueryClient()
 
   const categoryFilter = useCategoryFilter()
@@ -179,10 +181,10 @@ export default function TransactionsPage() {
 
   function validate() {
     const e: Record<string, string> = {}
-    if (!form.transaction_date) e.transaction_date = 'Date is required'
-    if (!form.type) e.type = 'Type is required'
-    if (!form.currency) e.currency = 'Currency is required'
-    if (!form.total_amount && !form.cashflow_amount) e.total_amount = 'Amount or cashflow amount required'
+    if (!form.transaction_date) e.transaction_date = t('error_date_required')
+    if (!form.type) e.type = t('error_type_required')
+    if (!form.currency) e.currency = t('error_currency_required')
+    if (!form.total_amount && !form.cashflow_amount) e.total_amount = t('error_amount_required')
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -230,16 +232,18 @@ export default function TransactionsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-[16px] font-semibold text-gray-900">Transactions</h2>
+          <h2 className="text-[16px] font-semibold text-gray-900">{t('title')}</h2>
           <p className="text-[12px] text-gray-400 mt-0.5">
-            {filtered.length}{filtered.length !== txnData.length ? ` of ${txnData.length}` : ''} transactions
-            {totalPages > 1 && ` · page ${safePage} of ${totalPages}`}
+            {filtered.length !== txnData.length
+              ? t('count_of', { filtered: filtered.length, total: txnData.length })
+              : t('count', { count: filtered.length })}
+            {totalPages > 1 && ` · ${t('page_of', { page: safePage, total: totalPages })}`}
           </p>
         </div>
         <button onClick={openAdd}
           className="flex items-center gap-2 px-4 py-2 bg-[#0d9488] hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M6 1v10M1 6h10"/></svg>
-          Add transaction
+          {t('add_transaction')}
         </button>
       </div>
 
@@ -248,22 +252,22 @@ export default function TransactionsPage() {
         <div className="relative min-w-[180px] flex-1">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="6" cy="6" r="4"/><path d="M10 10l3 3"/></svg>
           <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-            placeholder="Search symbol or ref…"
+            placeholder={t('search_placeholder')}
             className="w-full pl-8 pr-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white"/>
         </div>
         <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white">
-          <option value="">All types</option>
+          <option value="">{t('all_types')}</option>
           {TXN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <select value={filterEconomic} onChange={(e) => { setFilterEconomic(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white">
-          <option value="">All economic types</option>
-          {ECONOMIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          <option value="">{t('all_economic_types')}</option>
+          {ECONOMIC_TYPES.map((et) => <option key={et} value={et}>{et}</option>)}
         </select>
         <select value={filterAsset} onChange={(e) => { setFilterAsset(e.target.value); setPage(1) }}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white max-w-[180px]">
-          <option value="">All assets</option>
+          <option value="">{t('all_assets')}</option>
           {assetList.map((a) => <option key={a.id} value={a.id}>{a.symbol}</option>)}
         </select>
         <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
@@ -279,31 +283,33 @@ export default function TransactionsPage() {
       </div>
 
       {/* Table */}
-      {isLoading ? <LoadingRows /> : transactions.length === 0 ? <EmptyState onAdd={openAdd} hasFilters={!!hasFilters} /> : (
+      {isLoading ? <LoadingRows /> : transactions.length === 0
+        ? <EmptyState onAdd={openAdd} hasFilters={!!hasFilters} noTxLabel={t('no_transactions_title')} noFilterLabel={t('no_transactions_filters')} addLabel={t('add_transaction')} />
+        : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Date','Asset','Account','Type','Economic type','Amount','Currency','Cashflow','Status',''].map((h) => (
+                  {[t('col_date'),t('col_asset'),t('col_account'),t('col_type'),t('col_economic_type'),t('col_amount'),t('col_currency'),t('col_cashflow'),t('col_status'),''].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((t) => {
-                  const asset = assetMap[t.asset_id ?? '']
-                  const account = accountMap[t.account_id ?? '']
-                  const isInflow = INFLOWS.has(t.economic_type ?? '')
+                {transactions.map((tx) => {
+                  const asset = assetMap[tx.asset_id ?? '']
+                  const account = accountMap[tx.account_id ?? '']
+                  const isInflow = INFLOWS.has(tx.economic_type ?? '')
                   return (
-                    <tr key={t.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
+                    <tr key={tx.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-mono text-[12px]">
-                        {formatDate(t.transaction_date)}
+                        {formatDate(tx.transaction_date)}
                       </td>
                       <td className="px-4 py-3">
                         {asset ? (
                           <>
-                            <div className="font-semibold text-gray-900">{asset.symbol}</div>
+                            <div className="font-semibold text-gray-900" dir="ltr">{asset.symbol}</div>
                             <div className="text-[11px] text-gray-400 truncate max-w-[120px]">{asset.name}</div>
                           </>
                         ) : <span className="text-gray-300">—</span>}
@@ -311,24 +317,24 @@ export default function TransactionsPage() {
                       <td className="px-4 py-3 text-gray-600 text-[12px]">
                         {account?.name ?? <span className="text-gray-300">—</span>}
                       </td>
-                      <td className="px-4 py-3"><TypeBadge type={t.type} /></td>
+                      <td className="px-4 py-3"><TypeBadge type={tx.type} /></td>
                       <td className="px-4 py-3">
-                        {t.economic_type
-                          ? <EconomicBadge type={t.economic_type} positive={isInflow} />
+                        {tx.economic_type
+                          ? <EconomicBadge type={tx.economic_type} positive={isInflow} />
                           : <span className="text-gray-300">—</span>}
                       </td>
-                      <td className={clsx('px-4 py-3 font-mono font-semibold text-[12px]', isInflow ? 'text-emerald-600' : 'text-gray-800')}>
-                        {t.total_amount != null ? `${isInflow ? '+' : ''}${formatCurrency(Number(t.total_amount), t.currency)}` : '—'}
+                      <td className={clsx('px-4 py-3 font-mono font-semibold text-[12px]', isInflow ? 'text-emerald-600' : 'text-gray-800')} dir="ltr">
+                        {tx.total_amount != null ? `${isInflow ? '+' : ''}${formatCurrency(Number(tx.total_amount), tx.currency)}` : '—'}
                       </td>
-                      <td className="px-4 py-3 font-mono text-gray-500 text-[12px]">{t.currency}</td>
-                      <td className={clsx('px-4 py-3 font-mono text-[12px]', gainClass(t.cashflow_amount != null ? (isInflow ? 1 : -1) : null))}>
-                        {t.cashflow_amount != null ? formatILS(Number(t.cashflow_amount)) : '—'}
+                      <td className="px-4 py-3 font-mono text-gray-500 text-[12px]" dir="ltr">{tx.currency}</td>
+                      <td className={clsx('px-4 py-3 font-mono text-[12px]', gainClass(tx.cashflow_amount != null ? (isInflow ? 1 : -1) : null))} dir="ltr">
+                        {tx.cashflow_amount != null ? formatILS(Number(tx.cashflow_amount)) : '—'}
                       </td>
-                      <td className="px-4 py-3"><StatusBadge status={t.status} /></td>
+                      <td className="px-4 py-3"><StatusBadge status={tx.status} /></td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
-                          <ActionBtn onClick={() => openEdit(t)} icon="edit" title="Edit" />
-                          <ActionBtn onClick={() => { setDeleteTarget(t); setDeleteError('') }} icon="delete" title="Delete" danger />
+                          <ActionBtn onClick={() => openEdit(tx)} icon="edit" title="Edit" />
+                          <ActionBtn onClick={() => { setDeleteTarget(tx); setDeleteError('') }} icon="delete" title="Delete" danger />
                         </div>
                       </td>
                     </tr>
@@ -344,7 +350,7 @@ export default function TransactionsPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
           <p className="text-[12px] text-gray-400">
-            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}
+            {t('showing', { from: (safePage - 1) * PAGE_SIZE + 1, to: Math.min(safePage * PAGE_SIZE, filtered.length), total: filtered.length })}
           </p>
           <div className="flex items-center gap-1">
             <PagBtn onClick={() => setPage(1)} disabled={safePage === 1} label="«" />
@@ -368,34 +374,34 @@ export default function TransactionsPage() {
         </div>
       )}
       <Modal open={modalOpen} onClose={closeModal}
-        title={editTarget ? 'Edit transaction' : 'Add transaction'}
+        title={editTarget ? t('edit_transaction') : t('add_transaction')}
         width="max-w-2xl">
         <div className="space-y-5">
 
-          <FormSection title="Core details">
+          <FormSection title={t('section_core')}>
             <FormGrid>
-              <Field label="Type" required error={errors.type}>
+              <Field label={t('field_type')} required error={errors.type}>
                 <Select value={form.type}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, type: e.target.value })}
                   error={!!errors.type}>
-                  {TXN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {TXN_TYPES.map((tp) => <option key={tp} value={tp}>{tp}</option>)}
                 </Select>
               </Field>
-              <Field label="Date" required error={errors.transaction_date}>
+              <Field label={t('field_date')} required error={errors.transaction_date}>
                 <Input type="date" value={form.transaction_date}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, transaction_date: e.target.value })}
                   error={!!errors.transaction_date} />
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="Asset">
+              <Field label={t('field_asset')}>
                 <Select value={form.asset_id}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, asset_id: e.target.value })}>
                   <option value="">— None —</option>
                   {assetList.map((a) => <option key={a.id} value={a.id}>{a.symbol} — {a.name}</option>)}
                 </Select>
               </Field>
-              <Field label="Account">
+              <Field label={t('field_account')}>
                 <Select value={form.account_id}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, account_id: e.target.value })}>
                   <option value="">— None —</option>
@@ -403,7 +409,7 @@ export default function TransactionsPage() {
                 </Select>
               </Field>
             </FormGrid>
-            <Field label="Effective date" hint="If different from transaction date">
+            <Field label={t('field_effective_date')} hint={t('field_effective_date_hint')}>
               <Input type="date" value={form.effective_date}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, effective_date: e.target.value })} />
             </Field>
@@ -411,39 +417,39 @@ export default function TransactionsPage() {
 
           <Divider />
 
-          <FormSection title="Amounts">
+          <FormSection title={t('section_amounts')}>
             <FormGrid>
-              <Field label="Currency" required>
+              <Field label={t('field_currency')} required>
                 <Select value={form.currency}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, currency: e.target.value })}>
                   {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
               </Field>
-              <Field label="Total amount" error={errors.total_amount} hint="Required if no cashflow amount">
+              <Field label={t('field_total_amount')} error={errors.total_amount} hint={t('field_total_amount_hint')}>
                 <Input type="number" value={form.total_amount}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, total_amount: e.target.value })}
                   placeholder="0.00" className="font-mono" error={!!errors.total_amount} />
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="Quantity">
+              <Field label={t('field_quantity')}>
                 <Input type="number" value={form.quantity}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, quantity: e.target.value })}
                   placeholder="0" className="font-mono" />
               </Field>
-              <Field label="Price per unit">
+              <Field label={t('field_price_per_unit')}>
                 <Input type="number" value={form.price_per_unit}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, price_per_unit: e.target.value })}
                   placeholder="0.00" className="font-mono" />
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="Fees">
+              <Field label={t('field_fees')}>
                 <Input type="number" value={form.fees}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, fees: e.target.value })}
                   placeholder="0" className="font-mono" />
               </Field>
-              <Field label="Tax">
+              <Field label={t('field_tax')}>
                 <Input type="number" value={form.tax}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, tax: e.target.value })}
                   placeholder="0" className="font-mono" />
@@ -453,16 +459,16 @@ export default function TransactionsPage() {
 
           <Divider />
 
-          <FormSection title="Normalized fields">
+          <FormSection title={t('section_normalized')}>
             <FormGrid>
-              <Field label="Economic type" hint="Critical for XIRR calculation">
+              <Field label={t('field_economic_type')} hint={t('field_economic_type_hint')}>
                 <Select value={form.economic_type}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, economic_type: e.target.value })}>
                   <option value="">— Not set —</option>
-                  {ECONOMIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {ECONOMIC_TYPES.map((et) => <option key={et} value={et}>{et}</option>)}
                 </Select>
               </Field>
-              <Field label="Status">
+              <Field label={t('field_status')}>
                 <Select value={form.status}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, status: e.target.value })}>
                   {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -470,26 +476,26 @@ export default function TransactionsPage() {
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="Domain">
+              <Field label={t('field_domain')}>
                 <Select value={form.domain}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, domain: e.target.value })}>
                   <option value="">— Not set —</option>
                   {DOMAINS.map((d) => <option key={d} value={d}>{d.replace('_', ' ')}</option>)}
                 </Select>
               </Field>
-              <Field label="Cashflow amount" hint="Normalized cashflow for XIRR">
+              <Field label={t('field_cashflow_amount')} hint={t('field_cashflow_amount_hint')}>
                 <Input type="number" value={form.cashflow_amount}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, cashflow_amount: e.target.value })}
                   placeholder="0.00" className="font-mono" />
               </Field>
             </FormGrid>
             <FormGrid>
-              <Field label="Units delta (Δ)" hint="Change in units held">
+              <Field label={t('field_units_delta')} hint={t('field_units_delta_hint')}>
                 <Input type="number" value={form.units_delta}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, units_delta: e.target.value })}
                   placeholder="0" className="font-mono" />
               </Field>
-              <Field label="External reference ID">
+              <Field label={t('field_external_ref')}>
                 <Input value={form.external_reference_id}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, external_reference_id: e.target.value })}
                   placeholder="e.g. broker ref number" className="font-mono text-[12px]" />
@@ -499,13 +505,13 @@ export default function TransactionsPage() {
               <input type="checkbox" checked={form.is_internal_transfer}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, is_internal_transfer: e.target.checked })}
                 className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-              <span className="text-[13px] text-gray-700">Internal transfer (between accounts)</span>
+              <span className="text-[13px] text-gray-700">{t('field_internal_transfer')}</span>
             </label>
           </FormSection>
 
           <Divider />
 
-          <FormSection title="Notes">
+          <FormSection title={t('section_notes')}>
             <Textarea rows={3} value={form.notes} placeholder="Optional notes…"
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setForm({ ...form, notes: e.target.value })} />
           </FormSection>
@@ -518,7 +524,7 @@ export default function TransactionsPage() {
             </button>
             <button onClick={handleSubmit} disabled={isSaving}
               className="px-4 py-2 text-[13px] font-medium bg-[#0d9488] hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-60">
-              {isSaving ? 'Saving…' : editTarget ? 'Save changes' : 'Add transaction'}
+              {isSaving ? 'Saving…' : editTarget ? 'Save changes' : t('add_transaction')}
             </button>
           </div>
         </div>
@@ -527,8 +533,8 @@ export default function TransactionsPage() {
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete transaction?"
-        message={deleteError || 'This cannot be undone.'}
+        title={t('delete_title')}
+        message={deleteError || t('delete_message')}
         confirmLabel="Delete" danger
         onConfirm={() => {
           if (!deleteTarget) return
@@ -536,7 +542,7 @@ export default function TransactionsPage() {
           deleteMut.mutate(deleteTarget.id, {
             onError: (err: unknown) => {
               const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-              setDeleteError(detail ?? 'Could not delete transaction')
+              setDeleteError(detail ?? t('cannot_delete'))
             },
           })
         }}
@@ -624,15 +630,18 @@ function LoadingRows() {
   )
 }
 
-function EmptyState({ onAdd, hasFilters }: { onAdd: () => void; hasFilters: boolean }) {
+function EmptyState({ onAdd, hasFilters, noTxLabel, noFilterLabel, addLabel }: {
+  onAdd: () => void; hasFilters: boolean
+  noTxLabel: string; noFilterLabel: string; addLabel: string
+}) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
       <p className="text-[14px] font-medium text-gray-600 mb-1">
-        {hasFilters ? 'No transactions match your filters' : 'No transactions yet'}
+        {hasFilters ? noFilterLabel : noTxLabel}
       </p>
       {!hasFilters && (
         <button onClick={onAdd} className="mt-4 px-4 py-2 bg-[#0d9488] text-white text-[13px] font-medium rounded-lg hover:bg-teal-700">
-          Add transaction
+          {addLabel}
         </button>
       )}
     </div>

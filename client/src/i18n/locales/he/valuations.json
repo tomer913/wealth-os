@@ -1,6 +1,8 @@
 {
   "title": "הערכות שווי",
   "count": "{{count}} רשומות",
+  "label_records": "סה\"כ רשומות",
+  "label_assets": "נכסים מכוסים",
   "assets_covered": "{{count}} נכסים",
   "total_value": "סה\"כ שווי (ILS)",
   "add_valuation": "הוסף הערכת שווי",
