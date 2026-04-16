@@ -10,7 +10,7 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: production
+
 
     steps:
       - uses: actions/checkout@v4
@@ -65,13 +65,13 @@ jobs:
       - name: Run scraper
         working-directory: scraper
         env:
-          WEALTH_OS_API_URL: ${{ vars.WEALTH_OS_API_URL }}
+          WEALTH_OS_API_URL: ${{ secrets.WEALTH_OS_API_URL }}
           SCRAPER_SECRET: ${{ secrets.SCRAPER_SECRET }}
-          PORTFOLIO_ID: ${{ vars.PORTFOLIO_ID }}
+          PORTFOLIO_ID: ${{ secrets.PORTFOLIO_ID }}
           # Isracard
-          ISRACARD_USERNAME: ${{ vars.ISRACARD_USERNAME }}
+          ISRACARD_USERNAME: ${{ secrets.ISRACARD_USERNAME }}
           ISRACARD_PASSWORD: ${{ secrets.ISRACARD_PASSWORD }}
-          ISRACARD_CARD6: ${{ vars.ISRACARD_CARD6 }}
+          ISRACARD_CARD6: ${{ secrets.ISRACARD_CARD6 }}
           # Cal
           CAL_USERNAME: ${{ secrets.CAL_USERNAME }}
           CAL_PASSWORD: ${{ secrets.CAL_PASSWORD }}
