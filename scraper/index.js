@@ -89,6 +89,17 @@ async function scrapeCard(card) {
     startDate: new Date(new Date().setDate(new Date().getDate() - 90)), // last 90 days
     combineInstallments: false,
     showBrowser: false,
+    puppeteerConfig: {
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+      ],
+    },
   });
 
   const result = await scraper.scrape(card.credentials);
