@@ -15,8 +15,7 @@
  *   amex       — AMEX_USERNAME, AMEX_PASSWORD
  */
 
-import { createScraper, CompanyTypes } from 'israeli-bank-scrapers';
-import puppeteer from 'puppeteer';
+import { createScraper, CompanyTypes } from '@sergienko4/israeli-bank-scrapers';
 import https from 'https';
 
 const API_URL = process.env.WEALTH_OS_API_URL;
@@ -85,23 +84,9 @@ const CARDS = [
 async function scrapeCard(card) {
   console.log(`\n[${card.source}] Starting scrape...`);
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-    ],
-  });
-
   const scraper = createScraper({
     companyId: card.companyId,
     startDate: new Date(new Date().setDate(new Date().getDate() - 90)), // last 90 days
-    combineInstallments: false,
-    showBrowser: false,
-    browser,
-    skipCloseBrowser: false,
   });
 
   const result = await scraper.scrape(card.credentials);

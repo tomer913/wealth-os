@@ -6,7 +6,6 @@
     "scrape": "node index.js"
   },
   "dependencies": {
-    "israeli-bank-scrapers": "latest",
-    "puppeteer": "latest"
+    "@sergienko4/israeli-bank-scrapers": "latest"
   }
 }
