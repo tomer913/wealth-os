@@ -1,8 +1,8 @@
 /**
  * Wealth OS — Israeli credit card scraper
  *
- * Uses israeli-bank-scrapers (https://github.com/eshaham/israeli-bank-scrapers)
- * to scrape credit card transactions and post them to the Wealth OS ingest endpoint.
+ * Uses @sergienko4/israeli-bank-scrapers (Camoufox fork) to scrape credit card
+ * transactions and post them to the Wealth OS ingest endpoint.
  *
  * Credentials are read from environment variables (set as GitHub Actions secrets).
  * Each card type is only scraped if its credentials are present.
@@ -26,6 +26,18 @@ if (!API_URL || !SCRAPER_TOKEN || !PORTFOLIO_ID) {
   console.error('Missing required env vars: WEALTH_OS_API_URL, SCRAPER_SECRET, PORTFOLIO_ID');
   process.exit(1);
 }
+
+// ── Error type → human-readable message ───────────────────────────────────────
+
+const ERROR_MESSAGES = {
+  INVALID_PASSWORD:   'Wrong password — update credentials',
+  CHANGE_PASSWORD:    'Password expired — reset at card company website',
+  INVALID_OTP:        'OTP required — not supported in automated mode',
+  ACCOUNT_BLOCKED:    'Account blocked — contact card company',
+  TIMEOUT:            'Site timeout — will retry next run',
+  WAF_BLOCKED:        'Blocked by security — Camoufox should handle this',
+  GENERIC:            'Unknown error',
+};
 
 // ── Card configurations ────────────────────────────────────────────────────────
 
@@ -79,7 +91,7 @@ const CARDS = [
   },
 ];
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Scrape one card ────────────────────────────────────────────────────────────
 
 async function scrapeCard(card) {
   console.log(`\n[${card.source}] Starting scrape...`);
@@ -91,8 +103,9 @@ async function scrapeCard(card) {
   const result = await scraper.scrape(card.credentials);
 
   if (!result.success) {
-    console.error(`[${card.source}] Scrape failed:`, result.errorType, result.errorMessage);
-    return { source: card.source, count: 0, error: result.errorMessage };
+    const message = ERROR_MESSAGES[result.errorType] || result.errorMessage || ERROR_MESSAGES.GENERIC;
+    console.error(`[${card.source}] Scrape failed: ${result.errorType} — ${message}`);
+    return { source: card.source, error: { errorType: result.errorType, message } };
   }
 
   // Flatten all accounts' transactions
@@ -120,11 +133,14 @@ async function scrapeCard(card) {
   return { source: card.source, transactions: txns };
 }
 
-async function postToIngest(source, transactions) {
+// ── POST to backend ingest endpoint ───────────────────────────────────────────
+
+async function postToIngest(source, transactions, error = null) {
   const body = JSON.stringify({
     source,
     portfolio_id: PORTFOLIO_ID,
-    transactions,
+    transactions: transactions || [],
+    ...(error ? { error } : {}),
   });
 
   const url = new URL(`${API_URL}/api/v1/connectors/ingest/`);
@@ -147,7 +163,7 @@ async function postToIngest(source, transactions) {
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           console.log(`[${source}] Ingest response ${res.statusCode}:`, data);
-          resolve(JSON.parse(data));
+          try { resolve(JSON.parse(data)); } catch { resolve({}); }
         });
       }
     );
@@ -156,6 +172,8 @@ async function postToIngest(source, transactions) {
     req.end();
   });
 }
+
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('=== Wealth OS Credit Card Scraper ===');
@@ -167,23 +185,45 @@ async function main() {
     process.exit(0);
   }
 
-  let totalCreated = 0;
-  let totalSkipped = 0;
+  const summary = { created: 0, skipped: 0, errors: [] };
 
   for (const card of active) {
     try {
       const scraped = await scrapeCard(card);
-      if (scraped.error || !scraped.transactions?.length) continue;
+
+      if (scraped.error) {
+        // Report the failure to backend so it appears in connector_runs
+        await postToIngest(scraped.source, [], scraped.error);
+        summary.errors.push({ source: scraped.source, ...scraped.error });
+        continue;
+      }
+
+      if (!scraped.transactions?.length) continue;
 
       const result = await postToIngest(scraped.source, scraped.transactions);
-      totalCreated += result.created || 0;
-      totalSkipped += result.skipped || 0;
+      summary.created += result.created || 0;
+      summary.skipped += result.skipped || 0;
     } catch (err) {
-      console.error(`[${card.source}] Error:`, err.message);
+      console.error(`[${card.source}] Unexpected error:`, err.message);
+      summary.errors.push({
+        source: card.source,
+        errorType: 'GENERIC',
+        message: err.message,
+      });
     }
   }
 
-  console.log(`\n=== Done: ${totalCreated} created, ${totalSkipped} skipped ===`);
+  console.log(
+    `\n=== Done: ${summary.created} created, ${summary.skipped} skipped, ${summary.errors.length} errors ===`
+  );
+
+  if (summary.errors.length > 0) {
+    console.log('Errors:');
+    summary.errors.forEach((e) =>
+      console.log(`  [${e.source}] ${e.errorType}: ${e.message}`)
+    );
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {

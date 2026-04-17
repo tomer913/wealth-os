@@ -471,8 +471,12 @@ async def ingest_raw_transactions(
     transactions = payload.get("transactions", [])
     portfolio_id_str = payload.get("portfolio_id")
 
-    if not source or not transactions or not portfolio_id_str:
-        raise HTTPException(status_code=422, detail="source, transactions, portfolio_id required")
+    error_payload = payload.get("error")  # present when scraper failed
+
+    if not source or not portfolio_id_str:
+        raise HTTPException(status_code=422, detail="source and portfolio_id required")
+    if not transactions and not error_payload:
+        raise HTTPException(status_code=422, detail="transactions or error required")
 
     from app.models.raw_layer import RawTransaction
     from app.utils.uuid7 import uuid7
@@ -481,6 +485,43 @@ async def ingest_raw_transactions(
     import uuid as _uuid
 
     portfolio_id = _uuid.UUID(portfolio_id_str)
+    now = datetime.now(timezone.utc)
+
+    # ── Error path: scraper failed — record a failed ConnectorRun ─────────────
+    if error_payload:
+        connector_q = select(Connector).where(
+            Connector.type == source,
+            Connector.portfolio_id == portfolio_id,
+        )
+        connector = (await db.execute(connector_q)).scalar_one_or_none()
+        if connector:
+            error_msg = error_payload.get("message") or error_payload.get("errorType", "unknown error")
+            run = ConnectorRun(
+                id=_uuid.uuid4(),
+                connector_id=connector.id,
+                portfolio_id=portfolio_id,
+                status="failed",
+                triggered_by="scheduler",
+                started_at=now,
+                finished_at=now,
+                duration_ms=0,
+                records_fetched=0,
+                transactions_created=0,
+                transactions_skipped=0,
+                error_message=f"[{error_payload.get('errorType', 'GENERIC')}] {error_msg}",
+            )
+            db.add(run)
+            connector.last_run_at = now
+            connector.last_error = error_msg
+            await db.commit()
+        return {
+            "status": "error",
+            "source": source,
+            "error": error_payload.get("message"),
+            "errorType": error_payload.get("errorType"),
+        }
+
+    # ── Success path: ingest transactions ─────────────────────────────────────
     created = 0
     skipped = 0
 
