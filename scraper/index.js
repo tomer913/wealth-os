@@ -32,7 +32,7 @@ if (!API_URL || !SCRAPER_TOKEN || !PORTFOLIO_ID) {
 const CARDS = [
   {
     source: 'isracard',
-    companyId: CompanyTypes.isracard,
+    companyId: CompanyTypes.Isracard,
     enabled: !!(process.env.ISRACARD_USERNAME && process.env.ISRACARD_PASSWORD),
     credentials: {
       id: process.env.ISRACARD_USERNAME,
@@ -42,7 +42,7 @@ const CARDS = [
   },
   {
     source: 'cal',
-    companyId: CompanyTypes.cal,
+    companyId: CompanyTypes.VisaCal,
     enabled: !!(process.env.CAL_USERNAME && process.env.CAL_PASSWORD),
     credentials: {
       username: process.env.CAL_USERNAME,
@@ -51,7 +51,7 @@ const CARDS = [
   },
   {
     source: 'max',
-    companyId: CompanyTypes.max,
+    companyId: CompanyTypes.Max,
     enabled: !!(process.env.MAX_USERNAME && process.env.MAX_PASSWORD),
     credentials: {
       username: process.env.MAX_USERNAME,
@@ -60,7 +60,7 @@ const CARDS = [
   },
   {
     source: 'leumi_card',
-    companyId: CompanyTypes.leumiCard,
+    companyId: CompanyTypes.Leumi,
     enabled: !!(process.env.LEUMI_CARD_USERNAME && process.env.LEUMI_CARD_PASSWORD),
     credentials: {
       username: process.env.LEUMI_CARD_USERNAME,
@@ -70,7 +70,7 @@ const CARDS = [
   },
   {
     source: 'amex',
-    companyId: CompanyTypes.amex,
+    companyId: CompanyTypes.Amex,
     enabled: !!(process.env.AMEX_USERNAME && process.env.AMEX_PASSWORD),
     credentials: {
       username: process.env.AMEX_USERNAME,
