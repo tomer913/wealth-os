@@ -19,5 +19,9 @@ backend/rebuild_result.txt
 backend/engine_test_result.txt
 backend/db_check_result.txt
 
+# Scraper
+scraper/node_modules/
+scraper/package-lock.json
+
 # OS
 .DS_Store

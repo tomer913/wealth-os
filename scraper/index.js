@@ -92,9 +92,6 @@ async function scrapeCard(card) {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process',
     ],
   });
 
