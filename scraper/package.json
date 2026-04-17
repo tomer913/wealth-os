@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "scrape": "node index.js"
+    "scrape": "node index.js",
+    "postinstall": "npx camoufox fetch"
   },
   "dependencies": {
     "@sergienko4/israeli-bank-scrapers": "latest",

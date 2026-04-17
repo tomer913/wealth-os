@@ -83,9 +83,6 @@ const CARDS = [
 
 async function scrapeCard(card) {
   console.log(`\n[${card.source}] Starting scrape...`);
-  console.log('Available CompanyTypes:', Object.keys(CompanyTypes));
-  console.log('Using companyId:', card.companyId);
-
   const scraper = createScraper({
     companyId: card.companyId,
     startDate: new Date(new Date().setDate(new Date().getDate() - 90)), // last 90 days
