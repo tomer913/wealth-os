@@ -50,6 +50,7 @@ export default function AppShell() {
               <LanguageSwitcher />
               <PortfolioSelector />
             </div>
+            <MobileLangToggle />
             {showBuild && <BuildSnapshotButton />}
           </div>
         </header>
@@ -60,6 +61,19 @@ export default function AppShell() {
       </div>
       <MobileTabBar />
     </div>
+  )
+}
+
+// ─── Mobile language toggle (header) ─────────────────────────────────────────
+function MobileLangToggle() {
+  const { i18n } = useTranslation()
+  return (
+    <button
+      onClick={() => i18n.changeLanguage(i18n.language === 'he' ? 'en' : 'he')}
+      className="md:hidden px-2 py-1 text-[12px] font-semibold border border-gray-200 rounded-md text-gray-600 hover:bg-gray-50 transition-colors"
+    >
+      {i18n.language === 'he' ? 'EN' : 'עב'}
+    </button>
   )
 }
 
@@ -216,7 +230,7 @@ function TabMoreIcon() {
 // ─── Bottom Tab Bar ───────────────────────────────────────────────────────────
 function MobileTabBar() {
   const location = useLocation()
-  const { t: tc } = useTranslation('common')
+  const { t: tc, i18n } = useTranslation('common')
   const [moreOpen, setMoreOpen] = useState(false)
 
   // Close drawer on navigation
@@ -294,6 +308,15 @@ function MobileTabBar() {
                   {label}
                 </Link>
               ))}
+              <button
+                onClick={() => { i18n.changeLanguage(i18n.language === 'he' ? 'en' : 'he'); setMoreOpen(false) }}
+                className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl text-[14px] font-medium text-slate-300 hover:bg-white/5 hover:text-white transition-colors"
+              >
+                <span>{i18n.language === 'he' ? 'Switch to English' : 'עבור לעברית'}</span>
+                <span className="font-bold text-teal-400 text-[13px]">
+                  {i18n.language === 'he' ? 'EN' : 'עב'}
+                </span>
+              </button>
             </div>
           </div>
         </div>

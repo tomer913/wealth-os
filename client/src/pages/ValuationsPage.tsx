@@ -256,34 +256,37 @@ export default function ValuationsPage() {
               const account = accountMap[v.account_id ?? '']
               return (
                 <div key={v.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0 pr-3">
-                      <div className="font-semibold text-gray-900" dir="ltr">
-                        {asset ? asset.symbol : '—'}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-900 truncate">
+                        {asset?.name ?? '—'}
                       </div>
-                      <div className="text-[11px] text-gray-400 truncate mt-0.5">
-                        {asset?.name ?? ''}{account ? ` · ${account.name}` : ''}
+                      <div className="text-[11px] text-gray-400 font-mono truncate mt-0.5" dir="ltr">
+                        {asset?.symbol ?? ''}
+                        {account ? ` · ${account.name}` : ''}
                       </div>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <MethodBadge method={v.valuation_method} />
-                        <ConfidenceBadge level={v.confidence_level} />
+                      <div className="text-[11px] text-gray-500 font-mono mt-1" dir="ltr">
+                        {formatILS(Number(v.market_value))} {v.currency}
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <div className="font-mono font-semibold text-emerald-700 text-[14px]" dir="ltr">
+                      <div className="font-mono font-semibold text-emerald-700 text-[15px]" dir="ltr">
                         {v.value_ils != null ? formatILSShort(Number(v.value_ils)) : '—'}
-                      </div>
-                      <div className="text-[11px] text-gray-500 font-mono mt-0.5" dir="ltr">
-                        {formatILS(Number(v.market_value))} {v.currency}
                       </div>
                       <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">
                         {formatDate(v.valuation_date)}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-end gap-1 mt-3 pt-2.5 border-t border-gray-50">
-                    <ActionBtn onClick={() => openEdit(v)} icon="edit" title="Edit" />
-                    <ActionBtn onClick={() => { setDeleteTarget(v); setDeleteError('') }} icon="delete" title="Delete" danger />
+                  <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-gray-50">
+                    <div className="flex items-center gap-1.5">
+                      <MethodBadge method={v.valuation_method} />
+                      <ConfidenceBadge level={v.confidence_level} />
+                    </div>
+                    <div className="hidden lg:flex items-center gap-1">
+                      <ActionBtn onClick={() => openEdit(v)} icon="edit" title="Edit" />
+                      <ActionBtn onClick={() => { setDeleteTarget(v); setDeleteError('') }} icon="delete" title="Delete" danger />
+                    </div>
                   </div>
                 </div>
               )
@@ -313,8 +316,8 @@ export default function ValuationsPage() {
                         <td className="px-4 py-3">
                           {asset ? (
                             <>
-                              <div className="font-semibold text-gray-900" dir="ltr">{asset.symbol}</div>
-                              <div className="text-[11px] text-gray-400 truncate max-w-[140px]">{asset.name}</div>
+                              <div className="font-semibold text-gray-900 truncate max-w-[160px]">{asset.name}</div>
+                              <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{asset.symbol}</div>
                             </>
                           ) : <span className="text-gray-300">—</span>}
                         </td>

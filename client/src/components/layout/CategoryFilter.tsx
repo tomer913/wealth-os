@@ -14,7 +14,8 @@ export default function CategoryFilter() {
   const isAll = selected.length === 0
 
   return (
-    <div className="bg-white border-b border-gray-100 px-5 py-2.5 flex items-center gap-2 overflow-x-auto scrollbar-hide flex-shrink-0">
+    <div className="bg-white border-b border-gray-100 flex-shrink-0 overflow-hidden">
+    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide py-2.5 px-5">
       <Chip
         label="All"
         active={isAll}
@@ -28,6 +29,7 @@ export default function CategoryFilter() {
           onClick={() => toggle(cat)}
         />
       ))}
+    </div>
     </div>
   )
 }

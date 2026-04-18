@@ -25,5 +25,6 @@
   "tooltip_portfolio_value": "Total current market value of all assets in your portfolio, converted to ILS. Calculated by the snapshot engine using latest valuations, prices × quantities, and FX rates.",
   "tooltip_profit_loss": "Total gain or loss in ILS: current portfolio value minus total invested capital (cost basis). The percentage is return ÷ total invested.",
   "tooltip_net_equity": "Portfolio value minus all liabilities (mortgages, loans). This is your actual net worth from this portfolio. Debt shown is the outstanding loan balance on leveraged assets like real estate.",
-  "tooltip_total_invested": "Total capital you have invested — the sum of all purchase costs, deposits, and BUY transactions across all assets. This is your cost basis used to calculate P&L."
+  "tooltip_total_invested": "Total capital you have invested — the sum of all purchase costs, deposits, and BUY transactions across all assets. This is your cost basis used to calculate P&L.",
+  "view_all": "View all"
 }

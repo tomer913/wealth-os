@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { getTransactions, createTransaction, updateTransaction, deleteTransaction, getAssets, getAccounts } from '../api/portfolio'
@@ -64,6 +65,8 @@ export default function TransactionsPage() {
 
   const categoryFilter = useCategoryFilter()
 
+  const [searchParams] = useSearchParams()
+
   // Filters
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('')
@@ -71,6 +74,14 @@ export default function TransactionsPage() {
   const [filterAsset, setFilterAsset] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+
+  // Apply URL-driven filters on mount (drill-down from dashboard/budget)
+  useEffect(() => {
+    const type = searchParams.get('type')
+    const economic = searchParams.get('economic_type')
+    if (type) setFilterType(type)
+    if (economic) setFilterEconomic(economic)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pagination
   const PAGE_SIZE = 50
@@ -293,35 +304,28 @@ export default function TransactionsPage() {
               const asset = assetMap[tx.asset_id ?? '']
               const account = accountMap[tx.account_id ?? '']
               const isInflow = INFLOWS.has(tx.economic_type ?? '')
+              const amountILS = tx.cashflow_amount != null ? Number(tx.cashflow_amount) : null
               return (
                 <div key={tx.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0 pr-3">
-                      <div className="font-semibold text-gray-900" dir="ltr">
-                        {asset ? asset.symbol : '—'}
-                      </div>
-                      <div className="text-[11px] text-gray-400 truncate mt-0.5">
-                        {asset?.name ?? ''}{account ? ` · ${account.name}` : ''}
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className={clsx('font-mono font-semibold text-[13px]', isInflow ? 'text-emerald-600' : 'text-gray-800')} dir="ltr">
-                        {tx.total_amount != null ? `${isInflow ? '+' : ''}${formatCurrency(Number(tx.total_amount), tx.currency)}` : '—'}
-                      </div>
-                      <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">
-                        {formatDate(tx.transaction_date)}
-                      </div>
-                    </div>
+                  {/* Row 1: Date + Amount ILS */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12px] text-gray-500 font-mono" dir="ltr">{formatDate(tx.transaction_date)}</span>
+                    <span className={clsx('font-mono font-semibold text-[14px]', isInflow ? 'text-emerald-600' : tx.cashflow_amount != null ? 'text-rose-600' : 'text-gray-700')} dir="ltr">
+                      {amountILS != null ? `${isInflow ? '+' : ''}${formatILS(amountILS)}` : tx.total_amount != null ? formatCurrency(Number(tx.total_amount), tx.currency) : '—'}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-gray-50">
-                    <div className="flex items-center gap-1.5">
-                      <TypeBadge type={tx.type} />
-                      <StatusBadge status={tx.status} />
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <ActionBtn onClick={() => openEdit(tx)} icon="edit" title="Edit" />
-                      <ActionBtn onClick={() => { setDeleteTarget(tx); setDeleteError('') }} icon="delete" title="Delete" danger />
-                    </div>
+                  {/* Row 2: Description / notes */}
+                  {tx.notes && (
+                    <p className="text-[12px] text-gray-700 mt-1.5 line-clamp-2 leading-snug">{tx.notes}</p>
+                  )}
+                  {/* Row 3: Account + Asset */}
+                  <div className="text-[11px] text-gray-400 mt-1.5 truncate">
+                    {[account?.name, asset?.name].filter(Boolean).join(' · ') || tx.type}
+                  </div>
+                  {/* Row 4: Badges */}
+                  <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-gray-50">
+                    <TypeBadge type={tx.type} />
+                    {tx.economic_type && <EconomicBadge type={tx.economic_type} positive={isInflow} />}
                   </div>
                 </div>
               )
@@ -334,7 +338,7 @@ export default function TransactionsPage() {
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    {[t('col_date'),t('col_asset'),t('col_account'),t('col_type'),t('col_economic_type'),t('col_amount'),t('col_currency'),t('col_cashflow'),t('col_status'),''].map((h) => (
+                    {[t('col_date'),t('col_asset'),t('col_account'),t('col_description'),t('col_type'),t('col_amount'),t('col_status'),''].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -344,6 +348,7 @@ export default function TransactionsPage() {
                     const asset = assetMap[tx.asset_id ?? '']
                     const account = accountMap[tx.account_id ?? '']
                     const isInflow = INFLOWS.has(tx.economic_type ?? '')
+                    const amountILS = tx.cashflow_amount != null ? Number(tx.cashflow_amount) : null
                     return (
                       <tr key={tx.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
                         <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-mono text-[12px]">
@@ -352,26 +357,28 @@ export default function TransactionsPage() {
                         <td className="px-4 py-3">
                           {asset ? (
                             <>
-                              <div className="font-semibold text-gray-900" dir="ltr">{asset.symbol}</div>
-                              <div className="text-[11px] text-gray-400 truncate max-w-[120px]">{asset.name}</div>
+                              <div className="font-semibold text-gray-900 truncate max-w-[140px]">{asset.name}</div>
+                              <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{asset.symbol}</div>
                             </>
                           ) : <span className="text-gray-300">—</span>}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 text-[12px]">
+                        <td className="px-4 py-3 text-gray-600 text-[12px] max-w-[120px] truncate">
                           {account?.name ?? <span className="text-gray-300">—</span>}
                         </td>
+                        <td className="px-4 py-3 text-gray-500 text-[12px] max-w-[180px]">
+                          {tx.notes
+                            ? <span className="truncate block max-w-[180px]">{tx.notes}</span>
+                            : tx.economic_type
+                              ? <EconomicBadge type={tx.economic_type} positive={isInflow} />
+                              : <span className="text-gray-300">—</span>}
+                        </td>
                         <td className="px-4 py-3"><TypeBadge type={tx.type} /></td>
-                        <td className="px-4 py-3">
-                          {tx.economic_type
-                            ? <EconomicBadge type={tx.economic_type} positive={isInflow} />
-                            : <span className="text-gray-300">—</span>}
-                        </td>
-                        <td className={clsx('px-4 py-3 font-mono font-semibold text-[12px]', isInflow ? 'text-emerald-600' : 'text-gray-800')} dir="ltr">
-                          {tx.total_amount != null ? `${isInflow ? '+' : ''}${formatCurrency(Number(tx.total_amount), tx.currency)}` : '—'}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-gray-500 text-[12px]" dir="ltr">{tx.currency}</td>
-                        <td className={clsx('px-4 py-3 font-mono text-[12px]', gainClass(tx.cashflow_amount != null ? (isInflow ? 1 : -1) : null))} dir="ltr">
-                          {tx.cashflow_amount != null ? formatILS(Number(tx.cashflow_amount)) : '—'}
+                        <td className={clsx('px-4 py-3 font-mono font-semibold text-[12px] whitespace-nowrap', isInflow ? 'text-emerald-600' : amountILS != null ? 'text-rose-600' : 'text-gray-800')} dir="ltr">
+                          {amountILS != null
+                            ? `${isInflow ? '+' : ''}${formatILS(amountILS)}`
+                            : tx.total_amount != null
+                              ? formatCurrency(Number(tx.total_amount), tx.currency)
+                              : '—'}
                         </td>
                         <td className="px-4 py-3"><StatusBadge status={tx.status} /></td>
                         <td className="px-4 py-3">

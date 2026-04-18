@@ -12,6 +12,7 @@
   "col_date": "Date",
   "col_asset": "Asset",
   "col_account": "Account",
+  "col_description": "Description",
   "col_type": "Type",
   "col_economic_type": "Economic type",
   "col_amount": "Amount",

@@ -12,6 +12,7 @@
   "col_date": "תאריך",
   "col_asset": "נכס",
   "col_account": "חשבון",
+  "col_description": "תיאור",
   "col_type": "סוג",
   "col_economic_type": "סוג כלכלי",
   "col_amount": "סכום",

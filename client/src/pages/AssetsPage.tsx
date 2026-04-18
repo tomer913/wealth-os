@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { getAssets, createAsset, updateAsset, deleteAsset } from '../api/portfolio'
@@ -59,9 +60,16 @@ export default function AssetsPage() {
     return Object.fromEntries(snapshot.assets.map((a) => [a.symbol, a]))
   }, [snapshot])
 
+  const [searchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterBehavior, setFilterBehavior] = useState('')
+
+  // Apply URL-driven filters on mount (drill-down from dashboard)
+  useEffect(() => {
+    const cat = searchParams.get('category')
+    if (cat) setFilterCategory(cat)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data, isLoading } = useQuery({
     queryKey: ['assets'],

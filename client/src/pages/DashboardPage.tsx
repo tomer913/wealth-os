@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useSnapshot } from '../hooks/usePortfolio'
 import { useFilteredSummary, useFilteredAssets, useFilteredCategories, useAppStore } from '../store'
@@ -12,6 +13,7 @@ import clsx from 'clsx'
 
 export default function DashboardPage() {
   const { t } = useTranslation('dashboard')
+  const navigate = useNavigate()
   const { isLoading, isError } = useSnapshot()
   const summary = useFilteredSummary()
   const assets = useFilteredAssets()
@@ -40,6 +42,7 @@ export default function DashboardPage() {
 
   const donutData = categories.map((c) => ({
     name: categoryLabel(c.category),
+    key: c.category,
     value: c.current_value_ils,
     color: CATEGORY_COLORS[c.category] ?? '#94a3b8',
   }))
@@ -74,6 +77,7 @@ export default function DashboardPage() {
           sub={t('assets_count', { count: summary.asset_count })}
           icon="$" iconColor="bg-blue-50 text-blue-500"
           tooltip={t('tooltip_portfolio_value')}
+          onClick={() => navigate('/assets')}
         />
         <KpiCard
           label={t('total_profit_loss')}
@@ -82,6 +86,7 @@ export default function DashboardPage() {
           subPositive={summary.total_return_ils >= 0}
           icon="↗" iconColor="bg-emerald-50 text-emerald-500"
           tooltip={t('tooltip_profit_loss')}
+          onClick={() => navigate('/assets')}
         />
         <KpiCard
           label={t('net_equity')}
@@ -89,6 +94,7 @@ export default function DashboardPage() {
           sub={t('debt', { amount: formatILSShort(summary.total_debt_ils) })}
           icon="%" iconColor="bg-violet-50 text-violet-500"
           tooltip={t('tooltip_net_equity')}
+          onClick={() => navigate('/accounts')}
         />
         <KpiCard
           label={t('total_invested')}
@@ -96,6 +102,7 @@ export default function DashboardPage() {
           sub={t('cost_basis')}
           icon="◎" iconColor="bg-teal-50 text-teal-500"
           tooltip={t('tooltip_total_invested')}
+          onClick={() => navigate('/transactions')}
         />
       </div>
 
@@ -135,7 +142,12 @@ export default function DashboardPage() {
             <div style={{ width: 130, height: 130 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={donutData} cx="50%" cy="50%" innerRadius={38} outerRadius={60} dataKey="value" strokeWidth={0}>
+                  <Pie
+                    data={donutData} cx="50%" cy="50%" innerRadius={38} outerRadius={60}
+                    dataKey="value" strokeWidth={0}
+                    className="cursor-pointer"
+                    onClick={(entry: { key?: string }) => { if (entry?.key) navigate(`/assets?category=${entry.key}`) }}
+                  >
                     {donutData.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Pie>
                 </PieChart>
@@ -163,8 +175,40 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <p className="text-[15px] font-semibold text-gray-900 mb-4">{t('top_holdings')}</p>
-          <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-[15px] font-semibold text-gray-900">{t('top_holdings')}</p>
+            <button onClick={() => navigate('/assets')} className="text-[12px] text-teal-600 hover:text-teal-700 font-medium">
+              {t('view_all')} →
+            </button>
+          </div>
+
+          {/* Mobile card list */}
+          <div className="md:hidden space-y-0">
+            {topHoldings.map((a) => {
+              const weight = totalValue > 0 ? (a.current_value_ils / totalValue) * 100 : 0
+              const ret = a.total_return_pct != null ? a.total_return_pct * 100 : null
+              return (
+                <div key={a.symbol}
+                  onClick={() => navigate(`/assets?category=${a.category}`)}
+                  className="flex items-center gap-3 py-3 border-b border-gray-50 last:border-0 cursor-pointer active:bg-gray-50">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900 truncate">{a.name}</div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <CategoryBadge cat={a.category} />
+                      <span className="text-[11px] text-gray-400 font-mono" dir="ltr">{weight.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-[13px] font-mono font-semibold text-gray-800" dir="ltr">{formatILSShort(a.current_value_ils)}</div>
+                    <div className={clsx('text-[12px] font-mono font-semibold', gainClass(ret))} dir="ltr">{formatPct(ret)}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block">
             <div className="grid grid-cols-[1fr_64px_52px_76px] gap-2 pb-2 border-b border-gray-100">
               {[t('col_asset'), t('col_return_pct'), t('col_weight'), t('col_value')].map((h, i) => (
                 <span key={h} className={clsx('text-[11px] text-gray-400 font-medium', i > 0 && 'text-right')}>{h}</span>
@@ -174,7 +218,9 @@ export default function DashboardPage() {
               const weight = totalValue > 0 ? (a.current_value_ils / totalValue) * 100 : 0
               const ret = a.total_return_pct != null ? a.total_return_pct * 100 : null
               return (
-                <div key={a.symbol} className="grid grid-cols-[1fr_64px_52px_76px] gap-2 py-2.5 border-b border-gray-50 last:border-0 items-center">
+                <div key={a.symbol}
+                  onClick={() => navigate(`/assets?category=${a.category}`)}
+                  className="grid grid-cols-[1fr_64px_52px_76px] gap-2 py-2.5 border-b border-gray-50 last:border-0 items-center cursor-pointer hover:bg-gray-50/50 rounded-lg transition-colors">
                   <div>
                     <div className="text-[13px] font-semibold text-gray-900 truncate">{a.name}</div>
                     <CategoryBadge cat={a.category} />
@@ -195,7 +241,9 @@ export default function DashboardPage() {
               <p className="text-[15px] font-semibold text-gray-900">{t('top_gainers')}</p>
             </div>
             {gainers.map((a) => (
-              <div key={a.symbol} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+              <div key={a.symbol}
+                onClick={() => navigate(`/assets?category=${a.category}`)}
+                className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50/50 active:bg-gray-50 rounded-lg transition-colors">
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-semibold text-gray-900 truncate">{a.name}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -216,7 +264,9 @@ export default function DashboardPage() {
               <p className="text-[15px] font-semibold text-gray-900">{t('top_losers')}</p>
             </div>
             {losers.map((a) => (
-              <div key={a.symbol} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+              <div key={a.symbol}
+                onClick={() => navigate(`/assets?category=${a.category}`)}
+                className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50/50 active:bg-gray-50 rounded-lg transition-colors">
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-semibold text-gray-900 truncate">{a.name}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -237,15 +287,18 @@ export default function DashboardPage() {
 }
 
 // ─── KPI Card ──────────────────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, subPositive, icon, iconColor, tooltip }: {
+function KpiCard({ label, value, sub, subPositive, icon, iconColor, tooltip, onClick }: {
   label: string; value: string; sub: string
   subPositive?: boolean; icon: string; iconColor: string
-  tooltip?: string
+  tooltip?: string; onClick?: () => void
 }) {
   const [showTip, setShowTip] = useState(false)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm relative">
+    <div
+      className={clsx('bg-white rounded-xl border border-gray-200 p-5 shadow-sm relative', onClick && 'cursor-pointer hover:shadow-md transition-shadow')}
+      onClick={onClick}
+    >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-semibold tracking-widest text-gray-400">{label}</span>

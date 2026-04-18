@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getBudgetSummary, getBudgetReviewQueue } from '../api/portfolio'
 import { useAppStore } from '../store'
 import type { BudgetSummaryRow } from '../types'
@@ -27,6 +27,7 @@ const TYPE_COLORS: Record<string, string> = {
 export default function BudgetDashboardPage() {
   const { t } = useTranslation('budget')
   const { t: tc } = useTranslation('common')
+  const navigate = useNavigate()
   const { activeBudgetYear, activeBudgetMonth, budgetViewMode, setActiveBudgetYear, setActiveBudgetMonth, setBudgetViewMode } = useAppStore()
 
   const isMonthly = budgetViewMode === 'monthly'
@@ -131,9 +132,9 @@ export default function BudgetDashboardPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label={t('category_types.income')} plan={totalPlanIncome} actual={totalActualIncome} type="income" />
-        <KpiCard label={t('category_types.expense')} plan={totalPlanExpense} actual={totalActualExpense} type="expense" />
-        <KpiCard label={t('category_types.saving')} plan={totalPlanSaving} actual={totalActualSaving} type="saving" />
+        <KpiCard label={t('category_types.income')} plan={totalPlanIncome} actual={totalActualIncome} type="income" onClick={() => navigate('/transactions?economic_type=INCOME')} />
+        <KpiCard label={t('category_types.expense')} plan={totalPlanExpense} actual={totalActualExpense} type="expense" onClick={() => navigate('/transactions?economic_type=EXPENSE')} />
+        <KpiCard label={t('category_types.saving')} plan={totalPlanSaving} actual={totalActualSaving} type="saving" onClick={() => navigate('/transactions?economic_type=SAVING')} />
         <div className="bg-white rounded-xl border border-gray-100 p-4">
           <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">{t('dashboard.cash_flow')}</p>
           <p className={clsx('text-[22px] font-semibold', cashflow >= 0 ? 'text-emerald-600' : 'text-red-500')}>
@@ -193,7 +194,7 @@ export default function BudgetDashboardPage() {
                     const pct = planAmt > 0 ? Math.min(actualAmt / planAmt, 1) : 0
                     const over = planAmt > 0 && actualAmt > planAmt
                     return (
-                      <tr key={row.category_id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                      <tr key={row.category_id} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer" onClick={() => navigate(`/transactions?economic_type=${row.category_type.toUpperCase()}`)}>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-2">
                             <span className={clsx(
@@ -244,7 +245,7 @@ export default function BudgetDashboardPage() {
   )
 }
 
-function KpiCard({ label, plan, actual, type }: { label: string; plan: number; actual: number; type: string }) {
+function KpiCard({ label, plan, actual, type, onClick }: { label: string; plan: number; actual: number; type: string; onClick?: () => void }) {
   const { t } = useTranslation('budget')
   const color = TYPE_COLORS[type] ?? '#6b7280'
   const p = Number(plan)
@@ -253,7 +254,7 @@ function KpiCard({ label, plan, actual, type }: { label: string; plan: number; a
   const over = p > 0 && a > p
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4">
+    <div className={clsx('bg-white rounded-xl border border-gray-100 p-4', onClick && 'cursor-pointer hover:shadow-md transition-shadow')} onClick={onClick}>
       <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">{label}</p>
       <p className="text-[22px] font-semibold text-gray-900">{fmtILS(a)}</p>
       {p > 0 ? (
