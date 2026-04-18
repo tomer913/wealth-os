@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
+import { DesktopOnly } from './components/shared/DesktopOnly'
 import DashboardPage from './pages/DashboardPage'
 import AccountsPage from './pages/AccountsPage'
 import AssetsPage from './pages/AssetsPage'
@@ -29,13 +30,13 @@ export default function App() {
           <Route path="/valuations" element={<ValuationsPage />} />
           <Route path="/fx-rates" element={<FXRatesPage />} />
           <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/connectors" element={<ConnectorsPage />} />
+          <Route path="/connectors" element={<DesktopOnly><ConnectorsPage /></DesktopOnly>} />
           {/* Budget */}
           <Route path="/budget" element={<BudgetDashboardPage />} />
-          <Route path="/budget/manage" element={<BudgetManagementPage />} />
-          <Route path="/budget/rules" element={<BudgetRulesPage />} />
+          <Route path="/budget/manage" element={<DesktopOnly><BudgetManagementPage /></DesktopOnly>} />
+          <Route path="/budget/rules" element={<DesktopOnly><BudgetRulesPage /></DesktopOnly>} />
           {/* System */}
-          <Route path="/pipeline" element={<PipelineStatusPage />} />
+          <Route path="/pipeline" element={<DesktopOnly><PipelineStatusPage /></DesktopOnly>} />
         </Route>
       </Routes>
     </BrowserRouter>

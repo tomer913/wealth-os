@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { getBudgetSummary, getBudgetReviewQueue } from '../api/portfolio'
 import { useAppStore } from '../store'
 import type { BudgetSummaryRow } from '../types'
@@ -124,7 +125,7 @@ export default function BudgetDashboardPage() {
               {t('dashboard.unclassified_alert', { count: reviewQueue.length })}
             </span>
           </div>
-          <a href="/budget/rules" className="text-[12px] text-amber-700 underline">{t('dashboard.go_to_review')}</a>
+          <Link to="/budget/rules" className="text-[12px] text-amber-700 underline">{t('dashboard.go_to_review')}</Link>
         </div>
       )}
 
@@ -236,7 +237,7 @@ export default function BudgetDashboardPage() {
       {summary.length === 0 && (
         <div className="bg-white rounded-xl border border-dashed border-gray-200 p-8 text-center">
           <p className="text-gray-400 text-sm mb-2">{t('dashboard.no_plan')}</p>
-          <a href="/budget/manage" className="text-teal-600 text-[13px] underline">{t('dashboard.go_manage')}</a>
+          <Link to="/budget/manage" className="text-teal-600 text-[13px] underline">{t('dashboard.go_manage')}</Link>
         </div>
       )}
     </div>

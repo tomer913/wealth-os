@@ -261,12 +261,12 @@ export default function TransactionsPage() {
           {TXN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <select value={filterEconomic} onChange={(e) => { setFilterEconomic(e.target.value); setPage(1) }}
-          className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white">
+          className="hidden md:block px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white">
           <option value="">{t('all_economic_types')}</option>
           {ECONOMIC_TYPES.map((et) => <option key={et} value={et}>{et}</option>)}
         </select>
         <select value={filterAsset} onChange={(e) => { setFilterAsset(e.target.value); setPage(1) }}
-          className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white max-w-[180px]">
+          className="hidden md:block px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none bg-white max-w-[180px]">
           <option value="">{t('all_assets')}</option>
           {assetList.map((a) => <option key={a.id} value={a.id}>{a.symbol}</option>)}
         </select>
@@ -282,68 +282,112 @@ export default function TransactionsPage() {
         )}
       </div>
 
-      {/* Table */}
+      {/* Transaction list */}
       {isLoading ? <LoadingRows /> : transactions.length === 0
         ? <EmptyState onAdd={openAdd} hasFilters={!!hasFilters} noTxLabel={t('no_transactions_title')} noFilterLabel={t('no_transactions_filters')} addLabel={t('add_transaction')} />
         : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  {[t('col_date'),t('col_asset'),t('col_account'),t('col_type'),t('col_economic_type'),t('col_amount'),t('col_currency'),t('col_cashflow'),t('col_status'),''].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((tx) => {
-                  const asset = assetMap[tx.asset_id ?? '']
-                  const account = accountMap[tx.account_id ?? '']
-                  const isInflow = INFLOWS.has(tx.economic_type ?? '')
-                  return (
-                    <tr key={tx.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-mono text-[12px]">
-                        {formatDate(tx.transaction_date)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {asset ? (
-                          <>
-                            <div className="font-semibold text-gray-900" dir="ltr">{asset.symbol}</div>
-                            <div className="text-[11px] text-gray-400 truncate max-w-[120px]">{asset.name}</div>
-                          </>
-                        ) : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 text-[12px]">
-                        {account?.name ?? <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3"><TypeBadge type={tx.type} /></td>
-                      <td className="px-4 py-3">
-                        {tx.economic_type
-                          ? <EconomicBadge type={tx.economic_type} positive={isInflow} />
-                          : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className={clsx('px-4 py-3 font-mono font-semibold text-[12px]', isInflow ? 'text-emerald-600' : 'text-gray-800')} dir="ltr">
+        <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {transactions.map((tx) => {
+              const asset = assetMap[tx.asset_id ?? '']
+              const account = accountMap[tx.account_id ?? '']
+              const isInflow = INFLOWS.has(tx.economic_type ?? '')
+              return (
+                <div key={tx.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0 pr-3">
+                      <div className="font-semibold text-gray-900" dir="ltr">
+                        {asset ? asset.symbol : '—'}
+                      </div>
+                      <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                        {asset?.name ?? ''}{account ? ` · ${account.name}` : ''}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className={clsx('font-mono font-semibold text-[13px]', isInflow ? 'text-emerald-600' : 'text-gray-800')} dir="ltr">
                         {tx.total_amount != null ? `${isInflow ? '+' : ''}${formatCurrency(Number(tx.total_amount), tx.currency)}` : '—'}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-gray-500 text-[12px]" dir="ltr">{tx.currency}</td>
-                      <td className={clsx('px-4 py-3 font-mono text-[12px]', gainClass(tx.cashflow_amount != null ? (isInflow ? 1 : -1) : null))} dir="ltr">
-                        {tx.cashflow_amount != null ? formatILS(Number(tx.cashflow_amount)) : '—'}
-                      </td>
-                      <td className="px-4 py-3"><StatusBadge status={tx.status} /></td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end">
-                          <ActionBtn onClick={() => openEdit(tx)} icon="edit" title="Edit" />
-                          <ActionBtn onClick={() => { setDeleteTarget(tx); setDeleteError('') }} icon="delete" title="Delete" danger />
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                      </div>
+                      <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">
+                        {formatDate(tx.transaction_date)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-gray-50">
+                    <div className="flex items-center gap-1.5">
+                      <TypeBadge type={tx.type} />
+                      <StatusBadge status={tx.status} />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <ActionBtn onClick={() => openEdit(tx)} icon="edit" title="Edit" />
+                      <ActionBtn onClick={() => { setDeleteTarget(tx); setDeleteError('') }} icon="delete" title="Delete" danger />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    {[t('col_date'),t('col_asset'),t('col_account'),t('col_type'),t('col_economic_type'),t('col_amount'),t('col_currency'),t('col_cashflow'),t('col_status'),''].map((h) => (
+                      <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((tx) => {
+                    const asset = assetMap[tx.asset_id ?? '']
+                    const account = accountMap[tx.account_id ?? '']
+                    const isInflow = INFLOWS.has(tx.economic_type ?? '')
+                    return (
+                      <tr key={tx.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-mono text-[12px]">
+                          {formatDate(tx.transaction_date)}
+                        </td>
+                        <td className="px-4 py-3">
+                          {asset ? (
+                            <>
+                              <div className="font-semibold text-gray-900" dir="ltr">{asset.symbol}</div>
+                              <div className="text-[11px] text-gray-400 truncate max-w-[120px]">{asset.name}</div>
+                            </>
+                          ) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 text-[12px]">
+                          {account?.name ?? <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3"><TypeBadge type={tx.type} /></td>
+                        <td className="px-4 py-3">
+                          {tx.economic_type
+                            ? <EconomicBadge type={tx.economic_type} positive={isInflow} />
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className={clsx('px-4 py-3 font-mono font-semibold text-[12px]', isInflow ? 'text-emerald-600' : 'text-gray-800')} dir="ltr">
+                          {tx.total_amount != null ? `${isInflow ? '+' : ''}${formatCurrency(Number(tx.total_amount), tx.currency)}` : '—'}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-gray-500 text-[12px]" dir="ltr">{tx.currency}</td>
+                        <td className={clsx('px-4 py-3 font-mono text-[12px]', gainClass(tx.cashflow_amount != null ? (isInflow ? 1 : -1) : null))} dir="ltr">
+                          {tx.cashflow_amount != null ? formatILS(Number(tx.cashflow_amount)) : '—'}
+                        </td>
+                        <td className="px-4 py-3"><StatusBadge status={tx.status} /></td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1 justify-end">
+                            <ActionBtn onClick={() => openEdit(tx)} icon="edit" title="Edit" />
+                            <ActionBtn onClick={() => { setDeleteTarget(tx); setDeleteError('') }} icon="delete" title="Delete" danger />
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Pagination */}

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import Sidebar from './Sidebar'
 import CategoryFilter from './CategoryFilter'
@@ -46,10 +46,11 @@ export default function AppShell() {
             <h1 className="text-[18px] font-medium text-gray-900 tracking-tight">{title}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <LanguageSwitcher />
-            <PortfolioSelector />
+            <div className="hidden md:flex items-center gap-3">
+              <LanguageSwitcher />
+              <PortfolioSelector />
+            </div>
             {showBuild && <BuildSnapshotButton />}
-            <div className="md:hidden text-gray-400 text-sm">{tc('app_name')}</div>
           </div>
         </header>
         {showFilter && <CategoryFilter />}
@@ -167,33 +168,136 @@ function BuildSnapshotButton() {
   )
 }
 
+// ─── Tab Icons ───────────────────────────────────────────────────────────────
+function TabDashboardIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.5" y="2.5" width="6" height="6" rx="1.5"/>
+      <rect x="11.5" y="2.5" width="6" height="6" rx="1.5"/>
+      <rect x="2.5" y="11.5" width="6" height="6" rx="1.5"/>
+      <rect x="11.5" y="11.5" width="6" height="6" rx="1.5"/>
+    </svg>
+  )
+}
+function TabAssetsIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 14.5l4.5-5 3 2.5 4-5.5 3 2"/>
+      <path d="M2.5 17h15"/>
+    </svg>
+  )
+}
+function TabTxnsIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h12M4 7l3-3M4 7l3 3"/>
+      <path d="M16 13H4m12 0l-3-3m3 3l-3 3"/>
+    </svg>
+  )
+}
+function TabBudgetIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="10" cy="10" r="7.5"/>
+      <path d="M10 2.5v7.5l4.5 2.5"/>
+    </svg>
+  )
+}
+function TabMoreIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+      <circle cx="4" cy="10" r="1.5"/>
+      <circle cx="10" cy="10" r="1.5"/>
+      <circle cx="16" cy="10" r="1.5"/>
+    </svg>
+  )
+}
+
+// ─── Bottom Tab Bar ───────────────────────────────────────────────────────────
 function MobileTabBar() {
   const location = useLocation()
+  const { t: tc } = useTranslation('common')
+  const [moreOpen, setMoreOpen] = useState(false)
 
-  const tabs = [
-    { to: '/', label: 'Dashboard', icon: '⊞' },
-    { to: '/assets', label: 'Assets', icon: '◈' },
-    { to: '/transactions', label: 'Txns', icon: '⇄' },
-    { to: '/accounts', label: 'Accounts', icon: '▦' },
+  // Close drawer on navigation
+  useEffect(() => {
+    setMoreOpen(false)
+  }, [location.pathname])
+
+  const primaryTabs = [
+    { to: '/', label: tc('nav.dashboard'), icon: <TabDashboardIcon />, exact: true },
+    { to: '/assets', label: tc('nav.assets'), icon: <TabAssetsIcon />, exact: true },
+    { to: '/transactions', label: tc('nav.transactions'), icon: <TabTxnsIcon />, exact: true },
+    { to: '/budget', label: tc('nav.budget'), icon: <TabBudgetIcon />, exact: false },
+  ]
+
+  const moreTabs = [
+    { to: '/accounts', label: tc('nav.accounts') },
+    { to: '/valuations', label: tc('nav.valuations') },
   ]
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f172a] border-t border-white/10 flex z-50">
-      {tabs.map(({ to, label, icon }) => {
-        const isActive = location.pathname === to
-        return (
-          <a
-            key={to}
-            href={to}
-            className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-[10px] transition-colors ${
-              isActive ? 'text-teal-400' : 'text-slate-500'
-            }`}
-          >
-            <span className="text-[18px] leading-none">{icon}</span>
-            {label}
-          </a>
-        )
-      })}
-    </nav>
+    <>
+      <nav dir="ltr" className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f172a] border-t border-white/10 flex z-50">
+        {primaryTabs.map(({ to, label, icon, exact }) => {
+          const isActive = exact
+            ? location.pathname === to
+            : location.pathname === to || location.pathname.startsWith(to + '/')
+          return (
+            <Link
+              key={to}
+              to={to}
+              className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 text-[10px] font-medium transition-colors min-h-[56px] ${
+                isActive ? 'text-teal-400' : 'text-slate-500'
+              }`}
+            >
+              {icon}
+              <span>{label}</span>
+            </Link>
+          )
+        })}
+        <button
+          onClick={() => setMoreOpen(v => !v)}
+          className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 text-[10px] font-medium transition-colors min-h-[56px] ${
+            moreOpen ? 'text-teal-400' : 'text-slate-500'
+          }`}
+        >
+          <TabMoreIcon />
+          <span>More</span>
+        </button>
+      </nav>
+
+      {/* Overlay */}
+      {moreOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-40"
+          onClick={() => setMoreOpen(false)}
+        />
+      )}
+
+      {/* More drawer */}
+      {moreOpen && (
+        <div className="md:hidden fixed bottom-14 left-0 right-0 bg-[#0f172a] z-40 border-t border-white/10 rounded-t-2xl">
+          <div className="px-4 pt-3 pb-4">
+            <div className="w-8 h-0.5 bg-white/20 rounded-full mx-auto mb-4" />
+            <div className="space-y-0.5">
+              {moreTabs.map(({ to, label }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  className={`flex items-center px-4 py-3.5 rounded-xl text-[14px] font-medium transition-colors ${
+                    location.pathname === to
+                      ? 'bg-teal-400/15 text-teal-400'
+                      : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

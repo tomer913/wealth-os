@@ -235,52 +235,93 @@ export default function AssetsPage() {
         )}
       </div>
 
-      {/* Table */}
+      {/* Asset list */}
       {isLoading ? <LoadingRows /> : filtered.length === 0 ? <EmptyState onAdd={openAdd} /> : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  {[t('col_asset'),t('col_category'),t('col_behavior'),t('col_currency'),t('col_current_value'),t('col_return'),t('col_status'),''].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((asset) => {
-                  const snap = snapshotMap[asset.symbol]
-                  return (
-                    <tr key={asset.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-gray-900">{asset.name}</div>
-                        <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{asset.symbol}</div>
-                      </td>
-                      <td className="px-4 py-3"><CategoryBadge cat={asset.category ?? ''} /></td>
-                      <td className="px-4 py-3"><BehaviorBadge behavior={asset.asset_behavior} /></td>
-                      <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">{asset.currency}</td>
-                      <td className="px-4 py-3 font-mono font-semibold text-gray-800" dir="ltr">
+        <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {filtered.map((asset) => {
+              const snap = snapshotMap[asset.symbol]
+              const ret = snap?.total_return_pct != null ? snap.total_return_pct * 100 : null
+              return (
+                <div key={asset.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0 pr-3">
+                      <div className="font-semibold text-gray-900 truncate">{asset.name}</div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-[11px] font-mono text-gray-400" dir="ltr">{asset.symbol}</span>
+                        <CategoryBadge cat={asset.category ?? ''} />
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="font-mono font-semibold text-gray-800 text-[14px]" dir="ltr">
                         {snap ? formatILSShort(snap.current_value_ils) : '—'}
-                      </td>
-                      <td className={clsx('px-4 py-3 font-mono font-semibold', gainClass(snap?.total_return_pct ?? null))} dir="ltr">
-                        {snap?.total_return_pct != null ? formatPct(snap.total_return_pct * 100) : '—'}
-                      </td>
-                      <td className="px-4 py-3"><StatusBadge status={asset.status} /></td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end">
-                          <ActionBtn onClick={() => openEdit(asset)} icon="edit" title="Edit" />
-                          <ActionBtn
-                            onClick={() => { setDeleteTarget(asset); setDeleteError('') }}
-                            icon="delete" title="Delete" danger />
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                      </div>
+                      <div className={clsx('font-mono text-[12px] mt-0.5 font-semibold', gainClass(ret))} dir="ltr">
+                        {ret != null ? formatPct(ret) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-gray-50">
+                    <BehaviorBadge behavior={asset.asset_behavior} />
+                    <div className="flex items-center gap-1">
+                      <ActionBtn onClick={() => openEdit(asset)} icon="edit" title="Edit" />
+                      <ActionBtn
+                        onClick={() => { setDeleteTarget(asset); setDeleteError('') }}
+                        icon="delete" title="Delete" danger />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    {[t('col_asset'),t('col_category'),t('col_behavior'),t('col_currency'),t('col_current_value'),t('col_return'),t('col_status'),''].map((h) => (
+                      <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((asset) => {
+                    const snap = snapshotMap[asset.symbol]
+                    return (
+                      <tr key={asset.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-gray-900">{asset.name}</div>
+                          <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{asset.symbol}</div>
+                        </td>
+                        <td className="px-4 py-3"><CategoryBadge cat={asset.category ?? ''} /></td>
+                        <td className="px-4 py-3"><BehaviorBadge behavior={asset.asset_behavior} /></td>
+                        <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">{asset.currency}</td>
+                        <td className="px-4 py-3 font-mono font-semibold text-gray-800" dir="ltr">
+                          {snap ? formatILSShort(snap.current_value_ils) : '—'}
+                        </td>
+                        <td className={clsx('px-4 py-3 font-mono font-semibold', gainClass(snap?.total_return_pct ?? null))} dir="ltr">
+                          {snap?.total_return_pct != null ? formatPct(snap.total_return_pct * 100) : '—'}
+                        </td>
+                        <td className="px-4 py-3"><StatusBadge status={asset.status} /></td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1 justify-end">
+                            <ActionBtn onClick={() => openEdit(asset)} icon="edit" title="Edit" />
+                            <ActionBtn
+                              onClick={() => { setDeleteTarget(asset); setDeleteError('') }}
+                              icon="delete" title="Delete" danger />
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Add / Edit Modal */}

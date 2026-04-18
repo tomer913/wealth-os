@@ -246,63 +246,107 @@ export default function ValuationsPage() {
         )}
       </div>
 
-      {/* Table */}
+      {/* Valuation list */}
       {isLoading ? <LoadingRows /> : valuations.length === 0 ? <EmptyState onAdd={openAdd} noLabel={t('no_valuations')} noDesc={t('no_valuations_desc')} addLabel={t('add_valuation')} /> : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  {[t('col_date'),t('col_asset'),t('col_account'),t('col_market_value'),t('col_currency'),t('col_fx_rate'),t('col_value_ils'),t('col_method'),t('col_confidence'),''].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {valuations.map((v) => {
-                  const asset = assetMap[v.asset_id]
-                  const account = accountMap[v.account_id ?? '']
-                  return (
-                    <tr key={v.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
-                      <td className="px-4 py-3 font-mono text-[12px] text-gray-600 whitespace-nowrap">
+        <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {valuations.map((v) => {
+              const asset = assetMap[v.asset_id]
+              const account = accountMap[v.account_id ?? '']
+              return (
+                <div key={v.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0 pr-3">
+                      <div className="font-semibold text-gray-900" dir="ltr">
+                        {asset ? asset.symbol : '—'}
+                      </div>
+                      <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                        {asset?.name ?? ''}{account ? ` · ${account.name}` : ''}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <MethodBadge method={v.valuation_method} />
+                        <ConfidenceBadge level={v.confidence_level} />
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="font-mono font-semibold text-emerald-700 text-[14px]" dir="ltr">
+                        {v.value_ils != null ? formatILSShort(Number(v.value_ils)) : '—'}
+                      </div>
+                      <div className="text-[11px] text-gray-500 font-mono mt-0.5" dir="ltr">
+                        {formatILS(Number(v.market_value))} {v.currency}
+                      </div>
+                      <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">
                         {formatDate(v.valuation_date)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {asset ? (
-                          <>
-                            <div className="font-semibold text-gray-900" dir="ltr">{asset.symbol}</div>
-                            <div className="text-[11px] text-gray-400 truncate max-w-[140px]">{asset.name}</div>
-                          </>
-                        ) : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-[12px] text-gray-500">
-                        {account?.name ?? <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3 font-mono font-semibold text-gray-800" dir="ltr">
-                        {formatILS(Number(v.market_value))}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-gray-500" dir="ltr">{v.currency}</td>
-                      <td className="px-4 py-3 font-mono text-gray-500 text-[12px]" dir="ltr">
-                        {Number(v.fx_rate_to_ils).toFixed(4)}
-                      </td>
-                      <td className="px-4 py-3 font-mono font-semibold text-emerald-700" dir="ltr">
-                        {v.value_ils != null ? formatILS(Number(v.value_ils)) : '—'}
-                      </td>
-                      <td className="px-4 py-3"><MethodBadge method={v.valuation_method} /></td>
-                      <td className="px-4 py-3"><ConfidenceBadge level={v.confidence_level} /></td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end">
-                          <ActionBtn onClick={() => openEdit(v)} icon="edit" title="Edit" />
-                          <ActionBtn onClick={() => { setDeleteTarget(v); setDeleteError('') }} icon="delete" title="Delete" danger />
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-1 mt-3 pt-2.5 border-t border-gray-50">
+                    <ActionBtn onClick={() => openEdit(v)} icon="edit" title="Edit" />
+                    <ActionBtn onClick={() => { setDeleteTarget(v); setDeleteError('') }} icon="delete" title="Delete" danger />
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    {[t('col_date'),t('col_asset'),t('col_account'),t('col_market_value'),t('col_currency'),t('col_fx_rate'),t('col_value_ils'),t('col_method'),t('col_confidence'),''].map((h) => (
+                      <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {valuations.map((v) => {
+                    const asset = assetMap[v.asset_id]
+                    const account = accountMap[v.account_id ?? '']
+                    return (
+                      <tr key={v.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-3 font-mono text-[12px] text-gray-600 whitespace-nowrap">
+                          {formatDate(v.valuation_date)}
+                        </td>
+                        <td className="px-4 py-3">
+                          {asset ? (
+                            <>
+                              <div className="font-semibold text-gray-900" dir="ltr">{asset.symbol}</div>
+                              <div className="text-[11px] text-gray-400 truncate max-w-[140px]">{asset.name}</div>
+                            </>
+                          ) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-[12px] text-gray-500">
+                          {account?.name ?? <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold text-gray-800" dir="ltr">
+                          {formatILS(Number(v.market_value))}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-gray-500" dir="ltr">{v.currency}</td>
+                        <td className="px-4 py-3 font-mono text-gray-500 text-[12px]" dir="ltr">
+                          {Number(v.fx_rate_to_ils).toFixed(4)}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold text-emerald-700" dir="ltr">
+                          {v.value_ils != null ? formatILS(Number(v.value_ils)) : '—'}
+                        </td>
+                        <td className="px-4 py-3"><MethodBadge method={v.valuation_method} /></td>
+                        <td className="px-4 py-3"><ConfidenceBadge level={v.confidence_level} /></td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1 justify-end">
+                            <ActionBtn onClick={() => openEdit(v)} icon="edit" title="Edit" />
+                            <ActionBtn onClick={() => { setDeleteTarget(v); setDeleteError('') }} icon="delete" title="Delete" danger />
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Pagination */}

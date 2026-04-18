@@ -198,48 +198,90 @@ export default function AccountsPage() {
         </button>
       </div>
 
-      {/* Table */}
+      {/* Account list */}
       {isLoading ? <LoadingRows /> : accounts.length === 0 ? <EmptyState onAdd={openAdd} /> : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                {[t('col_account'),t('col_type'),t('col_institution'),t('col_currency'),t('col_positions'),t('col_status'),''].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((acc) => (
-                <tr key={acc.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3">
+        <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {accounts.map((acc) => (
+              <div key={acc.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0 pr-3">
                     <div className="font-semibold text-gray-900">{acc.name}</div>
                     <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{acc.symbol}</div>
-                  </td>
-                  <td className="px-4 py-3"><TypeBadge type={acc.account_type ?? ''} /></td>
-                  <td className="px-4 py-3 text-gray-600">{acc.institution ?? '—'}</td>
-                  <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">{acc.currency}</td>
-                  <td className="px-4 py-3"><PositionCountBadge count={acc.position_count} assetsLabel={t('assets_count', { count: acc.position_count, plural: acc.position_count !== 1 ? 's' : '' })} /></td>
-                  <td className="px-4 py-3"><StatusBadge status={acc.status} /></td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1 justify-end">
-                      <ActionBtn onClick={() => openEdit(acc)} icon="edit" title="Edit" />
-                      <ActionBtn
-                        onClick={() => { setDeleteTarget(acc); setDeleteError('') }}
-                        icon="delete"
-                        title={acc.position_count > 0
-                          ? t('cannot_delete_linked', { count: acc.position_count, plural: acc.position_count !== 1 ? 's' : '' })
-                          : 'Delete account'}
-                        danger
-                        disabled={acc.position_count > 0}
-                      />
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <TypeBadge type={acc.account_type ?? ''} />
+                      <StatusBadge status={acc.status} />
                     </div>
-                  </td>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-[12px] text-gray-600">{acc.institution ?? '—'}</div>
+                    <div className="font-mono text-[12px] text-gray-400 mt-0.5" dir="ltr">{acc.currency}</div>
+                    {acc.position_count != null && (
+                      <div className="text-[11px] text-gray-400 mt-1">
+                        {t('assets_count', { count: acc.position_count, plural: acc.position_count !== 1 ? 's' : '' })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-1 mt-3 pt-2.5 border-t border-gray-50">
+                  <ActionBtn onClick={() => openEdit(acc)} icon="edit" title="Edit" />
+                  <ActionBtn
+                    onClick={() => { setDeleteTarget(acc); setDeleteError('') }}
+                    icon="delete"
+                    title={acc.position_count > 0
+                      ? t('cannot_delete_linked', { count: acc.position_count, plural: acc.position_count !== 1 ? 's' : '' })
+                      : 'Delete account'}
+                    danger
+                    disabled={acc.position_count > 0}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  {[t('col_account'),t('col_type'),t('col_institution'),t('col_currency'),t('col_positions'),t('col_status'),''].map((h) => (
+                    <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {accounts.map((acc) => (
+                  <tr key={acc.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-gray-900">{acc.name}</div>
+                      <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{acc.symbol}</div>
+                    </td>
+                    <td className="px-4 py-3"><TypeBadge type={acc.account_type ?? ''} /></td>
+                    <td className="px-4 py-3 text-gray-600">{acc.institution ?? '—'}</td>
+                    <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">{acc.currency}</td>
+                    <td className="px-4 py-3"><PositionCountBadge count={acc.position_count} assetsLabel={t('assets_count', { count: acc.position_count, plural: acc.position_count !== 1 ? 's' : '' })} /></td>
+                    <td className="px-4 py-3"><StatusBadge status={acc.status} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        <ActionBtn onClick={() => openEdit(acc)} icon="edit" title="Edit" />
+                        <ActionBtn
+                          onClick={() => { setDeleteTarget(acc); setDeleteError('') }}
+                          icon="delete"
+                          title={acc.position_count > 0
+                            ? t('cannot_delete_linked', { count: acc.position_count, plural: acc.position_count !== 1 ? 's' : '' })
+                            : 'Delete account'}
+                          danger
+                          disabled={acc.position_count > 0}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {/* Add / Edit Modal */}
