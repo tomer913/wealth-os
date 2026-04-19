@@ -148,6 +148,7 @@ export default function AssetsPage() {
   function closeModal() { setModalOpen(false); setEditTarget(null); setImportError('') }
 
   const { t } = useTranslation('assets')
+  const { t: tc } = useTranslation('common')
 
   function handleImportJson() {
     try {
@@ -228,7 +229,7 @@ export default function AssetsPage() {
         <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white">
           <option value="">{t('all_categories')}</option>
-          {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+          {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c, tc)}</option>)}
         </select>
         <select value={filterBehavior} onChange={(e) => setFilterBehavior(e.target.value)}
           className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white">
@@ -384,7 +385,7 @@ export default function AssetsPage() {
                 <Select value={form.category}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, category: e.target.value })}>
                   <option value="">— none —</option>
-                  {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c, tc)}</option>)}
                 </Select>
               </Field>
               <Field label={t('field_asset_type')}>
@@ -583,7 +584,8 @@ const BEH_COLORS: Record<string, string> = {
 }
 
 function CategoryBadge({ cat }: { cat: string }) {
-  return <span className={clsx('text-[11px] px-2 py-0.5 rounded font-semibold', CAT_COLORS[cat] ?? 'bg-gray-100 text-gray-500')}>{categoryLabel(cat) || '—'}</span>
+  const { t } = useTranslation('common')
+  return <span className={clsx('text-[11px] px-2 py-0.5 rounded font-semibold', CAT_COLORS[cat] ?? 'bg-gray-100 text-gray-500')}>{categoryLabel(cat, t) || '—'}</span>
 }
 function BehaviorBadge({ behavior }: { behavior: string }) {
   return <span className={clsx('text-[11px] px-2 py-0.5 rounded font-semibold font-mono', BEH_COLORS[behavior] ?? 'bg-gray-100 text-gray-500')}>{behavior}</span>

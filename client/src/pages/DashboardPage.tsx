@@ -13,6 +13,7 @@ import clsx from 'clsx'
 
 export default function DashboardPage() {
   const { t } = useTranslation('dashboard')
+  const { t: tc } = useTranslation('common')
   const navigate = useNavigate()
   const { isLoading, isError } = useSnapshot()
   const summary = useFilteredSummary()
@@ -41,7 +42,7 @@ export default function DashboardPage() {
     .slice(0, 5)
 
   const donutData = categories.map((c) => ({
-    name: categoryLabel(c.category),
+    name: categoryLabel(c.category, tc),
     key: c.category,
     value: c.current_value_ils,
     color: CATEGORY_COLORS[c.category] ?? '#94a3b8',
@@ -55,7 +56,7 @@ export default function DashboardPage() {
         .sort((a, b) => b.current_value_ils - a.current_value_ils)
         .map((a) => ({ name: a.symbol, value: a.current_value_ils }))
     : categories.map((c) => ({
-        name: categoryLabel(c.category),
+        name: categoryLabel(c.category, tc),
         value: c.current_value_ils,
       }))
 
@@ -351,9 +352,10 @@ const CAT_BADGE: Record<string, string> = {
 }
 
 function CategoryBadge({ cat }: { cat: string }) {
+  const { t } = useTranslation('common')
   return (
     <span className={clsx('inline-block text-[10px] px-1.5 py-0.5 rounded-sm font-semibold', CAT_BADGE[cat] ?? 'bg-gray-100 text-gray-500')}>
-      {categoryLabel(cat)}
+      {categoryLabel(cat, t)}
     </span>
   )
 }

@@ -1,8 +1,10 @@
 import clsx from 'clsx'
+import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../store'
 import { categoryLabel } from '../../utils/format'
 
 export default function CategoryFilter() {
+  const { t } = useTranslation('common')
   const snapshot = useAppStore((s) => s.snapshot)
   const selected = useAppStore((s) => s.selectedCategories)
   const toggle = useAppStore((s) => s.toggleCategory)
@@ -17,14 +19,14 @@ export default function CategoryFilter() {
     <div className="bg-white border-b border-gray-100 flex-shrink-0 overflow-hidden">
     <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide py-2.5 px-5">
       <Chip
-        label="All"
+        label={t('categories.all')}
         active={isAll}
         onClick={clear}
       />
       {categories.map((cat) => (
         <Chip
           key={cat}
-          label={categoryLabel(cat)}
+          label={categoryLabel(cat, t)}
           active={selected.includes(cat)}
           onClick={() => toggle(cat)}
         />

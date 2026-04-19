@@ -120,5 +120,17 @@
   "notes": "הערות",
   "optional_notes": "הערות אופציונליות…",
   "none": "— ללא —",
-  "cannot_be_undone": "פעולה זו אינה הפיכה."
+  "cannot_be_undone": "פעולה זו אינה הפיכה.",
+  "categories": {
+    "real_estate": "נדל\"ן",
+    "pension": "פנסיה",
+    "securities": "מניות",
+    "alternatives": "אלטרנטיבי",
+    "cash": "מזומן",
+    "crypto": "קריפטו",
+    "mutual_fund": "קרן נאמנות",
+    "etf": "תעודת סל",
+    "energy_income": "אנרגיה",
+    "all": "הכל"
+  }
 }

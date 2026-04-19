@@ -6,7 +6,7 @@ import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { ManualValuation } from '../types'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import { Field, Input, Select, Textarea, FormGrid, FormSection, Divider } from '../components/shared/Form'
-import { formatILS, formatILSShort, formatDate, categoryLabel } from '../utils/format'
+import { formatILS, formatILSShort, formatDate } from '../utils/format'
 import clsx from 'clsx'
 
 const METHODS = ['manual', 'appraisal', 'broker_estimate', 'model']

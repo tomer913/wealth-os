@@ -120,5 +120,17 @@
   "notes": "Notes",
   "optional_notes": "Optional notes…",
   "none": "— None —",
-  "cannot_be_undone": "This cannot be undone."
+  "cannot_be_undone": "This cannot be undone.",
+  "categories": {
+    "real_estate": "Real Estate",
+    "pension": "Pension",
+    "securities": "Stocks",
+    "alternatives": "Alternatives",
+    "cash": "Cash",
+    "crypto": "Crypto",
+    "mutual_fund": "Mutual Fund",
+    "etf": "ETF",
+    "energy_income": "Energy",
+    "all": "All"
+  }
 }

@@ -75,19 +75,8 @@ export function formatDateTime(dateStr: string | null): string {
 
 // ─── Category display helpers ─────────────────────────────────────────────────
 
-export function categoryLabel(raw: string): string {
-  const map: Record<string, string> = {
-    real_estate:   'Real Estate',
-    pension:       'Pension',
-    securities:    'Stocks',
-    alternatives:  'Alternatives',
-    cash:          'Cash',
-    crypto:        'Crypto',
-    mutual_fund:   'Mutual Fund',
-    etf:           'ETF',
-    energy_income: 'Energy Income',
-  }
-  return map[raw.toLowerCase()] ?? raw
+export function categoryLabel(raw: string, t: (key: string, defaultValue: string) => string): string {
+  return t(`categories.${raw.toLowerCase()}`, raw)
 }
 
 // ─── Class helpers ─────────────────────────────────────────────────────────────
