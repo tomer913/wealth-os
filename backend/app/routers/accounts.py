@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db
 from app.models.account import Account
 from app.models.asset import Asset
@@ -21,7 +22,10 @@ async def list_accounts(
     include_in_portfolio: Optional[bool] = Query(None),
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    if portfolio_id:
+        await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     # Single query: accounts + asset count via LEFT JOIN
     q = (
         select(Account, func.count(Asset.id).label("position_count"))
@@ -51,8 +55,15 @@ async def list_accounts(
 
 
 @router.post("/", response_model=AccountRead, status_code=status.HTTP_201_CREATED)
-async def create_account(payload: AccountCreate, db: AsyncSession = Depends(get_db)):
-    account = Account(**payload.model_dump())
+async def create_account(
+    payload: AccountCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    data = payload.model_dump()
+    if data.get("portfolio_id"):
+        await verify_portfolio_access(db, data["portfolio_id"], current_user["user_id"], current_user.get("org_id"))
+    account = Account(**data)
     db.add(account)
     await db.flush()
     await db.refresh(account)
@@ -60,7 +71,11 @@ async def create_account(payload: AccountCreate, db: AsyncSession = Depends(get_
 
 
 @router.get("/{account_id}", response_model=AccountReadWithCount)
-async def get_account(account_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_account(
+    account_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     q = (
         select(Account, func.count(Asset.id).label("position_count"))
         .outerjoin(Asset, Asset.account_id == Account.id)
@@ -72,6 +87,8 @@ async def get_account(account_id: UUID, db: AsyncSession = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Account not found")
     account, count = row
+    if account.portfolio_id:
+        await verify_portfolio_access(db, account.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     account.position_count = count
     return account
 
@@ -81,10 +98,13 @@ async def update_account(
     account_id: UUID,
     payload: AccountUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     account = await db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    if account.portfolio_id:
+        await verify_portfolio_access(db, account.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(account, field, value)
     await db.flush()
@@ -93,10 +113,16 @@ async def update_account(
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_account(account_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_account(
+    account_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     account = await db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    if account.portfolio_id:
+        await verify_portfolio_access(db, account.portfolio_id, current_user["user_id"], current_user.get("org_id"))
 
     # Block delete if account has linked assets
     count_q = select(func.count(Asset.id)).where(Asset.account_id == account_id)

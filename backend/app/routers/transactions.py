@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db
 from app.models.transaction import Transaction
 from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
@@ -26,7 +27,10 @@ async def list_transactions(
     limit: int = Query(200, le=1000),
     offset: int = Query(0),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    if portfolio_id:
+        await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     q = select(Transaction)
     if portfolio_id:
         q = q.where(Transaction.portfolio_id == portfolio_id)
@@ -48,8 +52,15 @@ async def list_transactions(
 
 
 @router.post("/", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
-async def create_transaction(payload: TransactionCreate, db: AsyncSession = Depends(get_db)):
-    txn = Transaction(**payload.model_dump())
+async def create_transaction(
+    payload: TransactionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    data = payload.model_dump()
+    if data.get("portfolio_id"):
+        await verify_portfolio_access(db, data["portfolio_id"], current_user["user_id"], current_user.get("org_id"))
+    txn = Transaction(**data)
     db.add(txn)
     await db.flush()
     await db.refresh(txn)
@@ -57,10 +68,16 @@ async def create_transaction(payload: TransactionCreate, db: AsyncSession = Depe
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)
-async def get_transaction(transaction_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_transaction(
+    transaction_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     txn = await db.get(Transaction, transaction_id)
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if txn.portfolio_id:
+        await verify_portfolio_access(db, txn.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     return txn
 
 
@@ -69,10 +86,13 @@ async def update_transaction(
     transaction_id: UUID,
     payload: TransactionUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     txn = await db.get(Transaction, transaction_id)
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if txn.portfolio_id:
+        await verify_portfolio_access(db, txn.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(txn, field, value)
     await db.flush()
@@ -81,8 +101,14 @@ async def update_transaction(
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_transaction(transaction_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_transaction(
+    transaction_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     txn = await db.get(Transaction, transaction_id)
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if txn.portfolio_id:
+        await verify_portfolio_access(db, txn.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     await db.delete(txn)

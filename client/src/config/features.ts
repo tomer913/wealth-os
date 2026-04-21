@@ -36,6 +36,9 @@ export const FEATURES = {
   pipeline_page:        true,
   processor_controls:   true,
 
+  // Auth
+  auth_enabled:         true,  // set false for local dev without Clerk configured
+
   // Future / SaaS
   portfolio_selector:   false,
   multi_user:           false,

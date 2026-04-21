@@ -1,4 +1,5 @@
 from app.models.portfolio import Portfolio
+from app.models.portfolio_member import PortfolioMember
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.transaction import Transaction
@@ -14,7 +15,7 @@ from app.models.budget import (
 )
 
 __all__ = [
-    "Portfolio", "Account", "Asset", "Transaction",
+    "Portfolio", "PortfolioMember", "Account", "Asset", "Transaction",
     "ManualValuation", "FXRate", "PerformanceSnapshot", "Position",
     "RawTransaction", "ServiceCheckpoint", "ProcessorRun", "AssetPriceHistory",
     "BudgetCategory", "BudgetPlan", "BudgetActual", "BudgetActualTransaction",

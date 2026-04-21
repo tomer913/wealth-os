@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, String, Text
+from sqlalchemy import Boolean, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,7 +23,8 @@ class Portfolio(UUIDMixin, TimestampMixin, Base):
     base_currency: Mapped[str] = mapped_column(String(10), nullable=False, default="ILS")
     description: Mapped[Optional[str]] = mapped_column(Text)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
-    owner_id: Mapped[Optional[str]] = mapped_column(String(100))  # Supabase auth user id
+    owner_id: Mapped[Optional[str]] = mapped_column(String(100))  # Clerk user_id
+    last_accessed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     # ── Relationships ──────────────────────────────────────────────────────────
     accounts: Mapped[List["Account"]] = relationship(

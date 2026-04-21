@@ -29,9 +29,15 @@ interface AppStore {
 
 const now = new Date()
 
+// Restore last-used portfolio from localStorage, fall back to env/hardcoded default
+const _storedPortfolioId = localStorage.getItem('last_portfolio_id') || DEFAULT_PORTFOLIO_ID
+
 export const useAppStore = create<AppStore>((set, get) => ({
-  activePortfolioId: DEFAULT_PORTFOLIO_ID,
-  setActivePortfolioId: (id) => set({ activePortfolioId: id, snapshot: null, lastBuiltAt: null }),
+  activePortfolioId: _storedPortfolioId,
+  setActivePortfolioId: (id) => {
+    localStorage.setItem('last_portfolio_id', id)
+    set({ activePortfolioId: id, snapshot: null, lastBuiltAt: null })
+  },
 
   selectedCategories: [],
   setCategories: (cats) => set({ selectedCategories: cats }),

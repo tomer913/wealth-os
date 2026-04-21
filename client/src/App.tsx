@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import { DesktopOnly } from './components/shared/DesktopOnly'
+import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import DashboardPage from './pages/DashboardPage'
 import AccountsPage from './pages/AccountsPage'
 import AssetsPage from './pages/AssetsPage'
@@ -15,14 +16,36 @@ import BudgetRulesPage from './pages/BudgetRulesPage'
 import BudgetDashboardPage from './pages/BudgetDashboardPage'
 import BudgetManagementPage from './pages/BudgetManagementPage'
 import PipelineStatusPage from './pages/PipelineStatusPage'
+import SignInPage from './pages/SignInPage'
+import SetupPage from './pages/SetupPage'
 
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* All pages share the AppShell layout (sidebar + topbar + filter) */}
-        <Route element={<AppShell />}>
+        {/* Public routes */}
+        <Route path="/sign-in/*" element={<SignInPage />} />
+        <Route path="/sign-up/*" element={<SignInPage />} />
+
+        {/* New-user setup (protected but outside AppShell) */}
+        <Route
+          path="/setup"
+          element={
+            <ProtectedRoute>
+              <SetupPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* All protected pages share the AppShell layout */}
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppShell />
+            </ProtectedRoute>
+          }
+        >
           <Route path="/" element={<DashboardPage />} />
           <Route path="/assets" element={<AssetsPage />} />
           <Route path="/accounts" element={<AccountsPage />} />

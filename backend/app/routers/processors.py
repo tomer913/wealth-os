@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db
 from app.models.raw_layer import ProcessorRun
 
@@ -49,8 +50,11 @@ async def list_processor_runs(
     processor_name: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """List recent processor runs, optionally filtered by portfolio and/or processor."""
+    if portfolio_id:
+        await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     q = select(ProcessorRun).order_by(ProcessorRun.created_at.desc()).limit(limit)
     if portfolio_id:
         q = q.where(ProcessorRun.portfolio_id == portfolio_id)
@@ -83,11 +87,17 @@ async def list_processor_runs(
 
 
 @router.get("/runs/{run_id}")
-async def get_processor_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_processor_run(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """Get a single processor run by ID."""
     run = await db.get(ProcessorRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Processor run not found")
+    if run.portfolio_id:
+        await verify_portfolio_access(db, run.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     return {
         "id": str(run.id),
         "processor_name": run.processor_name,
@@ -112,11 +122,13 @@ async def get_processor_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
 async def trigger_bank_processor(
     portfolio_id: UUID = Query(...),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Manually trigger BankProcessor for a portfolio (runs in background)."""
     import asyncio
     from app.processors.bank_processor import BankProcessor
 
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     run_id, proc_run = await _create_pending_run("bank_processor", portfolio_id, db)
     processor = BankProcessor()
     asyncio.create_task(processor.run(portfolio_id, triggered_by="manual", run_id=run_id))
@@ -126,10 +138,13 @@ async def trigger_bank_processor(
 @router.post("/bank/reset-checkpoint")
 async def reset_bank_checkpoint(
     portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Reset BankProcessor checkpoint to replay all raw transactions."""
     from app.processors.bank_processor import BankProcessor
 
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     processor = BankProcessor()
     await processor.reset_checkpoint(portfolio_id)
     return {"status": "reset", "processor": "bank_processor", "portfolio_id": str(portfolio_id)}
@@ -139,11 +154,13 @@ async def reset_bank_checkpoint(
 async def trigger_budget_processor(
     portfolio_id: UUID = Query(...),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Manually trigger BudgetProcessor for a portfolio (runs in background)."""
     import asyncio
     from app.processors.budget_processor import BudgetProcessor
 
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     run_id, proc_run = await _create_pending_run("budget_processor", portfolio_id, db)
     processor = BudgetProcessor()
     asyncio.create_task(processor.run(portfolio_id, triggered_by="manual", run_id=run_id))
@@ -153,10 +170,13 @@ async def trigger_budget_processor(
 @router.post("/budget/reset-checkpoint")
 async def reset_budget_checkpoint(
     portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Reset BudgetProcessor checkpoint to reclassify all raw transactions."""
     from app.processors.budget_processor import BudgetProcessor
 
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     processor = BudgetProcessor()
     await processor.reset_checkpoint(portfolio_id)
     return {"status": "reset", "processor": "budget_processor", "portfolio_id": str(portfolio_id)}
@@ -166,6 +186,7 @@ async def reset_budget_checkpoint(
 async def trigger_processor(
     body: ProcessorRunRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Generic: trigger any processor by name. Returns run_id for polling.
@@ -173,6 +194,8 @@ async def trigger_processor(
     If date_from/date_to supplied: date-range rerun (ignores/doesn't advance checkpoint).
     """
     import asyncio
+
+    await verify_portfolio_access(db, body.portfolio_id, current_user["user_id"], current_user.get("org_id"))
 
     if body.processor_name == "bank_processor":
         from app.processors.bank_processor import BankProcessor
@@ -200,8 +223,12 @@ async def trigger_processor(
 async def reset_processor_checkpoint(
     processor_name: str = Query(...),
     portfolio_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Generic: reset checkpoint for any processor by name."""
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
+
     if processor_name == "bank_processor":
         from app.processors.bank_processor import BankProcessor
         processor = BankProcessor()

@@ -13,11 +13,18 @@ const apiClient = axios.create({
   },
 })
 
-// REQUEST interceptor — add auth token here when ready
+// REQUEST interceptor — attach Clerk JWT when available
 apiClient.interceptors.request.use(
-  (config) => {
-    // TODO (v2): const token = getToken()
-    // if (token) config.headers.Authorization = `Bearer ${token}`
+  async (config) => {
+    try {
+      // window.Clerk is set by ClerkProvider; works outside React components
+      const token = await (window as any).Clerk?.session?.getToken()
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+      }
+    } catch {
+      // Not signed in or Clerk not loaded yet — proceed without token
+    }
     return config
   },
   (error) => Promise.reject(error),
@@ -28,8 +35,8 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // TODO (v2): redirect to login
-      console.warn('Unauthorized — add auth in v2')
+      // Clerk will handle redirect via ProtectedRoute / RedirectToSignIn
+      console.warn('Unauthorized — Clerk session may have expired')
     }
     return Promise.reject(error)
   },

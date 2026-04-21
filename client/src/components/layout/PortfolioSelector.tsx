@@ -1,21 +1,46 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getPortfolios } from '../../api/portfolio'
+import { getPortfolios, selectPortfolio } from '../../api/portfolio'
 import { useAppStore } from '../../store'
+import { isEnabled } from '../../config/features'
 import clsx from 'clsx'
 
 export default function PortfolioSelector() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const activeId = useAppStore((s) => s.activePortfolioId)
   const setActivePortfolioId = useAppStore((s) => s.setActivePortfolioId)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const { data: portfolios = [] } = useQuery({
+  const { data: portfolios = [], isSuccess } = useQuery({
     queryKey: ['portfolios'],
     queryFn: getPortfolios,
     staleTime: 10 * 60 * 1000,
   })
+
+  // Auto-select portfolio from localStorage or first returned
+  useEffect(() => {
+    if (!isSuccess || portfolios.length === 0) return
+
+    // New user with no portfolios → redirect to setup
+    if (portfolios.length === 0 && isEnabled('auth_enabled')) {
+      navigate('/setup')
+      return
+    }
+
+    const stored = localStorage.getItem('last_portfolio_id')
+    const defaultPortfolio =
+      portfolios.find((p) => p.is_default) ||
+      portfolios.find((p) => p.id === stored) ||
+      portfolios[0]
+
+    if (defaultPortfolio && defaultPortfolio.id !== activeId) {
+      setActivePortfolioId(defaultPortfolio.id)
+      localStorage.setItem('last_portfolio_id', defaultPortfolio.id)
+    }
+  }, [isSuccess, portfolios.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = portfolios.find((p) => p.id === activeId)
 
@@ -28,9 +53,12 @@ export default function PortfolioSelector() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  function select(id: string) {
+  async function select(id: string) {
     if (id === activeId) { setOpen(false); return }
     setActivePortfolioId(id)
+    localStorage.setItem('last_portfolio_id', id)
+    // Notify backend of last-accessed for session restore
+    try { await selectPortfolio(id) } catch { /* non-critical */ }
     // Invalidate all data queries so they refetch with new portfolio_id
     qc.invalidateQueries({ queryKey: ['snapshot'] })
     qc.invalidateQueries({ queryKey: ['assets'] })

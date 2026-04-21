@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db
 from app.models.snapshot import PerformanceSnapshot
 from app.models.account import Account
@@ -40,7 +41,9 @@ async def get_dashboard(
     portfolio_id: UUID,
     view: DashboardView = Query("full", description="Dashboard filter view"),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     """
     Returns the latest performance snapshot per asset for the given portfolio,
     applying the requested dashboard filter view.

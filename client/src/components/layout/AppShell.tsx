@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Outlet, useLocation, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { UserButton } from '@clerk/clerk-react'
 import Sidebar from './Sidebar'
 import CategoryFilter from './CategoryFilter'
 import PortfolioSelector from './PortfolioSelector'
@@ -8,6 +9,7 @@ import LanguageSwitcher from './LanguageSwitcher'
 import { useRebuildSnapshot } from '../../hooks/usePortfolio'
 import { useAppStore } from '../../store'
 import { formatDateTime } from '../../utils/format'
+import { isEnabled } from '../../config/features'
 
 const PAGE_TITLE_KEYS: Record<string, string> = {
   '/': 'nav.dashboard',
@@ -49,6 +51,9 @@ export default function AppShell() {
             <div className="hidden md:flex items-center gap-3">
               <LanguageSwitcher />
               <PortfolioSelector />
+              {isEnabled('auth_enabled') && (
+                <UserButton afterSignOutUrl="/sign-in" />
+              )}
             </div>
             <MobileLangToggle />
             {showBuild && <BuildSnapshotButton />}

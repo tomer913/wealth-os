@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
+from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db
 from app.models.budget import (
     BudgetActual, BudgetActualTransaction, BudgetCategory, BudgetCategoryRule,
@@ -37,6 +38,16 @@ router = APIRouter(prefix="/budget", tags=["budget"])
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _pid(portfolio_id: UUID = Query(...)) -> UUID:
+    return portfolio_id
+
+
+async def _verified_pid(
+    portfolio_id: UUID = Depends(_pid),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+) -> UUID:
+    """Query-param dependency: verifies portfolio access and returns portfolio_id."""
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     return portfolio_id
 
 
@@ -83,7 +94,7 @@ def _build_tree(cats: list) -> list:
 
 @router.get("/categories/")
 async def list_categories(
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     year: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -151,7 +162,7 @@ async def list_categories(
              status_code=status.HTTP_201_CREATED)
 async def create_category(
     payload: BudgetCategoryCreate,
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
     cat = BudgetCategory(id=uuid.uuid4(), portfolio_id=portfolio_id, **payload.model_dump())
@@ -168,6 +179,7 @@ async def update_category(
     cat_id: UUID,
     payload: BudgetCategoryUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     cat = await db.get(BudgetCategory, cat_id)
     if not cat:
@@ -182,7 +194,7 @@ async def update_category(
 
 
 @router.delete("/categories/{cat_id}/", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_category(cat_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_category(cat_id: UUID, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):
     cat = await db.get(BudgetCategory, cat_id)
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
@@ -195,7 +207,7 @@ async def delete_category(cat_id: UUID, db: AsyncSession = Depends(get_db)):
 
 @router.get("/plans/", response_model=List[BudgetPlanRead])
 async def list_plans(
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     year: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -209,7 +221,7 @@ async def list_plans(
 @router.post("/plans/", response_model=BudgetPlanRead, status_code=status.HTTP_201_CREATED)
 async def create_plan(
     payload: BudgetPlanCreate,
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
     plan = BudgetPlan(id=uuid.uuid4(), portfolio_id=portfolio_id, **payload.model_dump())
@@ -224,6 +236,7 @@ async def update_plan(
     plan_id: UUID,
     payload: BudgetPlanUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     plan = await db.get(BudgetPlan, plan_id)
     if not plan:
@@ -236,7 +249,7 @@ async def update_plan(
 
 
 @router.delete("/plans/{plan_id}/", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_plan(plan_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_plan(plan_id: UUID, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):
     plan = await db.get(BudgetPlan, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -246,7 +259,7 @@ async def delete_plan(plan_id: UUID, db: AsyncSession = Depends(get_db)):
 @router.post("/plans/generate-from-history/")
 async def generate_plans_from_history(
     body: dict,
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -315,7 +328,7 @@ async def generate_plans_from_history(
 @router.post("/plans/import-from-year/")
 async def import_plans_from_year(
     body: dict,
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -368,7 +381,7 @@ async def import_plans_from_year(
 
 @router.get("/summary/")
 async def get_summary(
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     year: int = Query(...),
     month: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -488,7 +501,7 @@ def _rule_to_read(rule: BudgetCategoryRule, category_name: str = "") -> BudgetRu
 
 @router.get("/rules/", response_model=List[BudgetRuleRead])
 async def list_rules(
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     status_filter: Optional[str] = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -515,7 +528,7 @@ async def list_rules(
 @router.post("/rules/", response_model=BudgetRuleRead, status_code=status.HTTP_201_CREATED)
 async def create_rule(
     payload: BudgetRuleCreate,
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
     rule = BudgetCategoryRule(
@@ -533,6 +546,7 @@ async def update_rule(
     rule_id: UUID,
     payload: BudgetRuleUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     rule = await db.get(BudgetCategoryRule, rule_id)
     if not rule:
@@ -546,7 +560,7 @@ async def update_rule(
 
 
 @router.delete("/rules/{rule_id}/", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_rule(rule_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_rule(rule_id: UUID, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):
     rule = await db.get(BudgetCategoryRule, rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -555,7 +569,7 @@ async def delete_rule(rule_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/rules/{rule_id}/approve/", response_model=BudgetRuleRead)
-async def approve_rule(rule_id: UUID, db: AsyncSession = Depends(get_db)):
+async def approve_rule(rule_id: UUID, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):
     rule = await db.get(BudgetCategoryRule, rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -570,7 +584,7 @@ async def approve_rule(rule_id: UUID, db: AsyncSession = Depends(get_db)):
 @router.post("/rules/{rule_id}/test/", response_model=BudgetRuleTestResult)
 async def test_rule(
     rule_id: UUID,
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
     rule = await db.get(BudgetCategoryRule, rule_id)
@@ -584,7 +598,7 @@ async def test_rule(
 @router.post("/rules/test-conditions/", response_model=BudgetRuleTestResult)
 async def test_conditions(
     conditions: dict,
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
     """Test arbitrary conditions (before saving the rule)."""
@@ -610,7 +624,7 @@ async def reorder_rules(
 
 @router.get("/review/", response_model=List[ClassificationLogRead])
 async def get_review_queue(
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
@@ -648,7 +662,7 @@ async def get_review_queue(
 async def categorize_review_item(
     log_id: UUID,
     body: dict,
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -803,7 +817,7 @@ async def categorize_review_item(
 
 @router.get("/classification-log/", response_model=List[ClassificationLogRead])
 async def get_classification_log(
-    portfolio_id: UUID = Query(...),
+    portfolio_id: UUID = Depends(_verified_pid),
     method: Optional[str] = Query(None),
     needs_review: Optional[bool] = Query(None),
     limit: int = Query(50, ge=1, le=200),

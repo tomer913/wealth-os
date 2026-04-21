@@ -17,6 +17,16 @@ export async function getPortfolios(): Promise<Portfolio[]> {
   return Array.isArray(data) ? data : []
 }
 
+export async function createPortfolio(payload: { name: string; base_currency: string; is_default?: boolean }): Promise<Portfolio> {
+  const { data } = await apiClient.post(`/api/v1/portfolios/`, payload)
+  return data
+}
+
+export async function selectPortfolio(portfolioId: string): Promise<Portfolio> {
+  const { data } = await apiClient.patch(`/api/v1/portfolios/${portfolioId}/select`)
+  return data
+}
+
 // ─── Snapshot ──────────────────────────────────────────────────────────────────
 
 export async function rebuildSnapshot(asOfDate?: string): Promise<PortfolioSnapshot> {

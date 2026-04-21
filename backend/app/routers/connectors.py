@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db
 from app.models.connector import Connector, ConnectorRun
 from app.schemas.connector import (
@@ -59,7 +60,10 @@ def _to_read(connector: Connector, latest_run: ConnectorRun | None = None) -> Co
 async def list_connectors(
     portfolio_id: Optional[UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    if portfolio_id:
+        await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     q = select(Connector)
     if portfolio_id:
         q = q.where(Connector.portfolio_id == portfolio_id)
@@ -85,7 +89,9 @@ async def create_connector(
     payload: ConnectorCreate,
     portfolio_id: UUID = Query(...),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
     # Encrypt sensitive config fields before storing
     encrypted_config = encrypt_config(payload.config)
     connector = Connector(
@@ -105,10 +111,16 @@ async def create_connector(
 
 
 @router.get("/{connector_id}", response_model=ConnectorRead)
-async def get_connector(connector_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_connector(
+    connector_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     connector = await db.get(Connector, connector_id)
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.portfolio_id:
+        await verify_portfolio_access(db, connector.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     run_q = (
         select(ConnectorRun)
         .where(ConnectorRun.connector_id == connector_id)
@@ -124,10 +136,13 @@ async def update_connector(
     connector_id: UUID,
     payload: ConnectorUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     connector = await db.get(Connector, connector_id)
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.portfolio_id:
+        await verify_portfolio_access(db, connector.portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
 
     data = payload.model_dump(exclude_unset=True)
     if "config" in data:
@@ -144,10 +159,16 @@ async def update_connector(
 
 
 @router.delete("/{connector_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_connector(connector_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_connector(
+    connector_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     connector = await db.get(Connector, connector_id)
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.portfolio_id:
+        await verify_portfolio_access(db, connector.portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
     await db.delete(connector)
 
 
@@ -158,10 +179,13 @@ async def trigger_run(
     connector_id: UUID,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     connector = await db.get(Connector, connector_id)
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.portfolio_id:
+        await verify_portfolio_access(db, connector.portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
     if not connector.is_active:
         raise HTTPException(status_code=400, detail="Connector is disabled")
 
@@ -276,10 +300,13 @@ async def list_runs(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     connector = await db.get(Connector, connector_id)
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.portfolio_id:
+        await verify_portfolio_access(db, connector.portfolio_id, current_user["user_id"], current_user.get("org_id"))
 
     count_q = select(func.count(ConnectorRun.id)).where(
         ConnectorRun.connector_id == connector_id
@@ -306,10 +333,16 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}", response_model=ConnectorRunRead)
-async def get_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_run(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     run = await db.get(ConnectorRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+    if run.portfolio_id:
+        await verify_portfolio_access(db, run.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     return run
 
 
@@ -324,7 +357,9 @@ async def upload_bank_statement(
     connector_type: str = Form(...),
     portfolio_id: UUID = Form(...),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
     """
     Accept a PDF or XLSX bank statement, parse it, and write to raw_transactions.
     Supported connector_type values: mizrachi_bank, fibi_bank.

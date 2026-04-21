@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func as sqlfunc2, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db, SessionLocal
 from app.models.snapshot import PerformanceSnapshot
 from app.schemas.snapshot import PerformanceSnapshotRead, SnapshotRebuildRequest
@@ -22,7 +23,9 @@ async def recent_snapshots(
     portfolio_id: UUID = Query(...),
     limit: int = Query(5, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     """
     Returns the last `limit` distinct snapshot dates for a portfolio,
     with asset_count and built_at per date.
@@ -53,7 +56,9 @@ async def recent_snapshots(
 async def get_latest_snapshot(
     portfolio_id: UUID = Query(...),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     from app.models.asset import Asset
     from sqlalchemy import func as sqlfunc
 
@@ -142,7 +147,10 @@ async def list_snapshots(
     is_stale: Optional[bool] = Query(None),
     limit: int = Query(100, le=500),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    if portfolio_id:
+        await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     q = select(PerformanceSnapshot)
     if portfolio_id:
         q = q.where(PerformanceSnapshot.portfolio_id == portfolio_id)
@@ -290,7 +298,9 @@ def _run_rebuild(portfolio_id: UUID, as_of_date: date, asset_id: Optional[UUID])
 async def rebuild_snapshots(
     payload: SnapshotRebuildRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    await verify_portfolio_access(db, payload.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     """
     Runs the Wealth OS calculation engine for a portfolio or single asset.
 

@@ -78,6 +78,47 @@ Positions and `performance_snapshots` are **computed**, not imported.
 
 ---
 
+## Authentication (Clerk)
+
+Multi-tenant SaaS auth added April 2026.
+
+| Item | Detail |
+|---|---|
+| Provider | Clerk |
+| Frontend pkg | `@clerk/clerk-react` |
+| Token verification | RS256 JWT via JWKS endpoint |
+| Dev bypass | Set `auth_enabled: false` in `features.ts` **or** leave `VITE_CLERK_PUBLISHABLE_KEY` unset |
+
+### Environment variables
+
+**Vercel (frontend):**
+- `VITE_CLERK_PUBLISHABLE_KEY` — from Clerk dashboard
+
+**Railway (backend):**
+- `CLERK_SECRET_KEY` — from Clerk dashboard
+- `CLERK_JWKS_URL` — `https://[your-clerk-domain]/.well-known/jwks.json`
+
+When `CLERK_JWKS_URL` is not set, backend auth is bypassed (dev mode).
+
+### Data migration for existing portfolio
+After first Clerk sign-in, get your `user_id` from the Clerk dashboard and run:
+```sql
+UPDATE portfolios SET owner_id = 'user_YOUR_CLERK_ID'
+WHERE id = '53f8f313-98e8-5de3-bd64-55826cbd82bb';
+```
+
+### Key files
+- `backend/app/auth.py` — `get_current_user` dep + `verify_portfolio_access` helper
+- `backend/alembic/versions/010_auth_portfolio_members.py` — `last_accessed_at`, `portfolio_members` table
+- `client/src/components/auth/ProtectedRoute.tsx` — wraps all app routes
+- `client/src/pages/SignInPage.tsx` — Clerk UI + Face ID/Passkey button
+- `client/src/pages/SetupPage.tsx` — new-user onboarding (creates first portfolio)
+
+### Clerk MAU
+Free tier = 10,000 MAU (unique users/month). Current usage: ~2 MAU (Tomer + wife).
+
+---
+
 ## Current phase
 
 Backend is fully deployed and operational. Frontend dashboard is built.

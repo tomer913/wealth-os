@@ -10,6 +10,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.5",
     "@tanstack/react-query": "^5.18.0",
     "axios": "^1.6.0",
     "clsx": "^2.1.0",

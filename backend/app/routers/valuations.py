@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db
 from app.models.valuation import ManualValuation
 from app.schemas.valuation import (
@@ -28,7 +29,10 @@ async def list_valuations(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    if portfolio_id:
+        await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"))
     q = select(ManualValuation)
     if portfolio_id:
         q = q.where(ManualValuation.portfolio_id == portfolio_id)
@@ -56,8 +60,14 @@ async def list_valuations(
 
 
 @router.post("/", response_model=ManualValuationRead, status_code=status.HTTP_201_CREATED)
-async def create_valuation(payload: ManualValuationCreate, db: AsyncSession = Depends(get_db)):
+async def create_valuation(
+    payload: ManualValuationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     data = payload.model_dump(by_alias=False)
+    if data.get("portfolio_id"):
+        await verify_portfolio_access(db, data["portfolio_id"], current_user["user_id"], current_user.get("org_id"))
     valuation = ManualValuation(**data)
     db.add(valuation)
     await db.flush()
@@ -66,10 +76,16 @@ async def create_valuation(payload: ManualValuationCreate, db: AsyncSession = De
 
 
 @router.get("/{valuation_id}", response_model=ManualValuationRead)
-async def get_valuation(valuation_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_valuation(
+    valuation_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     v = await db.get(ManualValuation, valuation_id)
     if not v:
         raise HTTPException(status_code=404, detail="Valuation not found")
+    if v.portfolio_id:
+        await verify_portfolio_access(db, v.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     return v
 
 
@@ -78,10 +94,13 @@ async def update_valuation(
     valuation_id: UUID,
     payload: ManualValuationUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     v = await db.get(ManualValuation, valuation_id)
     if not v:
         raise HTTPException(status_code=404, detail="Valuation not found")
+    if v.portfolio_id:
+        await verify_portfolio_access(db, v.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(v, field, value)
     await db.flush()
@@ -90,8 +109,14 @@ async def update_valuation(
 
 
 @router.delete("/{valuation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_valuation(valuation_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_valuation(
+    valuation_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     v = await db.get(ManualValuation, valuation_id)
     if not v:
         raise HTTPException(status_code=404, detail="Valuation not found")
+    if v.portfolio_id:
+        await verify_portfolio_access(db, v.portfolio_id, current_user["user_id"], current_user.get("org_id"))
     await db.delete(v)

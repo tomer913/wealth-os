@@ -2,10 +2,14 @@ import './i18n'
 import i18n from './i18n'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { ClerkProvider } from '@clerk/clerk-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import './index.css'
 import { useAppStore } from './store'
+import { isEnabled } from './config/features'
+
+const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
 // Expose store on window so api/portfolio.ts can access activePortfolioId
 // without creating a circular dependency
@@ -28,10 +32,16 @@ const queryClient = new QueryClient({
   },
 })
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const app = (
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <App />
     </QueryClientProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
+)
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  isEnabled('auth_enabled') && PUBLISHABLE_KEY
+    ? <ClerkProvider publishableKey={PUBLISHABLE_KEY}>{app}</ClerkProvider>
+    : app
 )
