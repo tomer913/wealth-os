@@ -37,7 +37,7 @@ export const FEATURES = {
   processor_controls:   true,
 
   // Auth
-  auth_enabled:         false,  // TODO: re-enable once VITE_CLERK_PUBLISHABLE_KEY is set in Vercel
+  auth_enabled:         true,
 
   // Future / SaaS
   portfolio_selector:   false,

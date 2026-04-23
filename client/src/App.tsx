@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { Routes, Route } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import { DesktopOnly } from './components/shared/DesktopOnly'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
@@ -22,8 +22,7 @@ import SetupPage from './pages/SetupPage'
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
+    <Routes>
         {/* Public routes */}
         <Route path="/sign-in/*" element={<SignInPage />} />
         <Route path="/sign-up/*" element={<SignInPage />} />
@@ -61,7 +60,6 @@ export default function App() {
           {/* System */}
           <Route path="/pipeline" element={<DesktopOnly><PipelineStatusPage /></DesktopOnly>} />
         </Route>
-      </Routes>
-    </BrowserRouter>
+    </Routes>
   )
 }
