@@ -658,6 +658,23 @@ async def get_review_queue(
     return result
 
 
+def _extract_keyword(description: str) -> str:
+    """Extract a meaningful search keyword from a bank transaction description."""
+    import re
+    text = description or ""
+    # Remove ref codes like (י-12345), (1234), brackets with numbers
+    text = re.sub(r'\([^)]*\d[^)]*\)', '', text)
+    # Remove leading noise words common in Israeli bank transactions
+    text = re.sub(r'^\s*(הרשאה|העברה|תשלום|חיוב|זיכוי|זכ|מש)\s*', '', text, flags=re.IGNORECASE)
+    # Remove standalone numbers and date-like patterns
+    text = re.sub(r'\b\d[\d/.-]*\b', '', text)
+    # Strip trailing junk after dash/hyphen if remainder is short
+    text = re.sub(r'\s*[-–]\s*\S{0,6}\s*$', '', text.strip())
+    # Collapse whitespace and strip
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:50].strip() or description[:50]
+
+
 @router.post("/review/{log_id}/categorize/")
 async def categorize_review_item(
     log_id: UUID,
@@ -667,42 +684,50 @@ async def categorize_review_item(
 ):
     """
     Manually categorize a review-queue item.
-    Body: { "category_id": "uuid-or-exclude", "generate_rule": true }
-    Everything is committed atomically — any failure rolls back all changes.
+    Body: { "category_id": "uuid", "generate_rule": true }
+         or { "excluded": true }
+    All steps run in one transaction — any failure rolls back everything.
     """
-    category_id_raw: str = body.get("category_id", "")
+    category_id_raw: str = body.get("category_id") or ""
     generate_rule: bool = bool(body.get("generate_rule", False))
+    is_excluded: bool = bool(body.get("excluded", False)) or category_id_raw == "exclude"
 
     log_entry = await db.get(ClassificationLog, log_id)
     if not log_entry:
         raise HTTPException(status_code=404, detail="Log entry not found")
 
-    log.info(f"Categorizing {log_id} → {category_id_raw} (generate_rule={generate_rule})")
+    log.info(f"Categorizing {log_id} → {'exclude' if is_excluded else category_id_raw} (generate_rule={generate_rule})")
 
     now = datetime.now(timezone.utc)
 
-    # ── Step 7: Handle exclusion ──────────────────────────────────────────────
-    if category_id_raw == "exclude":
+    # ── Step 1: Update classification_log ────────────────────────────────────
+    log_entry.reviewed_at = now
+    log_entry.reviewed_by = "manual"
+    log_entry.needs_review = False
+
+    # ── Step 3: Handle exclusion ──────────────────────────────────────────────
+    if is_excluded:
         log_entry.excluded = True
-        log_entry.needs_review = False
         log_entry.method = "excluded"
-        log_entry.reviewed_at = now
-        log_entry.reviewed_by = "manual"
 
         # Remove junction row (if any) and recalculate affected bucket
         existing_bat = await db.get(BudgetActualTransaction, log_entry.raw_transaction_id)
         if existing_bat:
             old_actual_id = existing_bat.budget_actual_id
             await db.delete(existing_bat)
-            await db.flush()  # flush delete before recalculate
+            await db.flush()
             await _recalculate_budget_actual(db, old_actual_id, now)
             log.info(f"Junction row deleted; recalculated budget_actual={old_actual_id}")
 
         await db.flush()
         log.info(f"log_id={log_id} marked as excluded")
-        return {"status": "ok", "log_id": str(log_id), "excluded": True}
+        return {"success": True, "log_id": str(log_id), "excluded": True,
+                "rule_created": False, "budget_actual_updated": False}
 
-    # ── Steps 1–5: Classify ───────────────────────────────────────────────────
+    # ── Steps 1–2: Classify ───────────────────────────────────────────────────
+    if not category_id_raw:
+        raise HTTPException(status_code=422, detail="category_id is required when not excluding")
+
     cat_id = UUID(category_id_raw)
     cat = await db.get(BudgetCategory, cat_id)
     if not cat:
@@ -711,53 +736,23 @@ async def categorize_review_item(
     log_entry.category_id = cat_id
     log_entry.method = "manual"
     log_entry.confidence = 1.0
-    log_entry.needs_review = False
-    log_entry.reviewed_at = now
-    log_entry.reviewed_by = "manual"
 
-    # ── Step 6: Optionally generate a suggested rule ───────────────────────────
-    if generate_rule and os.environ.get("ANTHROPIC_API_KEY"):
-        raw = await db.get(RawTransaction, log_entry.raw_transaction_id)
-        if raw:
-            try:
-                from app.processors.ai_classifier import AIClassifier
-                classifier = AIClassifier()
-                tx_dict = {
-                    "description": raw.description,
-                    "amount": float(raw.amount),
-                    "source": raw.source,
-                    "currency": raw.currency,
-                }
-                conditions = await classifier.generate_rule(tx_dict, cat_id, cat.name)
-                if conditions:
-                    new_rule = BudgetCategoryRule(
-                        id=uuid.uuid4(),
-                        portfolio_id=portfolio_id,
-                        category_id=cat_id,
-                        name=f"User: {raw.description[:60]}",
-                        priority=100,
-                        status="suggested",
-                        conditions=conditions,
-                        confidence=1.0,
-                        source="user_confirmed",
-                    )
-                    db.add(new_rule)
-                    log.info(f"Suggested rule created for category={cat_id}")
-            except Exception:
-                log.exception("Rule generation failed (best-effort, continuing)")
-
-    # ── Step 8: Idempotent budget_actuals update via junction table ────────────
+    # ── Steps 2 & 4–5: Get raw_transaction, upsert budget_actuals ────────────
     raw_tx = await db.get(RawTransaction, log_entry.raw_transaction_id)
+    budget_actual_updated = False
+
     if raw_tx and raw_tx.raw_date:
         year = raw_tx.raw_date.year
         month = raw_tx.raw_date.month
         amount = abs(raw_tx.amount)
 
-        # Check for existing junction row (detect category change)
+        log.info(f"Budget actual update: {year}/{month:02d} category={cat_id} += {amount}")
+
+        # Detect existing junction row (category change)
         existing_bat = await db.get(BudgetActualTransaction, log_entry.raw_transaction_id)
         old_actual_id = existing_bat.budget_actual_id if existing_bat else None
 
-        # Get or create budget_actual for this category/month
+        # Step 4: Upsert budget_actuals (get-or-create the monthly bucket)
         actual_stmt = (
             pg_insert(BudgetActual)
             .values(
@@ -778,7 +773,7 @@ async def categorize_review_item(
         )
         actual_id: UUID = (await db.execute(actual_stmt)).scalar_one()
 
-        # Upsert junction row
+        # Step 5: Upsert junction row (idempotent — prevents double-counting)
         bat_stmt = (
             pg_insert(BudgetActualTransaction)
             .values(
@@ -798,19 +793,56 @@ async def categorize_review_item(
         )
         await db.execute(bat_stmt)
 
-        # Recalculate new bucket
+        # Recalculate new bucket from junction rows
         await _recalculate_budget_actual(db, actual_id, now)
 
         # Recalculate old bucket if category changed
         if old_actual_id and old_actual_id != actual_id:
             await _recalculate_budget_actual(db, old_actual_id, now)
 
-        log.info(f"budget_actuals recalculated: category={cat_id} {year}-{month:02d} amount={amount}")
+        log.info(f"Budget actual updated: {year}/{month:02d} += {amount}")
+        budget_actual_updated = True
 
-    # ── Step 9: Commit (via get_db dependency after return) ───────────────────
+    # ── Step 6: Generate suggested rule (keyword-based, no AI needed) ─────────
+    rule_created = False
+    if generate_rule and raw_tx and raw_tx.description:
+        try:
+            keyword = _extract_keyword(raw_tx.description)
+            if keyword:
+                new_rule = BudgetCategoryRule(
+                    id=uuid.uuid4(),
+                    portfolio_id=portfolio_id,
+                    category_id=cat_id,
+                    name=f"Auto: {raw_tx.description[:50]}",
+                    priority=50,
+                    status="suggested",
+                    conditions={
+                        "operator": "AND",
+                        "rules": [
+                            {"field": "description", "op": "contains", "value": keyword}
+                        ],
+                    },
+                    confidence=1.0,
+                    source="user_confirmed",
+                )
+                db.add(new_rule)
+                rule_created = True
+                log.info(f"Rule created: category={cat_id} keyword='{keyword}'")
+        except Exception:
+            log.exception("Rule generation failed (non-fatal, continuing)")
+
+    # ── Step 7: Flush (get_db commits after return) ───────────────────────────
     await db.flush()
-    log.info(f"log_id={log_id} categorized → {cat_id} ✓")
-    return {"status": "ok", "log_id": str(log_id), "category_id": str(cat_id)}
+    log.info(f"log_id={log_id} categorized → {cat_id} rule_created={rule_created} ✓")
+
+    # ── Step 8: Return response ───────────────────────────────────────────────
+    return {
+        "success": True,
+        "log_id": str(log_id),
+        "category_id": str(cat_id),
+        "rule_created": rule_created,
+        "budget_actual_updated": budget_actual_updated,
+    }
 
 
 # ── Classification log ─────────────────────────────────────────────────────────

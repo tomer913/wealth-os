@@ -667,7 +667,12 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
   const categorizeMut = useMutation({
     mutationFn: ({ logId, catId, gr, excluded }: { logId: string; catId: string | null; gr: boolean; excluded?: boolean }) =>
       categorizePendingTx(logId, catId, gr, excluded),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget-review'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['budget-review'] })
+      qc.invalidateQueries({ queryKey: ['budget-actuals'] })
+      qc.invalidateQueries({ queryKey: ['budget-summary'] })
+      qc.invalidateQueries({ queryKey: ['budget-rules'] })
+    },
   })
 
   const createCatMut = useMutation({
