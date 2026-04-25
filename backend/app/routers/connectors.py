@@ -237,6 +237,8 @@ async def _execute_connector_run(connector_id: str, run_id: str):
 
             # Decrypt config and execute
             config = decrypt_config(connector.config)
+            _log.info("Connector run %s: type=%s config_keys=%s has_api_key=%s",
+                      run_id, connector.type, list(config.keys()), bool(config.get("api_key")))
             handler = await get_connector_handler(connector.type)
 
             if not handler:
@@ -290,6 +292,115 @@ async def _execute_connector_run(connector_id: str, run_id: str):
                 if connector:
                     connector.last_error = str(e)
                 await err_db.commit()
+
+
+# ── Connector test (diagnostics) ─────────────────────────────────────────────
+
+import logging as _logging
+_log = _logging.getLogger(__name__)
+
+
+@router.get("/{connector_id}/test")
+async def test_connector_credentials(
+    connector_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Diagnostic endpoint — decrypts config and makes a real API call to verify
+    credentials. Returns raw response (or error) without touching any DB data.
+    """
+    import httpx, hashlib, hmac, base64, time
+    from urllib.parse import urlencode
+
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.portfolio_id:
+        await verify_portfolio_access(db, connector.portfolio_id,
+                                      current_user["user_id"], current_user.get("org_id"))
+
+    config = decrypt_config(connector.config)
+
+    diag: dict = {
+        "connector_type": connector.type,
+        "config_keys_stored": list(connector.config.keys()),
+        "config_keys_decrypted": list(config.keys()),
+        "has_api_key": bool(config.get("api_key")),
+        "has_api_secret": bool(config.get("api_secret")),
+        "api_key_prefix": (config.get("api_key", "")[:8] + "...") if config.get("api_key") else "<empty>",
+        "raw_stored_api_key_prefix": (connector.config.get("api_key", "")[:8] + "...") if connector.config.get("api_key") else "<empty>",
+        "api_response": None,
+        "error": None,
+    }
+
+    try:
+        if connector.type == "kraken":
+            api_key = config.get("api_key", "")
+            api_secret = config.get("api_secret", "")
+            if not api_key or not api_secret:
+                diag["error"] = "Missing credentials after decryption"
+                return diag
+
+            nonce = str(int(time.time() * 1000))
+            endpoint = "/0/private/Balance"
+            post_data = urlencode({"nonce": nonce})
+            message = endpoint.encode() + hashlib.sha256((nonce + post_data).encode()).digest()
+            signature = base64.b64encode(
+                hmac.new(base64.b64decode(api_secret), message, hashlib.sha512).digest()
+            ).decode()
+
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"https://api.kraken.com{endpoint}",
+                    content=post_data,
+                    headers={
+                        "API-Key": api_key,
+                        "API-Sign": signature,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                )
+            data = resp.json()
+            diag["api_response"] = {
+                "status_code": resp.status_code,
+                "error": data.get("error"),
+                "result_keys": list(data.get("result", {}).keys()) if isinstance(data.get("result"), dict) else None,
+            }
+
+        elif connector.type == "cexio":
+            api_key = config.get("api_key", "")
+            api_secret = config.get("api_secret", "")
+            username = config.get("username", "")
+            if not api_key or not api_secret or not username:
+                diag["error"] = f"Missing credentials after decryption: api_key={bool(api_key)} api_secret={bool(api_secret)} username={bool(username)}"
+                diag["has_username"] = bool(username)
+                return diag
+
+            nonce = str(int(time.time() * 1000))
+            message = nonce + username + api_key
+            signature = hmac.new(api_secret.encode(), message.encode(), hashlib.sha256).hexdigest().upper()
+
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://cex.io/api/balance/",
+                    data={"key": api_key, "signature": signature, "nonce": nonce},
+                )
+            data = resp.json()
+            diag["has_username"] = bool(username)
+            diag["api_response"] = {
+                "status_code": resp.status_code,
+                "error": data.get("error") if isinstance(data, dict) else None,
+                "result_keys": [k for k in (data.keys() if isinstance(data, dict) else [])][:20],
+            }
+
+        else:
+            diag["error"] = f"No test implementation for connector type '{connector.type}'"
+
+    except Exception as exc:
+        _log.exception("Connector test failed for %s", connector_id)
+        diag["error"] = str(exc)
+
+    return diag
 
 
 # ── Run history ───────────────────────────────────────────────────────────────

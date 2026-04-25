@@ -146,11 +146,19 @@ class KrakenConnector(BaseConnector):
 
     async def run(self) -> ConnectorResult:
         result = ConnectorResult()
+
+        # ── Credential diagnostics ────────────────────────────────────────────
+        log.info("Kraken connector starting — config keys present: %s", list(self.config.keys()))
         api_key = self.config.get("api_key", "")
         api_secret = self.config.get("api_secret", "")
+        log.info("Kraken has api_key: %s  has api_secret: %s  key_prefix: %s",
+                 bool(api_key), bool(api_secret),
+                 (api_key[:8] + "...") if api_key else "<empty>")
 
         if not api_key or not api_secret:
-            result.warnings.append("Kraken: api_key and api_secret are required")
+            msg = "Kraken: api_key and api_secret are required — check that CONNECTOR_ENCRYPTION_KEY matches and credentials were saved"
+            log.error(msg)
+            result.warnings.append(msg)
             return result
 
         try:
@@ -164,6 +172,9 @@ class KrakenConnector(BaseConnector):
             log.exception("Kraken connector failed: %s", exc)
             result.warnings.append(f"Kraken error: {exc}")
 
+        log.info("Kraken run finished — fetched=%d created=%d skipped=%d prices=%d",
+                 result.records_fetched, result.transactions_created,
+                 result.transactions_skipped, result.prices_updated)
         return result
 
     # ── Private API helper ─────────────────────────────────────────────────────
@@ -235,9 +246,12 @@ class KrakenConnector(BaseConnector):
                     params["start"] = int(last_trade_time) + 1
 
                 await asyncio.sleep(1)  # Kraken rate limit
+                log.info("Calling Kraken TradesHistory API (offset=%d, start=%s)...",
+                         offset, params.get("start"))
                 data = await self._private_post(
                     client, api_key, api_secret, "/0/private/TradesHistory", params
                 )
+                log.info("Kraken TradesHistory response keys: %s", list(data.keys()))
 
                 trades: Dict[str, Any] = data.get("trades", {})
                 if not trades:
@@ -328,9 +342,11 @@ class KrakenConnector(BaseConnector):
         from app.models.asset import Asset
 
         async with httpx.AsyncClient(timeout=30) as client:
+            log.info("Calling Kraken Balance API...")
             balances = await self._private_post(
                 client, api_key, api_secret, "/0/private/Balance"
             )
+            log.info("Kraken Balance response: %d assets", len(balances))
 
         for kraken_sym, balance_str in balances.items():
             if kraken_sym in KRAKEN_SKIP_ASSETS:

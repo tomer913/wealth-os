@@ -93,12 +93,20 @@ class CexioConnector(BaseConnector):
 
     async def run(self) -> ConnectorResult:
         result = ConnectorResult()
+
+        # ── Credential diagnostics ────────────────────────────────────────────
+        log.info("CEX.io connector starting — config keys present: %s", list(self.config.keys()))
         api_key = self.config.get("api_key", "")
         api_secret = self.config.get("api_secret", "")
         username = self.config.get("username", "")
+        log.info("CEX.io has api_key: %s  has api_secret: %s  has username: %s  key_prefix: %s",
+                 bool(api_key), bool(api_secret), bool(username),
+                 (api_key[:8] + "...") if api_key else "<empty>")
 
         if not api_key or not api_secret or not username:
-            result.warnings.append("CEX.io: api_key, api_secret, and username are required")
+            msg = "CEX.io: api_key, api_secret, and username are required — check that CONNECTOR_ENCRYPTION_KEY matches and credentials were saved"
+            log.error(msg)
+            result.warnings.append(msg)
             return result
 
         try:
@@ -112,6 +120,9 @@ class CexioConnector(BaseConnector):
             log.exception("CEX.io connector failed: %s", exc)
             result.warnings.append(f"CEX.io error: {exc}")
 
+        log.info("CEX.io run finished — fetched=%d created=%d skipped=%d prices=%d",
+                 result.records_fetched, result.transactions_created,
+                 result.transactions_skipped, result.prices_updated)
         return result
 
     # ── Private API helper ─────────────────────────────────────────────────────
