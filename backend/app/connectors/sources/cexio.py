@@ -155,13 +155,78 @@ class CexioConnector(BaseConnector):
             raise RuntimeError(f"CEX.io API error: {data['error']}")
         return data
 
+    # ── Tier 3 fuzzy link helper ───────────────────────────────────────────────
+
+    async def _link_or_insert_raw(
+        self,
+        real_id: str,
+        asset_id: Optional[UUID],
+        trade_date: "date",
+        trade_type: str,
+        vol: float,
+        raw_values: Dict[str, Any],
+        result: ConnectorResult,
+    ) -> bool:
+        """Returns True if a new raw row was created."""
+        from app.models.raw_layer import RawTransaction
+        from app.models.transaction import Transaction
+        from sqlalchemy import update, func
+
+        # Tier 1: already linked by exchange ID in transactions
+        existing_q = select(Transaction.id).where(
+            Transaction.portfolio_id == self.portfolio_id,
+            Transaction.external_reference_id == real_id,
+        )
+        if (await self.db.execute(existing_q)).scalar_one_or_none():
+            result.transactions_skipped += 1
+            return False
+
+        # Tier 3: fuzzy match on manual transaction
+        if asset_id:
+            tolerance = Decimal("0.000001")
+            vol_dec = Decimal(str(vol))
+            manual_q = select(Transaction.id).where(
+                Transaction.portfolio_id == self.portfolio_id,
+                Transaction.asset_id == asset_id,
+                Transaction.transaction_date == trade_date,
+                Transaction.type == trade_type.upper(),
+                Transaction.quantity.isnot(None),
+                func.abs(Transaction.quantity - vol_dec) < tolerance,
+                Transaction.external_reference_id.is_(None),
+            ).limit(1)
+            manual_id = (await self.db.execute(manual_q)).scalar_one_or_none()
+
+            if manual_id:
+                await self.db.execute(
+                    update(Transaction)
+                    .where(Transaction.id == manual_id)
+                    .values(external_reference_id=real_id, source="cexio")
+                )
+                log.info("Linked manual import %s → %s", manual_id, real_id)
+                result.transactions_skipped += 1
+                return False
+
+        # No match — insert new raw_transaction
+        stmt = (
+            pg_insert(RawTransaction)
+            .values(**raw_values)
+            .on_conflict_do_nothing(constraint="uq_raw_transactions_source_ref")
+        )
+        res = await self.db.execute(stmt)
+        if res.rowcount:
+            result.transactions_created += 1
+            return True
+        else:
+            result.transactions_skipped += 1
+            return False
+
     # ── Trade history ──────────────────────────────────────────────────────────
 
     async def _fetch_trades(
         self, api_key: str, api_secret: str, username: str, result: ConnectorResult
     ) -> None:
-        from app.models.raw_layer import RawTransaction
         from app.models.connector import ConnectorRun, Connector
+        from datetime import date as date_type
 
         last_trade_time: Optional[float] = None
         ckpt_q = (
@@ -183,6 +248,8 @@ class CexioConnector(BaseConnector):
         account_id_str = self.config.get("account_id")
         account_id = UUID(account_id_str) if account_id_str else None
         newest_trade_time: Optional[float] = last_trade_time
+        linked_count = 0
+        created_count = 0
 
         async with httpx.AsyncClient(timeout=30) as client:
             for base, quote in CEXIO_PAIRS:
@@ -211,9 +278,10 @@ class CexioConnector(BaseConnector):
                 result.records_fetched += len(orders)
 
                 for order in orders:
-                    order_id = str(order.get("id", ""))
+                    real_id = f"CEXIO-{order.get('id', '')}"
                     trade_ts = float(order.get("time", order.get("lastTxTime", 0)))
                     trade_dt = datetime.fromtimestamp(trade_ts, tz=timezone.utc)
+                    trade_date: date_type = trade_dt.date()
                     trade_type = order.get("type", "buy").lower()
                     amount_str = order.get("amount", order.get("ta", "0"))
                     price_str = order.get("price", order.get("fa", "0"))
@@ -221,7 +289,6 @@ class CexioConnector(BaseConnector):
                     price = float(price_str)
                     cost = vol * price
                     fee = float(order.get("fee", order.get("tradingFeeTaker", "0")))
-
                     signed_amount = -cost if trade_type == "buy" else cost
 
                     if newest_trade_time is None or trade_ts > newest_trade_time:
@@ -239,9 +306,13 @@ class CexioConnector(BaseConnector):
                             },
                         )
 
-                    stmt = (
-                        pg_insert(RawTransaction)
-                        .values(
+                    created = await self._link_or_insert_raw(
+                        real_id=real_id,
+                        asset_id=asset_id,
+                        trade_date=trade_date,
+                        trade_type=trade_type,
+                        vol=vol,
+                        raw_values=dict(
                             id=uuid7(),
                             portfolio_id=self.portfolio_id,
                             source="cexio",
@@ -249,10 +320,10 @@ class CexioConnector(BaseConnector):
                             description=f"CEX.io {trade_type.upper()} {vol} {base} @ {price} {quote}",
                             amount=signed_amount,
                             currency=quote,
-                            reference=order_id,
-                            external_ref_id=f"CEXIO-{order_id}",
+                            reference=str(order.get("id", "")),
+                            external_ref_id=real_id,
                             extra_raw={
-                                "order_id": order_id,
+                                "order_id": str(order.get("id", "")),
                                 "pair": f"{base}/{quote}",
                                 "type": trade_type,
                                 "vol": str(vol),
@@ -263,16 +334,16 @@ class CexioConnector(BaseConnector):
                                 "account_id": str(account_id) if account_id else None,
                             },
                             imported_at=datetime.now(timezone.utc),
-                        )
-                        .on_conflict_do_nothing(constraint="uq_raw_transactions_source_ref")
+                        ),
+                        result=result,
                     )
-                    res = await self.db.execute(stmt)
-                    if res.rowcount:
-                        result.transactions_created += 1
-                    else:
-                        result.transactions_skipped += 1
+                    if created:
+                        created_count += 1
 
         await self.db.commit()
+
+        log.info("CEX.io trades: linked=%d new_raw=%d skipped=%d",
+                 linked_count, created_count, result.transactions_skipped)
 
         if newest_trade_time:
             result.checkpoint = {"last_trade_time": newest_trade_time}

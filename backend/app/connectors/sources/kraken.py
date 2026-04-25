@@ -207,14 +207,81 @@ class KrakenConnector(BaseConnector):
             raise RuntimeError(f"Kraken API error: {data['error']}")
         return data.get("result", {})
 
+    # ── Tier 3 fuzzy link helper ───────────────────────────────────────────────
+
+    async def _link_or_insert_raw(
+        self,
+        real_id: str,
+        asset_id: Optional[UUID],
+        trade_date: "date",
+        trade_type: str,
+        vol: float,
+        raw_values: Dict[str, Any],
+        result: ConnectorResult,
+    ) -> None:
+        """
+        Tier 3 fuzzy link: if a manually-entered Transaction matches this
+        trade (same asset / date / type / qty), link it to the exchange ID
+        instead of inserting a duplicate raw row.
+        """
+        from app.models.raw_layer import RawTransaction
+        from app.models.transaction import Transaction
+        from sqlalchemy import update, func
+
+        # Check if already linked by exchange ID
+        existing_q = select(Transaction.id).where(
+            Transaction.portfolio_id == self.portfolio_id,
+            Transaction.external_reference_id == real_id,
+        )
+        if (await self.db.execute(existing_q)).scalar_one_or_none():
+            result.transactions_skipped += 1
+            return
+
+        # Fuzzy match: same asset + date + type + quantity, no ref ID yet
+        linked = False
+        if asset_id:
+            tolerance = Decimal("0.000001")
+            vol_dec = Decimal(str(vol))
+            manual_q = select(Transaction.id).where(
+                Transaction.portfolio_id == self.portfolio_id,
+                Transaction.asset_id == asset_id,
+                Transaction.transaction_date == trade_date,
+                Transaction.type == trade_type.upper(),
+                Transaction.quantity.isnot(None),
+                func.abs(Transaction.quantity - vol_dec) < tolerance,
+                Transaction.external_reference_id.is_(None),
+            ).limit(1)
+            manual_id = (await self.db.execute(manual_q)).scalar_one_or_none()
+
+            if manual_id:
+                await self.db.execute(
+                    update(Transaction)
+                    .where(Transaction.id == manual_id)
+                    .values(external_reference_id=real_id, source="kraken")
+                )
+                log.info("Linked manual import %s → %s", manual_id, real_id)
+                result.transactions_skipped += 1  # not a new raw row
+                linked = True
+
+        if not linked:
+            stmt = (
+                pg_insert(RawTransaction)
+                .values(**raw_values)
+                .on_conflict_do_nothing(constraint="uq_raw_transactions_source_ref")
+            )
+            res = await self.db.execute(stmt)
+            if res.rowcount:
+                result.transactions_created += 1
+            else:
+                result.transactions_skipped += 1
+
     # ── Trade history ──────────────────────────────────────────────────────────
 
     async def _fetch_trades(
         self, api_key: str, api_secret: str, result: ConnectorResult
     ) -> None:
-        from app.models.raw_layer import RawTransaction
-        from app.models.connector import ConnectorRun
-        from app.models.connector import Connector
+        from app.models.connector import ConnectorRun, Connector
+        from datetime import date as date_type
 
         # Read checkpoint from last successful run
         last_trade_time: Optional[float] = None
@@ -237,6 +304,8 @@ class KrakenConnector(BaseConnector):
         account_id_str = self.config.get("account_id")
         account_id = UUID(account_id_str) if account_id_str else None
         newest_trade_time: Optional[float] = last_trade_time
+        linked_count = 0
+        created_count = 0
 
         async with httpx.AsyncClient(timeout=30) as client:
             offset = 0
@@ -260,22 +329,21 @@ class KrakenConnector(BaseConnector):
                 result.records_fetched += len(trades)
 
                 for trade_id, trade in trades.items():
+                    real_id = f"KRAKEN-{trade_id}"
                     base_sym, quote_cur = _parse_pair(trade.get("pair", ""))
                     trade_ts = float(trade.get("time", 0))
                     trade_dt = datetime.fromtimestamp(trade_ts, tz=timezone.utc)
+                    trade_date: date_type = trade_dt.date()
                     trade_type = trade.get("type", "buy")
                     cost = float(trade.get("cost", 0))
                     vol = float(trade.get("vol", 0))
                     price = float(trade.get("price", 0))
                     fee = float(trade.get("fee", 0))
-
-                    # Sign: BUY = money out (negative), SELL = money in (positive)
                     amount = -cost if trade_type == "buy" else cost
 
                     if newest_trade_time is None or trade_ts > newest_trade_time:
                         newest_trade_time = trade_ts
 
-                    # Resolve or auto-create asset
                     asset_id: Optional[UUID] = None
                     if self.should_include_symbol(base_sym):
                         asset_id = await self.resolve_or_create_asset(
@@ -287,13 +355,15 @@ class KrakenConnector(BaseConnector):
                                 "currency": "USD",
                             },
                         )
-                        if asset_id and not account_id:
-                            # if no explicit account, store None (will link later)
-                            pass
 
-                    stmt = (
-                        pg_insert(RawTransaction)
-                        .values(
+                    prev_created = result.transactions_created
+                    await self._link_or_insert_raw(
+                        real_id=real_id,
+                        asset_id=asset_id,
+                        trade_date=trade_date,
+                        trade_type=trade_type,
+                        vol=vol,
+                        raw_values=dict(
                             id=uuid7(),
                             portfolio_id=self.portfolio_id,
                             source="kraken",
@@ -302,7 +372,7 @@ class KrakenConnector(BaseConnector):
                             amount=amount,
                             currency=quote_cur,
                             reference=trade.get("ordertxid"),
-                            external_ref_id=f"KRAKEN-{trade_id}",
+                            external_ref_id=real_id,
                             extra_raw={
                                 "trade_id": trade_id,
                                 "pair": trade.get("pair"),
@@ -315,14 +385,11 @@ class KrakenConnector(BaseConnector):
                                 "account_id": str(account_id) if account_id else None,
                             },
                             imported_at=datetime.now(timezone.utc),
-                        )
-                        .on_conflict_do_nothing(constraint="uq_raw_transactions_source_ref")
+                        ),
+                        result=result,
                     )
-                    res = await self.db.execute(stmt)
-                    if res.rowcount:
-                        result.transactions_created += 1
-                    else:
-                        result.transactions_skipped += 1
+                    if result.transactions_created > prev_created:
+                        created_count += 1
 
                 # Kraken returns max 50 per page; stop if we got fewer
                 if len(trades) < 50:
@@ -330,6 +397,9 @@ class KrakenConnector(BaseConnector):
                 offset += len(trades)
 
         await self.db.commit()
+
+        log.info("Kraken trades: linked=%d new_raw=%d skipped=%d",
+                 linked_count, created_count, result.transactions_skipped)
 
         if newest_trade_time:
             result.checkpoint = {"last_trade_time": newest_trade_time}

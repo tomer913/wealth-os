@@ -134,26 +134,16 @@ class BankProcessor(BaseProcessor):
         from app.utils.uuid7 import uuid7
         import uuid as uuid_mod
         from datetime import timezone
+        from sqlalchemy import text
 
         written = 0
         skipped = 0
 
         for row in rows:
             dedup_key = f"PROC-{row.external_ref_id}"
-
-            # Check dedup
-            exists_q = select(Transaction.id).where(
-                Transaction.portfolio_id == portfolio_id,
-                Transaction.external_reference_id == dedup_key,
-            )
-            existing = (await db.execute(exists_q)).scalar_one_or_none()
-            if existing:
-                skipped += 1
-                continue
-
             clf = _classify(row.description, row.amount, row.extra_raw)
 
-            tx = Transaction(
+            values = dict(
                 id=uuid_mod.uuid4(),
                 portfolio_id=portfolio_id,
                 transaction_date=row.raw_date.date(),
@@ -169,8 +159,21 @@ class BankProcessor(BaseProcessor):
                 external_reference_id=dedup_key,
                 status="confirmed",
             )
-            db.add(tx)
-            written += 1
+
+            # Tier 1: dedup on external_reference_id (always set for bank rows)
+            stmt = (
+                pg_insert(Transaction)
+                .values(**values)
+                .on_conflict_do_nothing(
+                    index_elements=["external_reference_id"],
+                    index_where=text("external_reference_id IS NOT NULL"),
+                )
+            )
+            result = await db.execute(stmt)
+            if result.rowcount:
+                written += 1
+            else:
+                skipped += 1
 
         await db.flush()
         return ProcessResult(rows_written=written, rows_skipped=skipped)
