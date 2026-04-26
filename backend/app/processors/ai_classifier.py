@@ -87,6 +87,7 @@ Rules:
 5. suggested_rule: only include when confidence > 0.85 and a reliable keyword exists.
    Format: {{"operator": "AND", "rules": [{{"field": "description", "op": "contains", "value": "keyword"}}]}}
    Otherwise: "suggested_rule": null
+6. CRITICAL: You MUST use ONLY the exact category UUIDs provided in the list above. Do NOT invent or modify any UUIDs. If you are not confident, set category_id to null and confidence to 0.
 
 Response (JSON array only):
 [
@@ -127,6 +128,8 @@ Response (JSON array only):
                 n, total_in, total_out,
             )
 
+            valid_category_ids = {c.id for c in categories if c.is_active}
+
             # Build 1-based index → parsed result map
             by_index: Dict[int, dict] = {
                 item["index"]: item
@@ -159,6 +162,14 @@ Response (JSON array only):
                         category_id = UUID(str(cat_str))
                     except (ValueError, AttributeError):
                         pass
+
+                if category_id is not None and category_id not in valid_category_ids:
+                    log.warning(
+                        "AI returned invalid category_id: %s — sending to review queue",
+                        category_id,
+                    )
+                    category_id = None
+                    confidence = 0.0
 
                 suggested_rule = None
                 if (

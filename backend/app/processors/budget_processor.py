@@ -104,8 +104,10 @@ class BudgetProcessor(BaseProcessor):
             )
         )).scalars().all()
 
+        valid_category_ids = {c.id for c in categories}
         now = datetime.now(timezone.utc)
         written = 0
+        failed = 0
         skipped = 0
         rule_count = 0
         ai_count = 0
@@ -233,103 +235,116 @@ class BudgetProcessor(BaseProcessor):
 
         # ── Phase 3: write classification_log + budget_actuals ─────────────────
         for state in row_states:
-            row = state["row"]
-            existing_log = state["existing_log"]
-            category_id: Optional[UUID] = state["category_id"]
+            try:
+                row = state["row"]
+                existing_log = state["existing_log"]
+                category_id: Optional[UUID] = state["category_id"]
 
-            # Create or update classification_log
-            if existing_log is None:
-                log_entry = ClassificationLog(
-                    id=uuid.uuid4(),
-                    raw_transaction_id=row.id,
-                )
-                db.add(log_entry)
-            else:
-                log_entry = existing_log
+                if category_id is not None and category_id not in valid_category_ids:
+                    log.error(
+                        "Category %s not found for row %s — skipping categorization",
+                        category_id, row.id,
+                    )
+                    category_id = None
+                    state["needs_review"] = True
 
-            log_entry.category_id = category_id
-            log_entry.rule_id = state["rule_matched"].id if state["rule_matched"] else None
-            log_entry.method = state["method"]
-            log_entry.confidence = state["confidence"]
-            log_entry.ai_model = state["ai_model"]
-            log_entry.ai_prompt_tokens = state["ai_prompt_tokens"]
-            log_entry.ai_completion_tokens = state["ai_completion_tokens"]
-            log_entry.needs_review = state["needs_review"]
-            log_entry.processed_at = now
+                # Create or update classification_log
+                if existing_log is None:
+                    log_entry = ClassificationLog(
+                        id=uuid.uuid4(),
+                        raw_transaction_id=row.id,
+                    )
+                    db.add(log_entry)
+                else:
+                    log_entry = existing_log
 
-            # Save suggested rule from AI result
-            ai_result = state["ai_result"]
-            if ai_result and ai_result.suggested_rule:
-                db.add(BudgetCategoryRule(
-                    id=uuid.uuid4(),
-                    portfolio_id=portfolio_id,
-                    category_id=ai_result.category_id,
-                    name=f"AI: {row.description[:60]}",
-                    priority=200,
-                    status="suggested",
-                    conditions=ai_result.suggested_rule,
-                    confidence=ai_result.confidence,
-                    source="ai_generated",
-                    ai_reasoning=ai_result.reasoning,
-                ))
-                rules_suggested += 1
+                log_entry.category_id = category_id
+                log_entry.rule_id = state["rule_matched"].id if state["rule_matched"] else None
+                log_entry.method = state["method"]
+                log_entry.confidence = state["confidence"]
+                log_entry.ai_model = state["ai_model"]
+                log_entry.ai_prompt_tokens = state["ai_prompt_tokens"]
+                log_entry.ai_completion_tokens = state["ai_completion_tokens"]
+                log_entry.needs_review = state["needs_review"]
+                log_entry.processed_at = now
 
-            # Idempotent budget_actuals update
-            if category_id and row.raw_date:
-                year = row.raw_date.year
-                month = row.raw_date.month
-                amount = abs(row.amount)
-
-                existing_bat = await db.get(BudgetActualTransaction, row.id)
-                old_actual_id = existing_bat.budget_actual_id if existing_bat else None
-
-                actual_id: UUID = (await db.execute(
-                    pg_insert(BudgetActual)
-                    .values(
+                # Save suggested rule from AI result
+                ai_result = state["ai_result"]
+                if ai_result and ai_result.suggested_rule:
+                    db.add(BudgetCategoryRule(
                         id=uuid.uuid4(),
                         portfolio_id=portfolio_id,
-                        category_id=category_id,
-                        year=year,
-                        month=month,
-                        actual_amount=Decimal(0),
-                        transaction_count=0,
-                        last_updated=now,
-                    )
-                    .on_conflict_do_update(
-                        constraint="uq_budget_actuals_category_month",
-                        set_={"last_updated": now},
-                    )
-                    .returning(BudgetActual.__table__.c.id)
-                )).scalar_one()
+                        category_id=ai_result.category_id,
+                        name=f"AI: {row.description[:60]}",
+                        priority=200,
+                        status="suggested",
+                        conditions=ai_result.suggested_rule,
+                        confidence=ai_result.confidence,
+                        source="ai_generated",
+                        ai_reasoning=ai_result.reasoning,
+                    ))
+                    rules_suggested += 1
 
-                await db.execute(
-                    pg_insert(BudgetActualTransaction)
-                    .values(
-                        raw_transaction_id=row.id,
-                        budget_actual_id=actual_id,
-                        amount=amount,
-                        categorized_at=now,
-                    )
-                    .on_conflict_do_update(
-                        index_elements=["raw_transaction_id"],
-                        set_={
-                            "budget_actual_id": actual_id,
-                            "amount": amount,
-                            "categorized_at": now,
-                        },
-                    )
-                )
+                # Idempotent budget_actuals update
+                if category_id and row.raw_date:
+                    year = row.raw_date.year
+                    month = row.raw_date.month
+                    amount = abs(row.amount)
 
-                await _recalculate_budget_actual(db, actual_id, now)
-                if old_actual_id and old_actual_id != actual_id:
-                    await _recalculate_budget_actual(db, old_actual_id, now)
+                    existing_bat = await db.get(BudgetActualTransaction, row.id)
+                    old_actual_id = existing_bat.budget_actual_id if existing_bat else None
 
-            written += 1
+                    actual_id: UUID = (await db.execute(
+                        pg_insert(BudgetActual)
+                        .values(
+                            id=uuid.uuid4(),
+                            portfolio_id=portfolio_id,
+                            category_id=category_id,
+                            year=year,
+                            month=month,
+                            actual_amount=Decimal(0),
+                            transaction_count=0,
+                            last_updated=now,
+                        )
+                        .on_conflict_do_update(
+                            constraint="uq_budget_actuals_category_month",
+                            set_={"last_updated": now},
+                        )
+                        .returning(BudgetActual.__table__.c.id)
+                    )).scalar_one()
+
+                    await db.execute(
+                        pg_insert(BudgetActualTransaction)
+                        .values(
+                            raw_transaction_id=row.id,
+                            budget_actual_id=actual_id,
+                            amount=amount,
+                            categorized_at=now,
+                        )
+                        .on_conflict_do_update(
+                            index_elements=["raw_transaction_id"],
+                            set_={
+                                "budget_actual_id": actual_id,
+                                "amount": amount,
+                                "categorized_at": now,
+                            },
+                        )
+                    )
+
+                    await _recalculate_budget_actual(db, actual_id, now)
+                    if old_actual_id and old_actual_id != actual_id:
+                        await _recalculate_budget_actual(db, old_actual_id, now)
+
+                written += 1
+            except Exception as e:
+                log.error("Failed row %s: %s", state["row"].id, e, exc_info=True)
+                failed += 1
+                await db.rollback()
 
         await db.flush()
         log.info(
-            "Batch done: %d by rules, %d by AI, %d to review queue, %d rules suggested",
-            rule_count, ai_count, review_count, rules_suggested,
+            "Batch done: %d by rules, %d by AI, %d to review queue, %d rules suggested, %d failed",
+            rule_count, ai_count, review_count, rules_suggested, failed,
         )
         return ProcessResult(
             rows_written=written,
