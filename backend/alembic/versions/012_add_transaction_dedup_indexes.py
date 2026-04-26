@@ -20,6 +20,14 @@ def upgrade() -> None:
     # Drop any existing plain index on external_reference_id
     op.execute("DROP INDEX IF EXISTS ix_transactions_external_reference_id")
 
+    # Normalize empty-string external_reference_id to NULL so the partial
+    # index (WHERE IS NOT NULL) treats them as manual rows, not connector rows.
+    op.execute("""
+        UPDATE transactions
+        SET external_reference_id = NULL
+        WHERE external_reference_id = ''
+    """)
+
     # ── Tier 1: connector dedup ─────────────────────────────────────────────
     # One row per exchange trade ID; covers PROC-xxx bank rows and KRAKEN-xxx etc.
     op.execute("""
