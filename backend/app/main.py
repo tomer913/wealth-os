@@ -85,6 +85,18 @@ async def trigger_etl_now():
     return {"status": "triggered", "message": "ETL job started in background"}
 
 
+@app.get("/debug/env")
+async def debug_env():
+    import os
+    return {
+        "ANTHROPIC_API_KEY_set": bool(os.getenv("ANTHROPIC_API_KEY")),
+        "ANTHROPIC_API_KEY_length": len(os.getenv("ANTHROPIC_API_KEY", "")),
+        "CONNECTOR_ENCRYPTION_KEY_set": bool(os.getenv("CONNECTOR_ENCRYPTION_KEY")),
+        "ENVIRONMENT": os.getenv("ENVIRONMENT"),
+        "CLERK_SECRET_KEY_set": bool(os.getenv("CLERK_SECRET_KEY")),
+    }
+
+
 @app.get("/api/v1/scheduler/status")
 async def scheduler_status():
     """Check scheduler status and next run time."""
