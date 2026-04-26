@@ -17,14 +17,58 @@ export async function getPortfolios(): Promise<Portfolio[]> {
   return Array.isArray(data) ? data : []
 }
 
-export async function createPortfolio(payload: { name: string; base_currency: string; is_default?: boolean }): Promise<Portfolio> {
+export async function createPortfolio(payload: { name: string; base_currency: string; description?: string; is_default?: boolean }): Promise<Portfolio> {
   const { data } = await apiClient.post(`/api/v1/portfolios/`, payload)
   return data
+}
+
+export async function updatePortfolio(id: string, payload: { name?: string; base_currency?: string; description?: string }): Promise<Portfolio> {
+  const { data } = await apiClient.patch(`/api/v1/portfolios/${id}`, payload)
+  return data
+}
+
+export async function deletePortfolio(id: string): Promise<void> {
+  await apiClient.delete(`/api/v1/portfolios/${id}`)
 }
 
 export async function selectPortfolio(portfolioId: string): Promise<Portfolio> {
   const { data } = await apiClient.patch(`/api/v1/portfolios/${portfolioId}/select`)
   return data
+}
+
+// ─── Portfolio Members ────────────────────────────────────────────────────────
+
+export async function getPortfolioMembers(portfolioId: string): Promise<import('../types').PortfolioMember[]> {
+  const { data } = await apiClient.get(`/api/v1/portfolios/${portfolioId}/members/`)
+  return Array.isArray(data) ? data : []
+}
+
+export async function inviteMember(portfolioId: string, email: string, role: string): Promise<import('../types').PortfolioMember> {
+  const { data } = await apiClient.post(`/api/v1/portfolios/${portfolioId}/members/`, { email, role })
+  return data
+}
+
+export async function updateMemberRole(portfolioId: string, memberId: string, role: string): Promise<import('../types').PortfolioMember> {
+  const { data } = await apiClient.patch(`/api/v1/portfolios/${portfolioId}/members/${memberId}`, { role })
+  return data
+}
+
+export async function removeMember(portfolioId: string, memberId: string): Promise<void> {
+  await apiClient.delete(`/api/v1/portfolios/${portfolioId}/members/${memberId}`)
+}
+
+export async function acceptInvitation(portfolioId: string): Promise<import('../types').PortfolioMember> {
+  const { data } = await apiClient.post(`/api/v1/portfolios/${portfolioId}/members/accept/`)
+  return data
+}
+
+export async function declineInvitation(portfolioId: string, memberId: string): Promise<void> {
+  await apiClient.delete(`/api/v1/portfolios/${portfolioId}/members/${memberId}`)
+}
+
+export async function getPendingInvitations(): Promise<import('../types').PendingInvitation[]> {
+  const { data } = await apiClient.get(`/api/v1/portfolios/pending-invitations/`)
+  return Array.isArray(data) ? data : []
 }
 
 // ─── Snapshot ──────────────────────────────────────────────────────────────────

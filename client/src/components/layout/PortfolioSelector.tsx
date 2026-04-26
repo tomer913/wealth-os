@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getPortfolios, selectPortfolio } from '../../api/portfolio'
 import { useAppStore } from '../../store'
 import { isEnabled } from '../../config/features'
@@ -9,6 +10,7 @@ import clsx from 'clsx'
 export default function PortfolioSelector() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const { t } = useTranslation('settings')
   const activeId = useAppStore((s) => s.activePortfolioId)
   const setActivePortfolioId = useAppStore((s) => s.setActivePortfolioId)
   const [open, setOpen] = useState(false)
@@ -126,6 +128,15 @@ export default function PortfolioSelector() {
               )}
             </button>
           ))}
+          <div className="border-t border-gray-100 px-4 py-2">
+            <Link
+              to="/settings"
+              onClick={() => setOpen(false)}
+              className="text-[12px] text-teal-600 hover:text-teal-700 font-medium transition-colors"
+            >
+              {t('manage_link')}
+            </Link>
+          </div>
         </div>
       )}
     </div>

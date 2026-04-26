@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import { isEnabled } from '../../config/features'
@@ -71,6 +71,22 @@ export default function Sidebar() {
           </>
         )}
       </nav>
+
+      {/* Settings link — pinned to bottom */}
+      <div className="px-3 pb-4 pt-2 border-t border-sidebar-border">
+        <Link
+          to="/settings"
+          className={clsx(
+            'flex items-center gap-2.5 px-4 py-2 text-[13px] rounded-lg transition-colors',
+            'text-sidebar-text hover:bg-sidebar-hover',
+          )}
+        >
+          <span className="w-4 h-4 flex-shrink-0 opacity-70">
+            <IconSettings />
+          </span>
+          {tc('nav.settings')}
+        </Link>
+      </div>
     </aside>
   )
 }
@@ -216,6 +232,14 @@ function IconReports() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
       <rect x="2" y="2" width="12" height="12" rx="1" />
       <path d="M5 6h6M5 9h6M5 12h3" />
+    </svg>
+  )
+}
+function IconSettings() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <circle cx="8" cy="8" r="2.5"/>
+      <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"/>
     </svg>
   )
 }

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { Outlet, useLocation, Link } from 'react-router-dom'
+import { Outlet, useLocation, Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { UserButton } from '@clerk/clerk-react'
 import Sidebar from './Sidebar'
 import CategoryFilter from './CategoryFilter'
@@ -10,6 +11,7 @@ import { useRebuildSnapshot } from '../../hooks/usePortfolio'
 import { useAppStore } from '../../store'
 import { formatDateTime } from '../../utils/format'
 import { isEnabled } from '../../config/features'
+import { getPendingInvitations, acceptInvitation, declineInvitation } from '../../api/portfolio'
 
 const PAGE_TITLE_KEYS: Record<string, string> = {
   '/': 'nav.dashboard',
@@ -24,6 +26,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   '/budget/manage': 'nav.budget_manage',
   '/budget/rules': 'nav.budget_rules',
   '/pipeline': 'nav.pipeline',
+  '/settings': 'nav.settings',
 }
 
 const SHOW_BUILD_SNAPSHOT = new Set(['/connectors'])
@@ -31,6 +34,7 @@ const SHOW_CATEGORY_FILTER = new Set(['/', '/assets', '/accounts', '/transaction
 
 export default function AppShell() {
   const location = useLocation()
+  const navigate = useNavigate()
   const { t: tc } = useTranslation('common')
   const titleKey = PAGE_TITLE_KEYS[location.pathname] ?? 'app_name'
   const title = tc(titleKey)
@@ -51,6 +55,13 @@ export default function AppShell() {
             <div className="hidden md:flex items-center gap-3">
               <LanguageSwitcher />
               <PortfolioSelector />
+              <button
+                onClick={() => navigate('/settings')}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                title={tc('nav.settings')}
+              >
+                <IconGear />
+              </button>
               {isEnabled('auth_enabled') && (
                 <UserButton afterSignOutUrl="/sign-in" />
               )}
@@ -59,12 +70,80 @@ export default function AppShell() {
             {showBuild && <BuildSnapshotButton />}
           </div>
         </header>
+        <PendingInvitationsBanner />
         {showFilter && <CategoryFilter />}
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>
       <MobileTabBar />
+    </div>
+  )
+}
+
+function IconGear() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <circle cx="8" cy="8" r="2.5"/>
+      <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"/>
+    </svg>
+  )
+}
+
+function PendingInvitationsBanner() {
+  const { t } = useTranslation('settings')
+  const qc = useQueryClient()
+
+  const { data: invitations = [] } = useQuery({
+    queryKey: ['pending-invitations'],
+    queryFn: getPendingInvitations,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const acceptMutation = useMutation({
+    mutationFn: (portfolioId: string) => acceptInvitation(portfolioId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-invitations'] })
+      qc.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+
+  const declineMutation = useMutation({
+    mutationFn: ({ portfolioId, memberId }: { portfolioId: string; memberId: string }) =>
+      declineInvitation(portfolioId, memberId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pending-invitations'] }),
+  })
+
+  if (invitations.length === 0) return null
+
+  return (
+    <div className="flex-shrink-0 bg-teal-50 border-b border-teal-100 px-5 py-2.5 space-y-1.5">
+      {invitations.map((inv) => (
+        <div key={inv.member_id} className="flex items-center gap-3 flex-wrap">
+          <p className="text-[13px] text-teal-800 flex-1">
+            {t('invitation.banner_title', { portfolio: inv.portfolio_name })}
+            <span className="text-[11px] text-teal-600 ms-2">
+              {t('invitation.banner_role', { role: t(`members.roles.${inv.role}`) })}
+            </span>
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => acceptMutation.mutate(inv.portfolio_id)}
+              disabled={acceptMutation.isPending}
+              className="px-3 py-1 text-[12px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
+            >
+              {t('invitation.accept')}
+            </button>
+            <button
+              onClick={() => declineMutation.mutate({ portfolioId: inv.portfolio_id, memberId: inv.member_id })}
+              disabled={declineMutation.isPending}
+              className="px-3 py-1 text-[12px] font-medium text-teal-700 bg-white border border-teal-200 rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50"
+            >
+              {t('invitation.decline')}
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -253,6 +332,7 @@ function MobileTabBar() {
   const moreTabs = [
     { to: '/accounts', label: tc('nav.accounts') },
     { to: '/valuations', label: tc('nav.valuations') },
+    { to: '/settings', label: tc('nav.settings') },
   ]
 
   return (

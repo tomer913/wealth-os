@@ -12,7 +12,8 @@
     "budget_rules": "חוקי סיווג",
     "pipeline": "צינור נתונים",
     "fx_rates": "שערי מטבע",
-    "reports": "דוחות"
+    "reports": "דוחות",
+    "settings": "הגדרות"
   },
   "actions": {
     "save": "שמור",

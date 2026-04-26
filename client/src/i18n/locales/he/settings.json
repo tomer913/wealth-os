@@ -1,0 +1,65 @@
+{
+  "title": "הגדרות תיק",
+  "tabs": {
+    "general": "כללי",
+    "members": "משתמשים"
+  },
+  "portfolio": {
+    "my_portfolios": "התיקים שלי",
+    "new_portfolio": "+ תיק חדש",
+    "edit": "ערוך",
+    "delete": "מחק",
+    "name": "שם",
+    "name_placeholder": "שם התיק",
+    "description": "תיאור",
+    "description_placeholder": "תיאור אופציונלי…",
+    "currency": "מטבע בסיס",
+    "save": "שמור שינויים",
+    "create": "צור תיק",
+    "cancel": "בטל",
+    "owner_badge": "בעלים",
+    "member_badge": "חבר",
+    "delete_confirm_title": "מחיקת תיק",
+    "delete_confirm": "האם למחוק את {{name}}? פעולה זו אינה הפיכה.",
+    "delete_has_data": "לתיק זה יש {{transactions}} תנועות. יש להסיר את כל הנתונים לפני המחיקה.",
+    "no_portfolios": "אין תיקים. צור את הראשון.",
+    "select_to_edit": "בחר תיק לעריכה"
+  },
+  "members": {
+    "title": "ניהול משתמשים",
+    "select_portfolio": "בחר תיק",
+    "invite_title": "הזמן משתמש",
+    "email": "כתובת אימייל",
+    "email_placeholder": "user@example.com",
+    "role": "הרשאה",
+    "status": "סטטוס",
+    "actions": "פעולות",
+    "active": "פעיל",
+    "pending": "ממתין לאישור",
+    "remove": "הסר",
+    "change_role": "שנה הרשאה",
+    "remove_confirm_title": "הסרת משתמש",
+    "remove_confirm": "האם להסיר את {{email}} מהתיק?",
+    "send_invite": "שלח הזמנה",
+    "invite_sent": "הזמנה נשלחה ל-{{email}}",
+    "roles": {
+      "owner": "בעלים",
+      "editor": "עורך",
+      "viewer": "צופה"
+    },
+    "role_descriptions": {
+      "viewer": "יכול לצפות בלוחות המחוונים והדוחות",
+      "editor": "יכול להוסיף תנועות, להעלות קבצים ולערוך נתונים",
+      "owner": "גישה מלאה כולל ניהול משתמשים"
+    },
+    "no_members": "אין משתמשים",
+    "you": "אתה"
+  },
+  "invitation": {
+    "banner_title": "הוזמנת לצפות ב-{{portfolio}}",
+    "banner_role": "הרשאה: {{role}}",
+    "accept": "קבל",
+    "decline": "דחה"
+  },
+  "manage_link": "נהל תיקים →"
+}

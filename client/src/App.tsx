@@ -18,6 +18,7 @@ import BudgetManagementPage from './pages/BudgetManagementPage'
 import PipelineStatusPage from './pages/PipelineStatusPage'
 import SignInPage from './pages/SignInPage'
 import SetupPage from './pages/SetupPage'
+import PortfolioSettings from './pages/PortfolioSettings'
 
 
 export default function App() {
@@ -59,6 +60,8 @@ export default function App() {
           <Route path="/budget/rules" element={<DesktopOnly><BudgetRulesPage /></DesktopOnly>} />
           {/* System */}
           <Route path="/pipeline" element={<DesktopOnly><PipelineStatusPage /></DesktopOnly>} />
+          {/* Settings */}
+          <Route path="/settings" element={<PortfolioSettings />} />
         </Route>
     </Routes>
   )

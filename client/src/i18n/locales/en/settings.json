@@ -1,0 +1,65 @@
+{
+  "title": "Portfolio Settings",
+  "tabs": {
+    "general": "General",
+    "members": "Members"
+  },
+  "portfolio": {
+    "my_portfolios": "My Portfolios",
+    "new_portfolio": "+ New Portfolio",
+    "edit": "Edit",
+    "delete": "Delete",
+    "name": "Name",
+    "name_placeholder": "Portfolio name",
+    "description": "Description",
+    "description_placeholder": "Optional description…",
+    "currency": "Base currency",
+    "save": "Save changes",
+    "create": "Create portfolio",
+    "cancel": "Cancel",
+    "owner_badge": "Owner",
+    "member_badge": "Member",
+    "delete_confirm_title": "Delete Portfolio",
+    "delete_confirm": "Delete {{name}}? This cannot be undone.",
+    "delete_has_data": "This portfolio has {{transactions}} transactions. Remove all data before deleting.",
+    "no_portfolios": "No portfolios yet. Create your first one.",
+    "select_to_edit": "Select a portfolio to edit"
+  },
+  "members": {
+    "title": "Member Management",
+    "select_portfolio": "Select portfolio",
+    "invite_title": "Invite someone",
+    "email": "Email address",
+    "email_placeholder": "user@example.com",
+    "role": "Role",
+    "status": "Status",
+    "actions": "Actions",
+    "active": "Active",
+    "pending": "Pending",
+    "remove": "Remove",
+    "change_role": "Change role",
+    "remove_confirm_title": "Remove Member",
+    "remove_confirm": "Remove {{email}} from this portfolio?",
+    "send_invite": "Send invite",
+    "invite_sent": "Invitation sent to {{email}}",
+    "roles": {
+      "owner": "Owner",
+      "editor": "Editor",
+      "viewer": "Viewer"
+    },
+    "role_descriptions": {
+      "viewer": "Can see all dashboards and reports",
+      "editor": "Can add transactions, upload files, edit valuations and assets",
+      "owner": "Full access including member management"
+    },
+    "no_members": "No members yet",
+    "you": "you"
+  },
+  "invitation": {
+    "banner_title": "You've been invited to {{portfolio}}",
+    "banner_role": "Role: {{role}}",
+    "accept": "Accept",
+    "decline": "Decline"
+  },
+  "manage_link": "Manage portfolios →"
+}

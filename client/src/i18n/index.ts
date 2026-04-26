@@ -12,6 +12,7 @@ import heValuations from './locales/he/valuations.json'
 import heConnectors from './locales/he/connectors.json'
 import heBudget from './locales/he/budget.json'
 import hePipeline from './locales/he/pipeline.json'
+import heSettings from './locales/he/settings.json'
 
 // English translations
 import enCommon from './locales/en/common.json'
@@ -23,6 +24,7 @@ import enValuations from './locales/en/valuations.json'
 import enConnectors from './locales/en/connectors.json'
 import enBudget from './locales/en/budget.json'
 import enPipeline from './locales/en/pipeline.json'
+import enSettings from './locales/en/settings.json'
 
 i18n
   .use(LanguageDetector)
@@ -48,6 +50,7 @@ i18n
         connectors: heConnectors,
         budget: heBudget,
         pipeline: hePipeline,
+        settings: heSettings,
       },
       en: {
         common: enCommon,
@@ -59,6 +62,7 @@ i18n
         connectors: enConnectors,
         budget: enBudget,
         pipeline: enPipeline,
+        settings: enSettings,
       },
     },
   })

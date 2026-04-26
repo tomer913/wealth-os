@@ -12,7 +12,8 @@
     "budget_rules": "Classification Rules",
     "pipeline": "Data Pipeline",
     "fx_rates": "FX Rates",
-    "reports": "Reports"
+    "reports": "Reports",
+    "settings": "Settings"
   },
   "actions": {
     "save": "Save",

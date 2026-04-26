@@ -182,6 +182,27 @@ export interface Portfolio {
   updated_at: string
 }
 
+export interface PortfolioMember {
+  id: string
+  portfolio_id: string
+  user_id: string | null
+  email: string | null
+  role: 'owner' | 'editor' | 'viewer'
+  invited_by: string | null
+  accepted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PendingInvitation {
+  member_id: string
+  portfolio_id: string
+  portfolio_name: string
+  role: string
+  invited_by: string | null
+  created_at: string
+}
+
 // ─── Budget ────────────────────────────────────────────────────────────────────
 
 export interface BudgetCategory {
