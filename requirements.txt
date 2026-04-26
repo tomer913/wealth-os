@@ -21,3 +21,4 @@ pytz
 pypdf>=4.0.0
 openpyxl>=3.1.0
 python-multipart>=0.0.9
+anthropic==0.49.0
