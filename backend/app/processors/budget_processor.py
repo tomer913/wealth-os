@@ -108,6 +108,10 @@ class BudgetProcessor(BaseProcessor):
         now = datetime.now(timezone.utc)
         written = 0
         skipped = 0
+        rule_count = 0
+        ai_count = 0
+        review_count = 0
+        rules_suggested = 0
 
         for row in rows:
             # ── Step 0: Skip rows that a human has reviewed ─────────────────
@@ -147,66 +151,65 @@ class BudgetProcessor(BaseProcessor):
                 method = "rule"
                 confidence = rule_confidence
                 needs_review = False
+                rule_count += 1
                 matched_rule.match_count += 1
                 matched_rule.last_matched_at = now
 
             # ── Step 2: AI fallback ─────────────────────────────────────────
             elif os.environ.get("ANTHROPIC_API_KEY"):
                 log.info(
-                    "AI classifier invoked for: %s (amount=%.2f %s)",
-                    row.description, float(row.amount), row.currency,
+                    "No rule match for: %s (amount=%.2f %s)",
+                    row.description[:50], float(row.amount), row.currency,
                 )
+                log.info("Calling AI classifier...")
                 try:
                     from app.processors.ai_classifier import AIClassifier
                     classifier = AIClassifier()
-                    ai_cat_id, ai_conf, ai_reason = await classifier.classify(
-                        tx_dict, categories, db
-                    )
+                    ai_result = await classifier.classify(tx_dict, categories, db)
                     ai_model = "claude-haiku-4-5-20251001"
-                    ai_prompt_tokens = getattr(classifier, "_last_prompt_tokens", None)
-                    ai_completion_tokens = getattr(classifier, "_last_completion_tokens", None)
+                    ai_prompt_tokens = ai_result.prompt_tokens or None
+                    ai_completion_tokens = ai_result.completion_tokens or None
 
                     log.info(
                         "AI result: cat_id=%s confidence=%.2f reason=%s",
-                        ai_cat_id, ai_conf, ai_reason,
+                        ai_result.category_id, ai_result.confidence, ai_result.reasoning,
                     )
 
-                    if ai_cat_id and ai_conf >= AI_CONFIDENCE_THRESHOLD:
-                        category_id = ai_cat_id
+                    if ai_result.category_id and ai_result.confidence >= AI_CONFIDENCE_THRESHOLD:
+                        category_id = ai_result.category_id
                         method = "ai"
-                        confidence = ai_conf
+                        confidence = ai_result.confidence
                         needs_review = False
+                        ai_count += 1
 
-                        # Auto-generate a suggested rule
-                        conditions = await classifier.generate_rule(
-                            tx_dict, ai_cat_id, next(
-                                (c.name for c in categories if c.id == ai_cat_id), ""
-                            )
-                        )
-                        if conditions:
+                        if ai_result.suggested_rule:
                             new_rule = BudgetCategoryRule(
                                 id=uuid.uuid4(),
                                 portfolio_id=portfolio_id,
-                                category_id=ai_cat_id,
+                                category_id=ai_result.category_id,
                                 name=f"AI: {row.description[:60]}",
                                 priority=200,
                                 status="suggested",
-                                conditions=conditions,
-                                confidence=ai_conf,
+                                conditions=ai_result.suggested_rule,
+                                confidence=ai_result.confidence,
                                 source="ai_generated",
-                                ai_reasoning=ai_reason,
+                                ai_reasoning=ai_result.reasoning,
                             )
                             db.add(new_rule)
+                            rules_suggested += 1
                     else:
                         log.info(
-                            "AI confidence %.2f below threshold %.2f — marking needs_review",
-                            ai_conf, AI_CONFIDENCE_THRESHOLD,
+                            "AI confidence %.2f below threshold %.2f — sending to review queue",
+                            ai_result.confidence, AI_CONFIDENCE_THRESHOLD,
                         )
+                        review_count += 1
 
                 except Exception as e:
                     log.warning("AI classifier failed for row %s: %s", row.id, e, exc_info=True)
+                    review_count += 1
             else:
-                log.debug("ANTHROPIC_API_KEY not set — skipping AI, marking needs_review")
+                log.warning("AI classifier skipped — ANTHROPIC_API_KEY not set; sending to review queue")
+                review_count += 1
 
             # ── Step 3: Create or update classification_log ─────────────────
             if existing_log is None:
@@ -289,4 +292,13 @@ class BudgetProcessor(BaseProcessor):
             written += 1
 
         await db.flush()
-        return ProcessResult(rows_written=written, rows_skipped=skipped)
+        log.info(
+            "Batch done: %d by rules, %d by AI, %d to review queue, %d rules suggested",
+            rule_count, ai_count, review_count, rules_suggested,
+        )
+        return ProcessResult(
+            rows_written=written,
+            rows_skipped=skipped,
+            ai_classified=ai_count,
+            rules_suggested=rules_suggested,
+        )

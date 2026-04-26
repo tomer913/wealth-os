@@ -40,6 +40,8 @@ BATCH_SIZE = 500
 class ProcessResult:
     rows_written: int = 0
     rows_skipped: int = 0
+    ai_classified: int = 0
+    rules_suggested: int = 0
     warnings: List[str] = field(default_factory=list)
 
 
@@ -114,6 +116,8 @@ class BaseProcessor(ABC):
             total_read = 0
             total_written = 0
             total_skipped = 0
+            total_ai_classified = 0
+            total_rules_suggested = 0
             # id cursor — starts from checkpoint (or beginning for date-range)
             last_id: Optional[UUID] = checkpoint_from
 
@@ -146,6 +150,8 @@ class BaseProcessor(ABC):
                     total_read += len(rows)
                     total_written += result.rows_written
                     total_skipped += result.rows_skipped
+                    total_ai_classified += result.ai_classified
+                    total_rules_suggested += result.rules_suggested
                     last_id = rows[-1].id
 
                     if len(rows) < BATCH_SIZE:
@@ -175,10 +181,12 @@ class BaseProcessor(ABC):
 
                 await db.commit()
                 log.info(
-                    "%s portfolio=%s%s — read=%d written=%d skipped=%d (%dms)",
+                    "%s portfolio=%s%s — read=%d written=%d skipped=%d"
+                    " ai_classified=%d rules_suggested=%d (%dms)",
                     self.processor_name, portfolio_id,
                     f" date_range={date_from}..{date_to}" if is_date_range else "",
                     total_read, total_written, total_skipped,
+                    total_ai_classified, total_rules_suggested,
                     proc_run.duration_ms,
                 )
 
