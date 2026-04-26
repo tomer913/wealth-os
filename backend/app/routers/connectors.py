@@ -1,3 +1,5 @@
+import logging as _logging
+import os
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -19,20 +21,33 @@ from app.schemas.connector import (
     ConnectorUpdate,
     TriggerRunResponse,
 )
-from app.utils.encryption import decrypt_config, encrypt_config, get_config_keys
+from app.utils.encryption import (
+    SENSITIVE_KEYS, decrypt_config, encrypt_config, get_config_keys, mask_config,
+)
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
+_log = _logging.getLogger(__name__)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _to_read(connector: Connector, latest_run: ConnectorRun | None = None) -> ConnectorRead:
+    # Decrypt config to get real keys and masked values for the edit form
+    try:
+        decrypted = decrypt_config(connector.config)
+        real_keys = list(decrypted.keys())
+        config_display = mask_config(decrypted)
+    except Exception:
+        real_keys = get_config_keys(connector.config)
+        config_display = None
+
     data = ConnectorRead(
         id=connector.id,
         portfolio_id=connector.portfolio_id,
         name=connector.name,
         type=connector.type,
-        config_keys=get_config_keys(connector.config),
+        config_keys=real_keys,
+        config_display=config_display,
         asset_filter=connector.asset_filter,
         auto_create_assets=connector.auto_create_assets,
         schedule=connector.schedule,
@@ -92,7 +107,14 @@ async def create_connector(
     current_user: dict = Depends(get_current_user),
 ):
     await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
-    # Encrypt sensitive config fields before storing
+    if not os.environ.get("CONNECTOR_ENCRYPTION_KEY"):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "CONNECTOR_ENCRYPTION_KEY is not configured. "
+                "Add this environment variable in Railway before saving connectors."
+            ),
+        )
     encrypted_config = encrypt_config(payload.config)
     connector = Connector(
         portfolio_id=portfolio_id,
@@ -146,9 +168,18 @@ async def update_connector(
 
     data = payload.model_dump(exclude_unset=True)
     if "config" in data:
-        # Merge with existing config, encrypt new sensitive fields
-        merged = {**connector.config, **data["config"]}
-        data["config"] = encrypt_config(merged)
+        # Decrypt existing config, then smart-merge:
+        # sensitive fields only update if non-empty in the request
+        existing = decrypt_config(connector.config)
+        new_fields: dict = data["config"]
+        for k, v in new_fields.items():
+            if k in SENSITIVE_KEYS:
+                if v:  # only overwrite sensitive field if user typed a new value
+                    existing[k] = v
+            else:
+                existing[k] = v  # always update non-sensitive
+        data["config"] = encrypt_config(existing)
+        _log.info("Connector %s config updated — keys: %s", connector_id, list(existing.keys()))
 
     for field, value in data.items():
         setattr(connector, field, value)
@@ -235,10 +266,19 @@ async def _execute_connector_run(connector_id: str, run_id: str):
             run.started_at = datetime.now(timezone.utc)
             await db.flush()
 
-            # Decrypt config and execute
+            # Decrypt config; auto-migrate plain text configs to encrypted format
             config = decrypt_config(connector.config)
             _log.info("Connector run %s: type=%s config_keys=%s has_api_key=%s",
                       run_id, connector.type, list(config.keys()), bool(config.get("api_key")))
+
+            if "_encrypted" not in connector.config and os.environ.get("CONNECTOR_ENCRYPTION_KEY"):
+                try:
+                    connector.config = encrypt_config(config)
+                    await db.flush()
+                    _log.info("Auto-migrated connector %s to encrypted format", connector_id)
+                except Exception as mig_err:
+                    _log.warning("Auto-migration failed for %s: %s", connector_id, mig_err)
+
             handler = await get_connector_handler(connector.type)
 
             if not handler:
@@ -292,6 +332,39 @@ async def _execute_connector_run(connector_id: str, run_id: str):
                 if connector:
                     connector.last_error = str(e)
                 await err_db.commit()
+
+
+# ── Bulk re-encryption ───────────────────────────────────────────────────────
+
+@router.post("/migrate-encryption/")
+async def migrate_encryption(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Re-encrypt all plain-text connector configs with the current encryption key."""
+    if not os.environ.get("CONNECTOR_ENCRYPTION_KEY"):
+        raise HTTPException(status_code=400, detail="CONNECTOR_ENCRYPTION_KEY is not set")
+
+    connectors = (await db.execute(select(Connector))).scalars().all()
+    migrated = 0
+    skipped = 0
+    errors = 0
+
+    for c in connectors:
+        if "_encrypted" in c.config:
+            skipped += 1
+            continue
+        try:
+            plain = decrypt_config(c.config)
+            c.config = encrypt_config(plain)
+            migrated += 1
+        except Exception as e:
+            _log.warning("migrate-encryption: failed for %s: %s", c.id, e)
+            errors += 1
+
+    await db.commit()
+    _log.info("migrate-encryption: migrated=%d skipped=%d errors=%d", migrated, skipped, errors)
+    return {"migrated": migrated, "already_encrypted": skipped, "errors": errors}
 
 
 # ── Connector test (diagnostics) ─────────────────────────────────────────────

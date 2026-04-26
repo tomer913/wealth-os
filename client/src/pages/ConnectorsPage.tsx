@@ -4,6 +4,8 @@ import { useAppStore } from '../store'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import { Field, Input, Select, FormGrid, FormSection, Divider } from '../components/shared/Form'
 import clsx from 'clsx'
+import type { Account } from '../types'
+import { getAccounts } from '../api/portfolio'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,6 +15,7 @@ interface ConnectorRead {
   name: string
   type: string
   config_keys: string[]
+  config_display: Record<string, string> | null
   asset_filter: string[] | null
   auto_create_assets: boolean
   schedule: string
@@ -29,6 +32,9 @@ interface ConnectorRead {
   } | null
   created_at: string
 }
+
+// Sensitive field keys — left blank on edit = keep existing value
+const SENSITIVE_KEYS = new Set(['api_key', 'api_secret', 'password', 'token', 'secret'])
 
 interface ConnectorRun {
   id: string
@@ -133,6 +139,11 @@ export default function ConnectorsPage() {
     queryFn: getConnectorTypes,
   })
 
+  const { data: accounts = [] } = useQuery<Account[]>({
+    queryKey: ['accounts'],
+    queryFn: getAccounts,
+  })
+
   const createMut = useMutation({
     mutationFn: createConnector,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['connectors'] }); closeModal() },
@@ -170,6 +181,14 @@ export default function ConnectorsPage() {
 
   const selectedTypeDef = connectorTypes.find(t => t.type === selectedType)
 
+  // Accounts filtered for crypto/brokerage connectors
+  const cryptoAccounts = accounts.filter(
+    a => a.category === 'crypto' || a.account_type === 'brokerage'
+  )
+  const otherAccounts = accounts.filter(
+    a => a.category !== 'crypto' && a.account_type !== 'brokerage'
+  )
+
   function openAdd() {
     setEditTarget(null)
     setSelectedType(connectorTypes[0]?.type ?? '')
@@ -187,13 +206,27 @@ export default function ConnectorsPage() {
       is_active: String(c.is_active),
       asset_filter: c.asset_filter?.join(',') ?? '',
     })
-    setConfigForm({})
+    // Pre-populate non-sensitive fields from config_display; leave sensitive blank
+    const prefilled: Record<string, string> = {}
+    if (c.config_display) {
+      for (const [k, v] of Object.entries(c.config_display)) {
+        prefilled[k] = SENSITIVE_KEYS.has(k) ? '' : String(v ?? '')
+      }
+    }
+    setConfigForm(prefilled)
     setModalOpen(true)
   }
 
   function closeModal() { setModalOpen(false); setEditTarget(null) }
 
   function handleSubmit() {
+    // For edit: omit sensitive fields that the user left blank (keep existing values)
+    const configPayload: Record<string, string> = {}
+    for (const [k, v] of Object.entries(configForm)) {
+      if (editTarget && SENSITIVE_KEYS.has(k) && !v) continue  // keep existing
+      configPayload[k] = v
+    }
+
     const payload: Record<string, unknown> = {
       name: form.name,
       type: selectedType,
@@ -201,7 +234,7 @@ export default function ConnectorsPage() {
       is_active: form.is_active === 'true',
       auto_create_assets: true,
       asset_filter: form.asset_filter ? form.asset_filter.split(',').map(s => s.trim()) : null,
-      config: configForm,
+      config: configPayload,
     }
     if (editTarget) updateMut.mutate({ id: editTarget.id, payload })
     else createMut.mutate(payload)
@@ -309,21 +342,53 @@ export default function ConnectorsPage() {
             <>
               <Divider />
               <FormSection title="Configuration">
-                {selectedTypeDef.config_fields.map(field => (
-                  <Field key={field.key} label={field.label} hint={field.hint}>
-                    <Input
-                      type={field.key.includes('secret') || field.key.includes('password') ? 'password' : 'text'}
-                      value={configForm[field.key] ?? ''}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfigForm({ ...configForm, [field.key]: e.target.value })}
-                      placeholder={field.default} />
-                  </Field>
-                ))}
-                {editTarget && (
-                  <p className="text-[11px] text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-                    Leave fields blank to keep existing values. Only filled fields will be updated.
-                  </p>
-                )}
+                {selectedTypeDef.config_fields.map(field => {
+                  if (field.key === 'account_id') {
+                    return (
+                      <Field key={field.key} label={field.label}
+                        hint="Select which account these trades belong to. Add accounts in the Accounts page first.">
+                        <select
+                          value={configForm[field.key] ?? ''}
+                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                            setConfigForm({ ...configForm, [field.key]: e.target.value })}
+                          className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400">
+                          <option value="">— Select account —</option>
+                          {cryptoAccounts.length > 0 && (
+                            <optgroup label="Crypto / Brokerage">
+                              {cryptoAccounts.map(a => (
+                                <option key={a.id} value={a.id}>{a.name}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {otherAccounts.length > 0 && (
+                            <optgroup label="Other">
+                              {otherAccounts.map(a => (
+                                <option key={a.id} value={a.id}>{a.name}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      </Field>
+                    )
+                  }
+
+                  const isSensitive = SENSITIVE_KEYS.has(field.key)
+                  const maskedPlaceholder = editTarget && isSensitive && editTarget.config_display?.[field.key]
+                    ? editTarget.config_display[field.key]
+                    : field.default
+                  const fieldHint = editTarget && isSensitive ? 'Leave blank to keep existing value' : field.hint
+
+                  return (
+                    <Field key={field.key} label={field.label} hint={fieldHint}>
+                      <Input
+                        type={field.key.includes('secret') || field.key.includes('password') ? 'password' : 'text'}
+                        value={configForm[field.key] ?? ''}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          setConfigForm({ ...configForm, [field.key]: e.target.value })}
+                        placeholder={maskedPlaceholder} />
+                    </Field>
+                  )
+                })}
               </FormSection>
             </>
           )}

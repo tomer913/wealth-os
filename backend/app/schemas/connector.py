@@ -30,9 +30,9 @@ class ConnectorRead(BaseModel):
     portfolio_id: UUID
     name: str
     type: str
-    # Never return raw config (contains encrypted API keys)
-    # Only return safe metadata
+    # Safe config metadata: real keys + masked sensitive values for the edit form
     config_keys: List[str] = Field(default_factory=list)
+    config_display: Optional[Dict[str, Any]] = None  # masked values for edit form
     asset_filter: Optional[List[str]] = None
     auto_create_assets: bool
     schedule: str

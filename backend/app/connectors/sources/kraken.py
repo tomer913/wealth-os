@@ -302,7 +302,16 @@ class KrakenConnector(BaseConnector):
             last_trade_time = last_run.checkpoint.get("last_trade_time")
 
         account_id_str = self.config.get("account_id")
-        account_id = UUID(account_id_str) if account_id_str else None
+        account_id: Optional[UUID] = None
+        if account_id_str:
+            try:
+                account_id = UUID(account_id_str)
+            except ValueError:
+                log.warning(
+                    "Invalid account_id format: '%s' — trades will be created without "
+                    "account assignment. Edit connector and select a valid account.",
+                    account_id_str,
+                )
         newest_trade_time: Optional[float] = last_trade_time
         linked_count = 0
         created_count = 0
