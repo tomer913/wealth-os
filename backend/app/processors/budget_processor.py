@@ -28,7 +28,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Text, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -271,19 +271,46 @@ class BudgetProcessor(BaseProcessor):
                 # Save suggested rule from AI result
                 ai_result = state["ai_result"]
                 if ai_result and ai_result.suggested_rule:
-                    db.add(BudgetCategoryRule(
-                        id=uuid.uuid4(),
-                        portfolio_id=portfolio_id,
-                        category_id=ai_result.category_id,
-                        name=f"AI: {row.description[:60]}",
-                        priority=200,
-                        status="suggested",
-                        conditions=ai_result.suggested_rule,
-                        confidence=ai_result.confidence,
-                        source="ai_generated",
-                        ai_reasoning=ai_result.reasoning,
-                    ))
-                    rules_suggested += 1
+                    # Skip if an existing non-deleted rule already covers the same keyword.
+                    keyword = None
+                    inner_rules = ai_result.suggested_rule.get("rules", [])
+                    if inner_rules and isinstance(inner_rules[0], dict):
+                        keyword = inner_rules[0].get("value")
+
+                    keyword_match_exists = False
+                    if keyword:
+                        kw_check = (await db.execute(
+                            select(BudgetCategoryRule.id).where(
+                                BudgetCategoryRule.portfolio_id == portfolio_id,
+                                BudgetCategoryRule.category_id == ai_result.category_id,
+                                BudgetCategoryRule.status != "deleted",
+                                BudgetCategoryRule.conditions.cast(Text).contains(keyword),
+                            ).limit(1)
+                        )).scalar_one_or_none()
+                        if kw_check:
+                            log.info(
+                                "Rule already exists for keyword '%s' — skipping", keyword,
+                            )
+                            keyword_match_exists = True
+
+                    if not keyword_match_exists:
+                        await db.execute(
+                            pg_insert(BudgetCategoryRule)
+                            .values(
+                                id=uuid.uuid4(),
+                                portfolio_id=portfolio_id,
+                                category_id=ai_result.category_id,
+                                name=f"AI: {row.description[:60]}",
+                                priority=200,
+                                status="suggested",
+                                conditions=ai_result.suggested_rule,
+                                confidence=ai_result.confidence,
+                                source="ai_generated",
+                                ai_reasoning=ai_result.reasoning,
+                            )
+                            .on_conflict_do_nothing()
+                        )
+                        rules_suggested += 1
 
                 # Idempotent budget_actuals update
                 if category_id and row.raw_date:
