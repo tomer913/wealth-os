@@ -139,7 +139,8 @@ class RuleEngine:
 
         # Create a fake rule object to reuse _evaluate_rule
         class _FakeRule:
-            conditions = conditions
+            def __init__(self):
+                self.conditions = conditions
             status = "active"
             id = "test"
             match_count = 0
