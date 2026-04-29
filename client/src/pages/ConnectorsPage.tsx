@@ -51,6 +51,7 @@ interface ConnectorRun {
   fx_rates_updated: number | null
   prices_updated: number | null
   error_message: string | null
+  checkpoint: { github_run_url?: string; github_run_id?: string } | null
   created_at: string
 }
 
@@ -106,6 +107,9 @@ async function getConnectorRuns(id: string, page = 1): Promise<{ items: Connecto
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const SCRAPER_TYPES = new Set(['scraper', 'isracard'])
+function isScraperType(type: string) { return SCRAPER_TYPES.has(type) }
 
 function formatDuration(ms: number | null) {
   if (!ms) return '—'
@@ -477,6 +481,9 @@ function ConnectorCard({
                   <span>Last run {formatRelative(c.last_run_at)}</span>
                 </>
               )}
+              {(status === 'running' || status === 'pending') && (isScraperType(c.type)) && (
+                <span className="text-amber-600">Scraping credit cards… (up to 15 min)</span>
+              )}
               {status === 'success' && summary && (
                 <>
                   <span>·</span>
@@ -621,6 +628,16 @@ function RunHistoryDrawer({ connector, onClose }: { connector: ConnectorRead; on
                   </div>
                   {run.status === 'failed' && run.error_message && (
                     <p className="text-[11px] text-rose-500 mt-1 truncate">{run.error_message}</p>
+                  )}
+                  {run.checkpoint?.github_run_url && (
+                    <a
+                      href={run.checkpoint.github_run_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="text-[11px] text-teal-600 hover:underline mt-0.5 block">
+                      View on GitHub →
+                    </a>
                   )}
                 </div>
               </button>

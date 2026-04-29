@@ -124,6 +124,8 @@ async def run_connectors():
             "mizrachi_bank": 6,
             "fibi_bank": 7,
             "leumi_bank": 8,
+            "scraper": 9,
+            "isracard": 9,
         }
         sorted_connectors = sorted(connectors, key=lambda c: TYPE_ORDER.get(c.type, 99))
 

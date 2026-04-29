@@ -84,3 +84,7 @@ from app.connectors.sources import mizrachi_bank  # noqa: E402, F401
 from app.connectors.sources import fibi_bank  # noqa: E402, F401
 from app.connectors.sources import kraken  # noqa: E402, F401
 from app.connectors.sources import cexio  # noqa: E402, F401
+from app.connectors.sources import scraper  # noqa: E402, F401
+
+# "isracard" is a legacy type name — point it at the same handler
+_REGISTRY["isracard"] = scraper.ScraperConnector

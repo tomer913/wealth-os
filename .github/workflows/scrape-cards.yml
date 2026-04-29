@@ -1,10 +1,7 @@
 name: Scrape Credit Cards
 
 on:
-  schedule:
-    # 05:00 UTC = 07:00 Israel time (runs before bank processors at 07:05/07:08)
-    - cron: '0 5 * * *'
-  workflow_dispatch:  # Allow manual trigger from GitHub UI
+  workflow_dispatch:  # Triggered by scheduler via API; keep for manual GitHub UI runs too
 
 jobs:
   scrape:
