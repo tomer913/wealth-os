@@ -111,11 +111,23 @@ function emptyRuleForm() {
   }
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  description: 'Description', amount: 'Amount', source: 'Source',
+  economic_type: 'Type', domain: 'Domain', currency: 'Currency',
+}
+const OP_LABELS: Record<string, string> = {
+  contains: 'contains', not_contains: 'not contains', starts_with: 'starts with',
+  regex: 'matches', eq: '=', neq: '≠', equals: '=',
+  gt: '>', lt: '<', between: 'between',
+}
+
 function conditionSummary(cond: Conditions): string {
   if (!cond?.rules?.length) return '—'
-  const parts = cond.rules.map((r) => {
+  // Handle both 'op' (UI-created) and 'operator' (AI-generated) field names
+  const parts = cond.rules.map((r: Condition & { operator?: string }) => {
+    const op = r.op || r.operator || '?'
     const val = Array.isArray(r.value) ? `${r.value[0]}–${r.value[1]}` : String(r.value)
-    return `${r.field} ${r.op} "${val}"`
+    return `${FIELD_LABELS[r.field] ?? r.field} ${OP_LABELS[op] ?? op} "${val}"`
   })
   return parts.join(` ${cond.operator} `)
 }
@@ -279,15 +291,20 @@ function RuleFormModal({ open, onClose, rule, categories }: {
     return acc
   }, {})
 
-  const [form, setForm] = useState(() =>
-    rule ? {
-      name: rule.name,
-      category_id: rule.category_id,
-      priority: rule.priority,
-      status: rule.status,
-      conditions: rule.conditions,
-    } : emptyRuleForm()
-  )
+  const [form, setForm] = useState(() => {
+    if (!rule) return emptyRuleForm()
+    // Normalize AI-generated rules that use 'operator' instead of 'op'
+    const conditions: Conditions = {
+      operator: rule.conditions?.operator ?? 'AND',
+      rules: (rule.conditions?.rules ?? []).map((r: Condition & { operator?: string }) => ({
+        field: r.field,
+        op: r.op || r.operator || 'contains',
+        value: r.value,
+      })),
+    }
+    if (!conditions.rules.length) conditions.rules = [{ field: 'description', op: 'contains', value: '' }]
+    return { name: rule.name, category_id: rule.category_id, priority: rule.priority, status: rule.status, conditions }
+  })
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
 
@@ -934,6 +951,7 @@ export default function BudgetRulesPage() {
       </div>
 
       <RuleFormModal
+        key={editingRule?.id ?? 'new'}
         open={showForm}
         onClose={handleClose}
         rule={editingRule}
