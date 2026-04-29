@@ -15,7 +15,7 @@ interface ConnectorRead {
   name: string
   type: string
   config_keys: string[]
-  config_display: Record<string, string> | null
+  config_display: Record<string, unknown> | null
   asset_filter: string[] | null
   auto_create_assets: boolean
   schedule: string
@@ -35,6 +35,13 @@ interface ConnectorRead {
 
 // Sensitive field keys — left blank on edit = keep existing value
 const SENSITIVE_KEYS = new Set(['api_key', 'api_secret', 'password', 'token', 'secret'])
+
+interface ScraperCard {
+  id: string
+  name: string
+  card6?: string
+  enabled: boolean
+}
 
 interface ConnectorRun {
   id: string
@@ -106,10 +113,50 @@ async function getConnectorRuns(id: string, page = 1): Promise<{ items: Connecto
   return data
 }
 
+async function pushSecrets(id: string, secrets: Record<string, string>): Promise<{ saved: string[]; failed: string[] }> {
+  const { data } = await apiClient.post(`/api/v1/connectors/${id}/secrets`, secrets)
+  return data
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const SCRAPER_TYPES = new Set(['scraper', 'isracard'])
+// Legacy types (backward compat) + new per-company types
+const SCRAPER_TYPES = new Set(['scraper', 'isracard', 'isracard_scraper', 'cal_scraper', 'max_scraper', 'leumi_card_scraper', 'amex_scraper'])
 function isScraperType(type: string) { return SCRAPER_TYPES.has(type) }
+
+interface CompanyInfo { name: string; prefix: string; hasCard6: boolean; hasNationalId: boolean }
+const COMPANY_INFO: Record<string, CompanyInfo> = {
+  isracard:   { name: 'Isracard',    prefix: 'ISRACARD',   hasCard6: true,  hasNationalId: false },
+  cal:        { name: 'Cal',         prefix: 'CAL',        hasCard6: false, hasNationalId: false },
+  max:        { name: 'Max',         prefix: 'MAX',        hasCard6: false, hasNationalId: false },
+  leumi_card: { name: 'Leumi Card',  prefix: 'LEUMI_CARD', hasCard6: false, hasNationalId: true  },
+  amex:       { name: 'Amex Israel', prefix: 'AMEX',       hasCard6: false, hasNationalId: false },
+}
+
+function getCompany(c: ConnectorRead): string {
+  return (c.config_display?.company as string) ?? c.type.replace('_scraper', '')
+}
+
+function buildSecretsPayload(
+  company: string,
+  creds: { username: string; password: string; national_id: string },
+  cards: ScraperCard[],
+): Record<string, string> {
+  const info = COMPANY_INFO[company]
+  if (!info) return {}
+  const p = info.prefix
+  const out: Record<string, string> = {}
+  if (creds.username)   out[`${p}_USERNAME`] = creds.username
+  if (creds.password)   out[`${p}_PASSWORD`] = creds.password
+  if (creds.national_id && info.hasNationalId) out[`${p}_NATIONAL_ID`] = creds.national_id
+  if (info.hasCard6) {
+    const card6s = cards.filter(c => c.card6).map(c => c.card6!)
+    card6s.forEach((c6, i) => {
+      out[i === 0 ? `${p}_CARD6` : `${p}_CARD6_${i + 1}`] = c6
+    })
+  }
+  return out
+}
 
 function formatDuration(ms: number | null) {
   if (!ms) return '—'
@@ -183,6 +230,13 @@ export default function ConnectorsPage() {
   const [configForm, setConfigForm] = useState<Record<string, string>>({})
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set())
 
+  // Scraper-specific state
+  const [scraperCards, setScraperCards] = useState<ScraperCard[]>([])
+  const [scraperCreds, setScraperCreds] = useState({ username: '', password: '', national_id: '' })
+  const [newCard, setNewCard] = useState({ name: '', card6: '' })
+  const [showAddCard, setShowAddCard] = useState(false)
+  const [secretsPending, setSecretsPending] = useState(false)
+
   const selectedTypeDef = connectorTypes.find(t => t.type === selectedType)
 
   // Accounts filtered for crypto/brokerage connectors
@@ -214,23 +268,46 @@ export default function ConnectorsPage() {
     const prefilled: Record<string, string> = {}
     if (c.config_display) {
       for (const [k, v] of Object.entries(c.config_display)) {
+        if (k === 'cards') continue  // handled by scraper state
         prefilled[k] = SENSITIVE_KEYS.has(k) ? '' : String(v ?? '')
       }
     }
     setConfigForm(prefilled)
+
+    // Scraper-specific state
+    if (isScraperType(c.type)) {
+      const display = c.config_display ?? {}
+      setScraperCards(Array.isArray(display.cards) ? (display.cards as ScraperCard[]) : [])
+      setScraperCreds({
+        username: (display.username as string) ?? '',
+        password: '',
+        national_id: (display.national_id as string) ?? '',
+      })
+      setShowAddCard(false)
+      setNewCard({ name: '', card6: '' })
+    }
+
     setModalOpen(true)
   }
 
-  function closeModal() { setModalOpen(false); setEditTarget(null) }
+  function closeModal() {
+    setModalOpen(false)
+    setEditTarget(null)
+    setShowAddCard(false)
+    setNewCard({ name: '', card6: '' })
+  }
 
   function handleSubmit() {
-    // For edit: omit sensitive fields that the user left blank (keep existing values)
+    if (isScraperType(selectedType)) {
+      handleScraperSubmit()
+      return
+    }
+    // Generic connector — existing logic
     const configPayload: Record<string, string> = {}
     for (const [k, v] of Object.entries(configForm)) {
       if (editTarget && SENSITIVE_KEYS.has(k) && !v) continue  // keep existing
       configPayload[k] = v
     }
-
     const payload: Record<string, unknown> = {
       name: form.name,
       type: selectedType,
@@ -242,6 +319,37 @@ export default function ConnectorsPage() {
     }
     if (editTarget) updateMut.mutate({ id: editTarget.id, payload })
     else createMut.mutate(payload)
+  }
+
+  async function handleScraperSubmit() {
+    if (!editTarget) return
+    const company = getCompany(editTarget)
+    const configPayload: Record<string, unknown> = {
+      username: scraperCreds.username,
+      cards: scraperCards,
+    }
+    if (scraperCreds.password)   configPayload.password    = scraperCreds.password
+    if (scraperCreds.national_id) configPayload.national_id = scraperCreds.national_id
+
+    const patchPayload: Record<string, unknown> = {
+      config: configPayload,
+      is_active: scraperCards.length > 0,
+    }
+
+    updateMut.mutate({ id: editTarget.id, payload: patchPayload }, {
+      onSuccess: async () => {
+        // Push credentials to GitHub Secrets if any were provided
+        const secrets = buildSecretsPayload(company, scraperCreds, scraperCards)
+        if (Object.keys(secrets).length > 0) {
+          setSecretsPending(true)
+          try { await pushSecrets(editTarget.id, secrets) }
+          catch (e) { console.error('Failed to push secrets:', e) }
+          finally { setSecretsPending(false) }
+        }
+        qc.invalidateQueries({ queryKey: ['connectors'] })
+        closeModal()
+      },
+    })
   }
 
   function handleRun(c: ConnectorRead) {
@@ -341,60 +449,155 @@ export default function ConnectorsPage() {
             </Field>
           </FormSection>
 
-          {/* Dynamic config fields */}
-          {selectedTypeDef && selectedTypeDef.config_fields.length > 0 && (
+          {/* Scraper-specific config form */}
+          {isScraperType(selectedType) ? (
             <>
               <Divider />
-              <FormSection title="Configuration">
-                {selectedTypeDef.config_fields.map(field => {
-                  if (field.key === 'account_id') {
-                    return (
-                      <Field key={field.key} label={field.label}
-                        hint="Select which account these trades belong to. Add accounts in the Accounts page first.">
-                        <select
-                          value={configForm[field.key] ?? ''}
-                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                            setConfigForm({ ...configForm, [field.key]: e.target.value })}
-                          className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400">
-                          <option value="">— Select account —</option>
-                          {cryptoAccounts.length > 0 && (
-                            <optgroup label="Crypto / Brokerage">
-                              {cryptoAccounts.map(a => (
-                                <option key={a.id} value={a.id}>{a.name}</option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {otherAccounts.length > 0 && (
-                            <optgroup label="Other">
-                              {otherAccounts.map(a => (
-                                <option key={a.id} value={a.id}>{a.name}</option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </select>
-                      </Field>
-                    )
-                  }
+              <FormSection title="Company credentials">
+                <p className="text-[12px] text-gray-400 -mt-1 mb-2">
+                  Saved encrypted in the database and pushed to GitHub Secrets for the Actions runner.
+                </p>
+                <Field label="Username / ID">
+                  <Input value={scraperCreds.username}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setScraperCreds({ ...scraperCreds, username: e.target.value })}
+                    placeholder="e.g. 0512345678" />
+                </Field>
+                <Field label="Password" hint={editTarget ? 'Leave blank to keep existing password' : undefined}>
+                  <Input type="password" value={scraperCreds.password}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setScraperCreds({ ...scraperCreds, password: e.target.value })}
+                    placeholder={editTarget ? '••••••••' : 'Password'} />
+                </Field>
+                {editTarget && COMPANY_INFO[getCompany(editTarget)]?.hasNationalId && (
+                  <Field label="National ID (Teudat Zehut)">
+                    <Input value={scraperCreds.national_id}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setScraperCreds({ ...scraperCreds, national_id: e.target.value })}
+                      placeholder="9-digit ID" />
+                  </Field>
+                )}
+              </FormSection>
 
-                  const isSensitive = SENSITIVE_KEYS.has(field.key)
-                  const maskedPlaceholder = editTarget && isSensitive && editTarget.config_display?.[field.key]
-                    ? editTarget.config_display[field.key]
-                    : field.default
-                  const fieldHint = editTarget && isSensitive ? 'Leave blank to keep existing value' : field.hint
+              <Divider />
+              <FormSection title="Cards">
+                {scraperCards.length === 0 && (
+                  <p className="text-[12px] text-gray-400">No cards configured yet.</p>
+                )}
+                {scraperCards.map((card, i) => (
+                  <div key={card.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div className="text-[13px] text-gray-800">
+                      {card.name}
+                      {card.card6 && <span className="ml-2 text-[12px] text-gray-400">••• {card.card6.slice(-4)}</span>}
+                    </div>
+                    <button onClick={() => setScraperCards(scraperCards.filter((_, j) => j !== i))}
+                      className="text-[11px] text-rose-400 hover:text-rose-600 px-2 py-1">
+                      Remove
+                    </button>
+                  </div>
+                ))}
 
-                  return (
-                    <Field key={field.key} label={field.label} hint={fieldHint}>
-                      <Input
-                        type={field.key.includes('secret') || field.key.includes('password') ? 'password' : 'text'}
-                        value={configForm[field.key] ?? ''}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                          setConfigForm({ ...configForm, [field.key]: e.target.value })}
-                        placeholder={maskedPlaceholder} />
+                {showAddCard ? (
+                  <div className="mt-3 p-3 bg-gray-50 rounded-lg space-y-3">
+                    <Field label="Card nickname">
+                      <Input value={newCard.name}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCard({ ...newCard, name: e.target.value })}
+                        placeholder="e.g. My Isracard" />
                     </Field>
-                  )
-                })}
+                    {editTarget && COMPANY_INFO[getCompany(editTarget)]?.hasCard6 && (
+                      <Field label="Last 6 digits" hint="Printed on the front of the card">
+                        <Input value={newCard.card6}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCard({ ...newCard, card6: e.target.value })}
+                          placeholder="e.g. 105177" maxLength={6} />
+                      </Field>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (!newCard.name) return
+                          setScraperCards([...scraperCards, {
+                            id: `card_${Date.now()}`,
+                            name: newCard.name,
+                            card6: newCard.card6 || undefined,
+                            enabled: true,
+                          }])
+                          setNewCard({ name: '', card6: '' })
+                          setShowAddCard(false)
+                        }}
+                        className="px-3 py-1.5 text-[12px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+                        Add card
+                      </button>
+                      <button onClick={() => setShowAddCard(false)}
+                        className="px-3 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowAddCard(true)}
+                    className="mt-2 flex items-center gap-1.5 text-[12px] text-teal-600 hover:text-teal-700 font-medium">
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5.5 1v9M1 5.5h9"/></svg>
+                    Add another card
+                  </button>
+                )}
               </FormSection>
             </>
+          ) : (
+            /* Generic config fields */
+            selectedTypeDef && selectedTypeDef.config_fields.length > 0 && (
+              <>
+                <Divider />
+                <FormSection title="Configuration">
+                  {selectedTypeDef.config_fields.map(field => {
+                    if (field.key === 'account_id') {
+                      return (
+                        <Field key={field.key} label={field.label}
+                          hint="Select which account these trades belong to. Add accounts in the Accounts page first.">
+                          <select
+                            value={configForm[field.key] ?? ''}
+                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                              setConfigForm({ ...configForm, [field.key]: e.target.value })}
+                            className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400">
+                            <option value="">— Select account —</option>
+                            {cryptoAccounts.length > 0 && (
+                              <optgroup label="Crypto / Brokerage">
+                                {cryptoAccounts.map(a => (
+                                  <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {otherAccounts.length > 0 && (
+                              <optgroup label="Other">
+                                {otherAccounts.map(a => (
+                                  <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                        </Field>
+                      )
+                    }
+
+                    const isSensitive = SENSITIVE_KEYS.has(field.key)
+                    const maskedPlaceholder = editTarget && isSensitive && editTarget.config_display?.[field.key]
+                      ? String(editTarget.config_display[field.key])
+                      : field.default
+                    const fieldHint = editTarget && isSensitive ? 'Leave blank to keep existing value' : field.hint
+
+                    return (
+                      <Field key={field.key} label={field.label} hint={fieldHint}>
+                        <Input
+                          type={field.key.includes('secret') || field.key.includes('password') ? 'password' : 'text'}
+                          value={configForm[field.key] ?? ''}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            setConfigForm({ ...configForm, [field.key]: e.target.value })}
+                          placeholder={maskedPlaceholder} />
+                      </Field>
+                    )
+                  })}
+                </FormSection>
+              </>
+            )
           )}
 
           <Divider />
@@ -404,9 +607,9 @@ export default function ConnectorsPage() {
               Cancel
             </button>
             <button onClick={handleSubmit}
-              disabled={createMut.isPending || updateMut.isPending}
+              disabled={createMut.isPending || updateMut.isPending || secretsPending}
               className="px-4 py-2 text-[13px] font-medium bg-[#0d9488] hover:bg-teal-700 text-white rounded-lg disabled:opacity-60">
-              {createMut.isPending || updateMut.isPending ? 'Saving…' : editTarget ? 'Save changes' : 'Add connector'}
+              {secretsPending ? 'Pushing secrets…' : createMut.isPending || updateMut.isPending ? 'Saving…' : editTarget ? 'Save changes' : 'Add connector'}
             </button>
           </div>
         </div>
@@ -447,6 +650,10 @@ function ConnectorCard({
 }) {
   const status = c.last_run_status
   const summary = c.last_run_summary
+
+  const cards = isScraperType(c.type) && Array.isArray(c.config_display?.cards)
+    ? (c.config_display!.cards as ScraperCard[])
+    : []
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
@@ -510,6 +717,20 @@ function ConnectorCard({
                 </>
               )}
             </div>
+
+            {/* Scraper: card list */}
+            {isScraperType(c.type) && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {cards.length === 0 ? (
+                  <span className="text-[11px] text-gray-400 italic">No cards configured — click edit to set up</span>
+                ) : cards.map(card => (
+                  <span key={card.id} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                    {card.name}
+                    {card.card6 && <span className="text-gray-400">••• {card.card6.slice(-4)}</span>}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

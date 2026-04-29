@@ -86,5 +86,6 @@ from app.connectors.sources import kraken  # noqa: E402, F401
 from app.connectors.sources import cexio  # noqa: E402, F401
 from app.connectors.sources import scraper  # noqa: E402, F401
 
-# "isracard" is a legacy type name — point it at the same handler
-_REGISTRY["isracard"] = scraper.ScraperConnector
+# Backward-compat aliases for any DB records written before the per-company types existed
+_REGISTRY["scraper"] = scraper.IsracardScraperConnector
+_REGISTRY["isracard"] = scraper.IsracardScraperConnector

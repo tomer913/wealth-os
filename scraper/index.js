@@ -5,14 +5,11 @@
  * transactions and post them to the Wealth OS ingest endpoint.
  *
  * Credentials are read from environment variables (set as GitHub Actions secrets).
- * Each card type is only scraped if its credentials are present.
+ * TARGET_COMPANY filters to a single company when set (used by the per-company
+ * connector scheduler). If empty, all configured companies are scraped.
  *
- * Supported sources:
- *   isracard   — ISRACARD_USERNAME, ISRACARD_PASSWORD, ISRACARD_CARD6
- *   cal        — CAL_USERNAME, CAL_PASSWORD
- *   max        — MAX_USERNAME, MAX_PASSWORD
- *   leumi_card — LEUMI_CARD_USERNAME, LEUMI_CARD_PASSWORD, LEUMI_CARD_NATIONAL_ID
- *   amex       — AMEX_USERNAME, AMEX_PASSWORD
+ * Isracard supports multiple physical cards via numbered CARD6 secrets:
+ *   ISRACARD_CARD6, ISRACARD_CARD6_2, ISRACARD_CARD6_3
  */
 
 import { createScraper, CompanyTypes } from '@sergienko4/israeli-bank-scrapers';
@@ -21,6 +18,7 @@ import https from 'https';
 const API_URL = process.env.WEALTH_OS_API_URL;
 const SCRAPER_TOKEN = process.env.SCRAPER_SECRET;
 const PORTFOLIO_ID = process.env.PORTFOLIO_ID;
+const TARGET_COMPANY = process.env.TARGET_COMPANY || '';
 
 if (!API_URL || !SCRAPER_TOKEN || !PORTFOLIO_ID) {
   console.error('Missing required env vars: WEALTH_OS_API_URL, SCRAPER_SECRET, PORTFOLIO_ID');
@@ -40,56 +38,97 @@ const ERROR_MESSAGES = {
 };
 
 // ── Card configurations ────────────────────────────────────────────────────────
+// Each entry in CARDS represents one scrape session (one set of credentials).
+// Isracard is special: multiple physical cards share one login but differ by card6.
 
-const CARDS = [
-  {
+const CARDS = [];
+
+// Isracard — build one entry per configured CARD6
+const isracard_creds_ok = !!(process.env.ISRACARD_USERNAME && process.env.ISRACARD_PASSWORD);
+const isracard_card6s = [
+  process.env.ISRACARD_CARD6,
+  process.env.ISRACARD_CARD6_2,
+  process.env.ISRACARD_CARD6_3,
+].filter(Boolean);
+
+if (isracard_creds_ok && isracard_card6s.length > 0) {
+  for (const card6 of isracard_card6s) {
+    CARDS.push({
+      source: 'isracard',
+      companyId: CompanyTypes.Isracard,
+      enabled: true,
+      credentials: {
+        id: process.env.ISRACARD_USERNAME,
+        password: process.env.ISRACARD_PASSWORD,
+        card6Digits: card6,
+      },
+    });
+  }
+} else if (isracard_creds_ok) {
+  // Credentials set but no card6 — scrape without card6 filter
+  CARDS.push({
     source: 'isracard',
     companyId: CompanyTypes.Isracard,
-    enabled: !!(process.env.ISRACARD_USERNAME && process.env.ISRACARD_PASSWORD),
+    enabled: true,
     credentials: {
       id: process.env.ISRACARD_USERNAME,
       password: process.env.ISRACARD_PASSWORD,
-      card6Digits: process.env.ISRACARD_CARD6,
     },
-  },
-  {
+  });
+}
+
+// Cal
+if (process.env.CAL_USERNAME && process.env.CAL_PASSWORD) {
+  CARDS.push({
     source: 'cal',
     companyId: CompanyTypes.VisaCal,
-    enabled: !!(process.env.CAL_USERNAME && process.env.CAL_PASSWORD),
+    enabled: true,
     credentials: {
       username: process.env.CAL_USERNAME,
       password: process.env.CAL_PASSWORD,
     },
-  },
-  {
+  });
+}
+
+// Max
+if (process.env.MAX_USERNAME && process.env.MAX_PASSWORD) {
+  CARDS.push({
     source: 'max',
     companyId: CompanyTypes.Max,
-    enabled: !!(process.env.MAX_USERNAME && process.env.MAX_PASSWORD),
+    enabled: true,
     credentials: {
       username: process.env.MAX_USERNAME,
       password: process.env.MAX_PASSWORD,
     },
-  },
-  {
+  });
+}
+
+// Leumi Card
+if (process.env.LEUMI_CARD_USERNAME && process.env.LEUMI_CARD_PASSWORD) {
+  CARDS.push({
     source: 'leumi_card',
     companyId: CompanyTypes.Leumi,
-    enabled: !!(process.env.LEUMI_CARD_USERNAME && process.env.LEUMI_CARD_PASSWORD),
+    enabled: true,
     credentials: {
       username: process.env.LEUMI_CARD_USERNAME,
       password: process.env.LEUMI_CARD_PASSWORD,
       nationalID: process.env.LEUMI_CARD_NATIONAL_ID,
     },
-  },
-  {
+  });
+}
+
+// Amex
+if (process.env.AMEX_USERNAME && process.env.AMEX_PASSWORD) {
+  CARDS.push({
     source: 'amex',
     companyId: CompanyTypes.Amex,
-    enabled: !!(process.env.AMEX_USERNAME && process.env.AMEX_PASSWORD),
+    enabled: true,
     credentials: {
       username: process.env.AMEX_USERNAME,
       password: process.env.AMEX_PASSWORD,
     },
-  },
-];
+  });
+}
 
 // ── Scrape one card ────────────────────────────────────────────────────────────
 
@@ -124,6 +163,7 @@ async function scrapeCard(card) {
           memo: tx.memo,
           category: tx.category,
           account_number: account.accountNumber,
+          card6: card.credentials.card6Digits,
         },
       });
     }
@@ -177,8 +217,16 @@ async function postToIngest(source, transactions, error = null) {
 
 async function main() {
   console.log('=== Wealth OS Credit Card Scraper ===');
-  const active = CARDS.filter((c) => c.enabled);
-  console.log(`Active cards: ${active.map((c) => c.source).join(', ') || 'none'}`);
+  if (TARGET_COMPANY) {
+    console.log(`Target company: ${TARGET_COMPANY}`);
+  }
+
+  // Filter by TARGET_COMPANY if set; keep only enabled cards
+  const active = CARDS.filter(
+    (c) => c.enabled && (!TARGET_COMPANY || c.source === TARGET_COMPANY)
+  );
+
+  console.log(`Active cards: ${active.map((c) => `${c.source}${c.credentials.card6Digits ? `(${c.credentials.card6Digits})` : ''}`).join(', ') || 'none'}`);
 
   if (active.length === 0) {
     console.log('No cards configured — set credential env vars to enable scraping');
@@ -192,7 +240,6 @@ async function main() {
       const scraped = await scrapeCard(card);
 
       if (scraped.error) {
-        // Report the failure to backend so it appears in connector_runs
         await postToIngest(scraped.source, [], scraped.error);
         summary.errors.push({ source: scraped.source, ...scraped.error });
         continue;

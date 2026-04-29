@@ -1,13 +1,17 @@
 name: Scrape Credit Cards
 
 on:
-  workflow_dispatch:  # Triggered by scheduler via API; keep for manual GitHub UI runs too
+  workflow_dispatch:
+    inputs:
+      company:
+        description: 'Company to scrape (leave empty to scrape all configured companies)'
+        required: false
+        default: ''
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
 
     steps:
       - uses: actions/checkout@v4
@@ -65,10 +69,13 @@ jobs:
           WEALTH_OS_API_URL: ${{ secrets.WEALTH_OS_API_URL }}
           SCRAPER_SECRET: ${{ secrets.SCRAPER_SECRET }}
           PORTFOLIO_ID: ${{ secrets.PORTFOLIO_ID }}
-          # Isracard
+          TARGET_COMPANY: ${{ inputs.company }}
+          # Isracard — supports multiple cards via numbered CARD6 secrets
           ISRACARD_USERNAME: ${{ secrets.ISRACARD_USERNAME }}
           ISRACARD_PASSWORD: ${{ secrets.ISRACARD_PASSWORD }}
-          ISRACARD_CARD6: ${{ secrets.ISRACARD_CARD6 }}
+          ISRACARD_CARD6:   ${{ secrets.ISRACARD_CARD6 }}
+          ISRACARD_CARD6_2: ${{ secrets.ISRACARD_CARD6_2 }}
+          ISRACARD_CARD6_3: ${{ secrets.ISRACARD_CARD6_3 }}
           # Cal
           CAL_USERNAME: ${{ secrets.CAL_USERNAME }}
           CAL_PASSWORD: ${{ secrets.CAL_PASSWORD }}

@@ -476,6 +476,94 @@ async def test_connector_credentials(
     return diag
 
 
+# ── GitHub Secrets push ───────────────────────────────────────────────────────
+
+_GITHUB_REPO = "tomer913/wealth-os"
+
+
+@router.post("/{connector_id}/secrets")
+async def push_github_secrets(
+    connector_id: UUID,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Push credential secrets to GitHub Actions.
+    Body: flat dict of { SECRET_NAME: secret_value }.
+    Empty values are silently skipped.
+    Requires GITHUB_TOKEN env var with actions:write + secrets:write.
+    """
+    import base64
+    import os as _os
+
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.portfolio_id:
+        await verify_portfolio_access(
+            db, connector.portfolio_id,
+            current_user["user_id"], current_user.get("org_id"),
+            required_role="editor",
+        )
+
+    github_token = _os.getenv("GITHUB_TOKEN", "")
+    if not github_token:
+        raise HTTPException(status_code=400, detail="GITHUB_TOKEN is not configured on this server")
+
+    secrets = {k: v for k, v in payload.items() if v}
+    if not secrets:
+        return {"saved": [], "failed": [], "skipped": "no non-empty values provided"}
+
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    try:
+        from nacl.public import SealedBox, PublicKey
+    except ImportError:
+        raise HTTPException(status_code=500, detail="pynacl is not installed — run pip install pynacl")
+
+    saved = []
+    failed = []
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        # Fetch the repo's public key (needed to encrypt each secret)
+        key_resp = await client.get(
+            f"https://api.github.com/repos/{_GITHUB_REPO}/actions/public-key",
+            headers=headers,
+        )
+        if key_resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not fetch GitHub public key: {key_resp.status_code} {key_resp.text}",
+            )
+        key_data = key_resp.json()
+        key_id = key_data["key_id"]
+        public_key_bytes = base64.b64decode(key_data["key"])
+
+        box = SealedBox(PublicKey(public_key_bytes))
+
+        for secret_name, secret_value in secrets.items():
+            encrypted_b64 = base64.b64encode(
+                box.encrypt(secret_value.encode("utf-8"))
+            ).decode("utf-8")
+
+            put_resp = await client.put(
+                f"https://api.github.com/repos/{_GITHUB_REPO}/actions/secrets/{secret_name}",
+                headers=headers,
+                json={"encrypted_value": encrypted_b64, "key_id": key_id},
+            )
+            if put_resp.status_code in (201, 204):
+                saved.append(secret_name)
+            else:
+                _log.error("Failed to push secret %s: %s %s", secret_name, put_resp.status_code, put_resp.text)
+                failed.append(secret_name)
+
+    return {"saved": saved, "failed": failed}
+
+
 # ── Run history ───────────────────────────────────────────────────────────────
 
 @router.get("/{connector_id}/runs", response_model=ConnectorRunListResponse)

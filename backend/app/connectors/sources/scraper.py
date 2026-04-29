@@ -1,6 +1,7 @@
 """
-ScraperConnector — triggers the GitHub Actions credit card scraper,
-polls until completion, then chains BankProcessor + BudgetProcessor.
+Card scraper connectors — one per Israeli credit card company.
+Each triggers the GitHub Actions workflow for its specific company,
+polls to completion, then chains BankProcessor + BudgetProcessor.
 """
 import asyncio
 import logging
@@ -14,33 +15,26 @@ from app.connectors.registry import register
 
 log = logging.getLogger(__name__)
 
+_GITHUB_REPO = "tomer913/wealth-os"
+_WORKFLOW_FILE = "scrape-cards.yml"
 
-@register
-class ScraperConnector(BaseConnector):
+
+class CardScraperConnector(BaseConnector):
     """
-    Controls the GitHub Actions credit card scraper.
-    Triggers workflow, waits for completion (up to 15 min), then chains processors.
-    Raises on failure so _run_single_connector records status = "failed".
+    Base for all per-company card scrapers.
+    Subclasses set COMPANY and CONNECTOR_TYPE; everything else is shared.
     """
 
-    CONNECTOR_TYPE = "scraper"
-    DISPLAY_NAME = "Credit Card Scraper"
-    DESCRIPTION = "Scrapes Israeli credit cards via GitHub Actions (Isracard, Cal, Max, Amex…)"
-    CONFIG_FIELDS = [
-        {
-            "key": "cards",
-            "label": "Active cards",
-            "type": "text",
-            "default": "isracard",
-            "hint": "Comma-separated card types: isracard, cal, max, leumi_card, amex",
-        },
-    ]
-    WRITES_RAW = False  # overrides run() directly; scraper writes via /ingest endpoint
+    WRITES_RAW = False
+    COMPANY: str = ""
+    CONFIG_FIELDS = []
 
-    GITHUB_REPO = "tomer913/wealth-os"
-    WORKFLOW_FILE = "scrape-cards.yml"
-    POLL_INTERVAL = 30   # seconds between status polls
-    MAX_WAIT = 900        # 15 minutes total timeout
+    POLL_INTERVAL = 30
+    MAX_WAIT = 900
+
+    @property
+    def _company(self) -> str:
+        return self.config.get("company", self.COMPANY)
 
     @property
     def _token(self) -> str:
@@ -59,8 +53,7 @@ class ScraperConnector(BaseConnector):
 
         triggered_at = datetime.now(timezone.utc)
         run_id = await self._trigger_workflow(triggered_at)
-
-        log.info("GitHub Actions triggered, run_id: %s", run_id)
+        log.info("GitHub Actions triggered for %s, run_id: %s", self._company, run_id)
 
         outcome = await self._wait_for_completion(run_id)
         conclusion = outcome["conclusion"]
@@ -68,9 +61,8 @@ class ScraperConnector(BaseConnector):
 
         if conclusion == "timed_out":
             raise RuntimeError(
-                f"GitHub Actions run {run_id} did not complete in {self.MAX_WAIT}s — {run_url}"
+                f"GitHub Actions run {run_id} timed out after {self.MAX_WAIT}s"
             )
-
         if conclusion != "success":
             raise RuntimeError(
                 f"GitHub Actions run {run_id} concluded '{conclusion}' — {run_url}"
@@ -85,31 +77,30 @@ class ScraperConnector(BaseConnector):
     async def _trigger_workflow(self, triggered_at: datetime) -> str:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
-                f"https://api.github.com/repos/{self.GITHUB_REPO}"
-                f"/actions/workflows/{self.WORKFLOW_FILE}/dispatches",
+                f"https://api.github.com/repos/{_GITHUB_REPO}"
+                f"/actions/workflows/{_WORKFLOW_FILE}/dispatches",
                 headers=self._headers,
-                json={"ref": "main"},
+                json={"ref": "main", "inputs": {"company": self._company}},
             )
             if resp.status_code != 204:
-                raise RuntimeError(f"Failed to trigger GitHub Actions: {resp.status_code} {resp.text}")
+                raise RuntimeError(
+                    f"Failed to trigger GitHub Actions: {resp.status_code} {resp.text}"
+                )
 
-            # Give GitHub a moment to register the new run
             await asyncio.sleep(5)
 
             runs_resp = await client.get(
-                f"https://api.github.com/repos/{self.GITHUB_REPO}"
-                f"/actions/runs?workflow_id={self.WORKFLOW_FILE}&per_page=5",
+                f"https://api.github.com/repos/{_GITHUB_REPO}"
+                f"/actions/runs?workflow_id={_WORKFLOW_FILE}&per_page=5",
                 headers=self._headers,
             )
             runs_data = runs_resp.json()
 
-            # Prefer the run created at or after our trigger time
             for run in runs_data.get("workflow_runs", []):
                 created = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
                 if created >= triggered_at:
                     return str(run["id"])
 
-            # Fallback to most recent if timestamp filtering finds nothing
             workflow_runs = runs_data.get("workflow_runs", [])
             if not workflow_runs:
                 raise RuntimeError("Triggered workflow but no run appeared in GitHub API")
@@ -123,7 +114,7 @@ class ScraperConnector(BaseConnector):
                 elapsed += self.POLL_INTERVAL
 
                 resp = await client.get(
-                    f"https://api.github.com/repos/{self.GITHUB_REPO}/actions/runs/{run_id}",
+                    f"https://api.github.com/repos/{_GITHUB_REPO}/actions/runs/{run_id}",
                     headers=self._headers,
                 )
                 run = resp.json()
@@ -131,18 +122,24 @@ class ScraperConnector(BaseConnector):
                 conclusion = run.get("conclusion")
 
                 log.info(
-                    "GitHub run %s: %s/%s (%ds elapsed)",
-                    run_id, status, conclusion, elapsed,
+                    "GitHub run %s [%s]: %s/%s (%ds elapsed)",
+                    run_id, self._company, status, conclusion, elapsed,
                 )
 
                 if status == "completed":
-                    return {"conclusion": conclusion, "url": run.get("html_url"), "duration": elapsed}
+                    return {
+                        "conclusion": conclusion,
+                        "url": run.get("html_url"),
+                        "duration": elapsed,
+                    }
 
         return {"conclusion": "timed_out"}
 
     async def _run_processors(self):
-        log.info("Scraper complete — running bank + budget processors for portfolio %s", self.portfolio_id)
-
+        log.info(
+            "Scraper complete — running bank + budget processors for portfolio %s",
+            self.portfolio_id,
+        )
         from app.processors.bank_processor import BankProcessor
         from app.processors.budget_processor import BudgetProcessor
 
@@ -153,3 +150,43 @@ class ScraperConnector(BaseConnector):
         budget = BudgetProcessor()
         await budget.run(self.portfolio_id, triggered_by="scraper")
         log.info("Budget processor complete")
+
+
+@register
+class IsracardScraperConnector(CardScraperConnector):
+    CONNECTOR_TYPE = "isracard_scraper"
+    DISPLAY_NAME = "Isracard"
+    DESCRIPTION = "Scrapes Isracard credit cards via GitHub Actions"
+    COMPANY = "isracard"
+
+
+@register
+class CalScraperConnector(CardScraperConnector):
+    CONNECTOR_TYPE = "cal_scraper"
+    DISPLAY_NAME = "Cal"
+    DESCRIPTION = "Scrapes Cal (Visa Cal) credit cards via GitHub Actions"
+    COMPANY = "cal"
+
+
+@register
+class MaxScraperConnector(CardScraperConnector):
+    CONNECTOR_TYPE = "max_scraper"
+    DISPLAY_NAME = "Max"
+    DESCRIPTION = "Scrapes Max credit cards via GitHub Actions"
+    COMPANY = "max"
+
+
+@register
+class LeumiCardScraperConnector(CardScraperConnector):
+    CONNECTOR_TYPE = "leumi_card_scraper"
+    DISPLAY_NAME = "Leumi Card"
+    DESCRIPTION = "Scrapes Leumi Card credit cards via GitHub Actions"
+    COMPANY = "leumi_card"
+
+
+@register
+class AmexScraperConnector(CardScraperConnector):
+    CONNECTOR_TYPE = "amex_scraper"
+    DISPLAY_NAME = "Amex Israel"
+    DESCRIPTION = "Scrapes American Express Israel credit cards via GitHub Actions"
+    COMPANY = "amex"
