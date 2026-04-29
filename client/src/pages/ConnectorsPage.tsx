@@ -283,6 +283,11 @@ export default function ConnectorsPage() {
     setSelectedType(connectorTypes[0]?.type ?? '')
     setForm({ name: '', schedule: 'daily', is_active: 'true', asset_filter: '' })
     setConfigForm({})
+    // Reset scraper state so stale values from a previous edit don't bleed in
+    setScraperCards([])
+    setScraperCreds({ username: '', password: '', national_id: '' })
+    setNewCard({ name: '', card6: '' })
+    setShowAddCard(false)
     setModalOpen(true)
   }
 
@@ -353,34 +358,54 @@ export default function ConnectorsPage() {
   }
 
   async function handleScraperSubmit() {
-    if (!editTarget) return
-    const company = getCompany(editTarget)
+    const company = editTarget
+      ? getCompany(editTarget)
+      : selectedType.replace('_scraper', '')
+
     const configPayload: Record<string, unknown> = {
+      company,
       username: scraperCreds.username,
       cards: scraperCards,
     }
-    if (scraperCreds.password)   configPayload.password    = scraperCreds.password
+    if (scraperCreds.password)    configPayload.password    = scraperCreds.password
     if (scraperCreds.national_id) configPayload.national_id = scraperCreds.national_id
 
-    const patchPayload: Record<string, unknown> = {
-      config: configPayload,
-      is_active: scraperCards.length > 0,
+    if (editTarget) {
+      // ── Edit existing connector ──────────────────────────────────────────────
+      updateMut.mutate({ id: editTarget.id, payload: { config: configPayload, is_active: scraperCards.length > 0 } }, {
+        onSuccess: async () => {
+          const secrets = buildSecretsPayload(company, scraperCreds, scraperCards)
+          if (Object.keys(secrets).length > 0) {
+            setSecretsPending(true)
+            try { await pushSecrets(editTarget.id, secrets) }
+            catch (e) { console.error('Failed to push secrets:', e) }
+            finally { setSecretsPending(false) }
+          }
+          qc.invalidateQueries({ queryKey: ['connectors'] })
+          closeModal()
+        },
+      })
+    } else {
+      // ── Create new connector ─────────────────────────────────────────────────
+      const createPayload: Record<string, unknown> = {
+        name: form.name || COMPANY_INFO[company]?.name || company,
+        type: selectedType,
+        schedule: form.schedule || 'daily',
+        is_active: scraperCards.length > 0,
+        auto_create_assets: true,
+        asset_filter: null,
+        config: configPayload,
+      }
+      createMut.mutate(createPayload, {
+        onSuccess: async (created) => {
+          // Push secrets in background; global onSuccess already invalidates + closes modal
+          const secrets = buildSecretsPayload(company, scraperCreds, scraperCards)
+          if (Object.keys(secrets).length > 0) {
+            pushSecrets((created as ConnectorRead).id, secrets).catch(console.error)
+          }
+        },
+      })
     }
-
-    updateMut.mutate({ id: editTarget.id, payload: patchPayload }, {
-      onSuccess: async () => {
-        // Push credentials to GitHub Secrets if any were provided
-        const secrets = buildSecretsPayload(company, scraperCreds, scraperCards)
-        if (Object.keys(secrets).length > 0) {
-          setSecretsPending(true)
-          try { await pushSecrets(editTarget.id, secrets) }
-          catch (e) { console.error('Failed to push secrets:', e) }
-          finally { setSecretsPending(false) }
-        }
-        qc.invalidateQueries({ queryKey: ['connectors'] })
-        closeModal()
-      },
-    })
   }
 
   function handleRun(c: ConnectorRead) {
@@ -492,99 +517,108 @@ export default function ConnectorsPage() {
           </FormSection>
 
           {/* Scraper-specific config form */}
-          {isScraperType(selectedType) ? (
-            <>
-              <Divider />
-              <FormSection title="Company credentials">
-                <p className="text-[12px] text-gray-400 -mt-1 mb-2">
-                  Saved encrypted in the database and pushed to GitHub Secrets for the Actions runner.
-                </p>
-                <Field label="Username / ID">
-                  <Input value={scraperCreds.username}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setScraperCreds({ ...scraperCreds, username: e.target.value })}
-                    placeholder="e.g. 0512345678" />
-                </Field>
-                <Field label="Password" hint={editTarget ? 'Leave blank to keep existing password' : undefined}>
-                  <Input type="password" value={scraperCreds.password}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setScraperCreds({ ...scraperCreds, password: e.target.value })}
-                    placeholder={editTarget ? '••••••••' : 'Password'} />
-                </Field>
-                {editTarget && COMPANY_INFO[getCompany(editTarget)]?.hasNationalId && (
-                  <Field label="National ID (Teudat Zehut)">
-                    <Input value={scraperCreds.national_id}
+          {isScraperType(selectedType) ? (() => {
+            // Derive company key for both create (editTarget=null) and edit paths
+            const co = editTarget ? getCompany(editTarget) : selectedType.replace('_scraper', '')
+            const info = COMPANY_INFO[co]
+            return (
+              <>
+                <Divider />
+                <FormSection title="Company credentials">
+                  <p className="text-[12px] text-gray-400 -mt-1 mb-2">
+                    Saved encrypted in the database and pushed to GitHub Secrets for the Actions runner.
+                  </p>
+                  <Field label="Username / ID">
+                    <Input value={scraperCreds.username}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setScraperCreds({ ...scraperCreds, national_id: e.target.value })}
-                      placeholder="9-digit ID" />
+                        setScraperCreds({ ...scraperCreds, username: e.target.value })}
+                      placeholder="e.g. 0512345678" />
                   </Field>
-                )}
-              </FormSection>
-
-              <Divider />
-              <FormSection title="Cards">
-                {scraperCards.length === 0 && (
-                  <p className="text-[12px] text-gray-400">No cards configured yet.</p>
-                )}
-                {scraperCards.map((card, i) => (
-                  <div key={card.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                    <div className="text-[13px] text-gray-800">
-                      {card.name}
-                      {card.card6 && <span className="ml-2 text-[12px] text-gray-400">••• {card.card6.slice(-4)}</span>}
-                    </div>
-                    <button onClick={() => setScraperCards(scraperCards.filter((_, j) => j !== i))}
-                      className="text-[11px] text-rose-400 hover:text-rose-600 px-2 py-1">
-                      Remove
-                    </button>
-                  </div>
-                ))}
-
-                {showAddCard ? (
-                  <div className="mt-3 p-3 bg-gray-50 rounded-lg space-y-3">
-                    <Field label="Card nickname">
-                      <Input value={newCard.name}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCard({ ...newCard, name: e.target.value })}
-                        placeholder="e.g. My Isracard" />
+                  <Field label="Password" hint={editTarget ? 'Leave blank to keep existing password' : undefined}>
+                    <Input type="password" value={scraperCreds.password}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setScraperCreds({ ...scraperCreds, password: e.target.value })}
+                      placeholder={editTarget ? '••••••••' : 'Password'} />
+                  </Field>
+                  {info?.hasNationalId && (
+                    <Field label="National ID (Teudat Zehut)">
+                      <Input value={scraperCreds.national_id}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          setScraperCreds({ ...scraperCreds, national_id: e.target.value })}
+                        placeholder="9-digit ID" />
                     </Field>
-                    {editTarget && COMPANY_INFO[getCompany(editTarget)]?.hasCard6 && (
-                      <Field label="Last 6 digits" hint="Printed on the front of the card">
-                        <Input value={newCard.card6}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCard({ ...newCard, card6: e.target.value })}
-                          placeholder="e.g. 105177" maxLength={6} />
-                      </Field>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          if (!newCard.name) return
-                          setScraperCards([...scraperCards, {
-                            id: `card_${Date.now()}`,
-                            name: newCard.name,
-                            card6: newCard.card6 || undefined,
-                            enabled: true,
-                          }])
-                          setNewCard({ name: '', card6: '' })
-                          setShowAddCard(false)
-                        }}
-                        className="px-3 py-1.5 text-[12px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700">
-                        Add card
-                      </button>
-                      <button onClick={() => setShowAddCard(false)}
-                        className="px-3 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
-                        Cancel
+                  )}
+                </FormSection>
+
+                <Divider />
+                <FormSection title="Cards">
+                  {scraperCards.length === 0 && (
+                    <p className="text-[12px] text-gray-400">No cards configured yet.</p>
+                  )}
+                  {scraperCards.map((card, i) => (
+                    <div key={card.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                      <div className="text-[13px] text-gray-800">
+                        {card.name}
+                        {card.card6 && <span className="ml-2 text-[12px] text-gray-400">••• {card.card6.slice(-4)}</span>}
+                      </div>
+                      <button type="button" onClick={() => setScraperCards(scraperCards.filter((_, j) => j !== i))}
+                        className="text-[11px] text-rose-400 hover:text-rose-600 px-2 py-1">
+                        Remove
                       </button>
                     </div>
-                  </div>
-                ) : (
-                  <button onClick={() => setShowAddCard(true)}
-                    className="mt-2 flex items-center gap-1.5 text-[12px] text-teal-600 hover:text-teal-700 font-medium">
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5.5 1v9M1 5.5h9"/></svg>
-                    Add another card
-                  </button>
-                )}
-              </FormSection>
-            </>
-          ) : (
+                  ))}
+
+                  {showAddCard ? (
+                    <div className="mt-3 p-3 bg-gray-50 rounded-lg space-y-3">
+                      <Field label="Card nickname">
+                        <Input value={newCard.name}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCard({ ...newCard, name: e.target.value })}
+                          placeholder="e.g. My Isracard" />
+                      </Field>
+                      {info?.hasCard6 && (
+                        <Field label="Last 6 digits" hint="Printed on the front of the card">
+                          <Input value={newCard.card6}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                              setNewCard({ ...newCard, card6: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                            placeholder="e.g. 105177"
+                            inputMode="numeric"
+                            maxLength={6} />
+                        </Field>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!newCard.name) return
+                            setScraperCards([...scraperCards, {
+                              id: `card_${Date.now()}`,
+                              name: newCard.name,
+                              card6: newCard.card6 || undefined,
+                              enabled: true,
+                            }])
+                            setNewCard({ name: '', card6: '' })
+                            setShowAddCard(false)
+                          }}
+                          className="px-3 py-1.5 text-[12px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+                          Add card
+                        </button>
+                        <button type="button" onClick={() => setShowAddCard(false)}
+                          className="px-3 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setShowAddCard(true)}
+                      className="mt-2 flex items-center gap-1.5 text-[12px] text-teal-600 hover:text-teal-700 font-medium">
+                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5.5 1v9M1 5.5h9"/></svg>
+                      Add another card
+                    </button>
+                  )}
+                </FormSection>
+              </>
+            )
+          })() : (
             /* Generic config fields */
             selectedTypeDef && selectedTypeDef.config_fields.length > 0 && (
               <>
@@ -644,11 +678,11 @@ export default function ConnectorsPage() {
 
           <Divider />
           <div className="flex justify-end gap-2">
-            <button onClick={closeModal}
+            <button type="button" onClick={closeModal}
               className="px-4 py-2 text-[13px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
               Cancel
             </button>
-            <button onClick={handleSubmit}
+            <button type="button" onClick={handleSubmit}
               disabled={createMut.isPending || updateMut.isPending || secretsPending}
               className="px-4 py-2 text-[13px] font-medium bg-[#0d9488] hover:bg-teal-700 text-white rounded-lg disabled:opacity-60">
               {secretsPending ? 'Pushing secrets…' : createMut.isPending || updateMut.isPending ? 'Saving…' : editTarget ? 'Save changes' : 'Add connector'}
