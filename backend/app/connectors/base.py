@@ -68,12 +68,14 @@ class BaseConnector(ABC):
         asset_filter: Optional[List[str]],
         auto_create_assets: bool,
         db: AsyncSession,
+        connector_id: Optional[UUID] = None,
     ):
         self.config = config
         self.portfolio_id = portfolio_id
         self.asset_filter = asset_filter
         self.auto_create_assets = auto_create_assets
         self.db = db
+        self.connector_id = connector_id
 
     async def run(self) -> ConnectorResult:
         """

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -288,6 +288,7 @@ async def _execute_connector_run(connector_id: str, run_id: str):
                 asset_filter=connector.asset_filter,
                 auto_create_assets=connector.auto_create_assets,
                 db=db,
+                connector_id=uuid.UUID(connector_id),
             )
 
             # Update run — success
@@ -476,6 +477,60 @@ async def test_connector_credentials(
         diag["error"] = str(exc)
 
     return diag
+
+
+# ── Credentials endpoint (scraper auth, not Clerk) ───────────────────────────
+
+@router.get("/{connector_id}/credentials/")
+async def get_connector_credentials(
+    connector_id: UUID,
+    x_scraper_token: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Called by the GitHub Actions scraper to retrieve decrypted credentials.
+    Authentication: X-Scraper-Token (same token as /ingest/).
+    Never logs credential values.
+    """
+    if SCRAPER_SECRET and x_scraper_token != SCRAPER_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid scraper token")
+
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    config = decrypt_config(connector.config)
+    _log.info("Credentials fetched for connector %s", connector_id)
+
+    company = config.get("company") or connector.type.replace("_scraper", "")
+    username = config.get("username", "")
+    password = config.get("password", "")
+    national_id = config.get("national_id", "")
+    raw_cards: list = config.get("cards", [])
+
+    # If no cards are configured yet, synthesise a single entry from the company creds
+    if not raw_cards and (username or password):
+        raw_cards = [{"name": company, "enabled": True}]
+
+    response_cards = []
+    for card in raw_cards:
+        if not card.get("enabled", True):
+            continue
+        entry: dict = {
+            "name": card.get("name", ""),
+            "card6": card.get("card6") or None,
+            "username": username,
+            "password": password,
+        }
+        if national_id:
+            entry["national_id"] = national_id
+        response_cards.append(entry)
+
+    return {
+        "company": company,
+        "connector_id": str(connector_id),
+        "cards": response_cards,
+    }
 
 
 # ── Connector status ─────────────────────────────────────────────────────────

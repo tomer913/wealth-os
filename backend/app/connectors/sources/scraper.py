@@ -95,7 +95,7 @@ class CardScraperConnector(BaseConnector):
                 f"https://api.github.com/repos/{_GITHUB_REPO}"
                 f"/actions/workflows/{_WORKFLOW_FILE}/dispatches",
                 headers=self._headers,
-                json={"ref": "main", "inputs": {"company": self._company}},
+                json={"ref": "main", "inputs": {"connector_id": str(self.connector_id or "")}},
             )
             if resp.status_code != 204:
                 raise CardScraperError(

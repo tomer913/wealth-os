@@ -62,6 +62,7 @@ class ConnectorHandler:
         asset_filter: Optional[List[str]],
         auto_create_assets: bool,
         db: AsyncSession,
+        connector_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         instance = self.cls(
             config=config,
@@ -69,6 +70,7 @@ class ConnectorHandler:
             asset_filter=asset_filter,
             auto_create_assets=auto_create_assets,
             db=db,
+            connector_id=connector_id,
         )
         result = await instance.run()
         return result.to_dict()

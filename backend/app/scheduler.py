@@ -282,6 +282,7 @@ async def _run_single_connector(connector_id):
                 asset_filter=connector.asset_filter,
                 auto_create_assets=connector.auto_create_assets,
                 db=db,
+                connector_id=connector_id,
             )
 
             finished = datetime.now(timezone.utc)

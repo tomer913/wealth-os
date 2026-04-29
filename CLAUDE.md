@@ -146,3 +146,9 @@ Now adding **raw data layer** (April 2026):
 - Supabase is DB only (no auth, no edge functions used)
 - Environment variables for DB connection are set in Railway dashboard
 - Do not commit secrets or `.env` files
+
+### Scraper credentials architecture
+- Card credentials (username/password/card6) are stored **encrypted in the DB** via the Connectors UI
+- `GET /api/v1/connectors/{id}/credentials/` — returns decrypted credentials to the scraper; auth: `X-Scraper-Token`
+- GitHub Actions workflow receives only `CONNECTOR_ID`; no card secrets stored in GitHub
+- `scraper/index.js` fetches from API when `CONNECTOR_ID` is set; falls back to env vars for local testing

@@ -3,10 +3,10 @@ name: Scrape Credit Cards
 on:
   workflow_dispatch:
     inputs:
-      company:
-        description: 'Company to scrape (leave empty to scrape all configured companies)'
-        required: false
-        default: ''
+      connector_id:
+        description: 'Connector ID to scrape (fetches credentials from DB at runtime)'
+        required: true
+        type: string
 
 jobs:
   scrape:
@@ -67,26 +67,9 @@ jobs:
         working-directory: scraper
         env:
           WEALTH_OS_API_URL: ${{ secrets.WEALTH_OS_API_URL }}
-          SCRAPER_SECRET: ${{ secrets.SCRAPER_SECRET }}
-          PORTFOLIO_ID: ${{ secrets.PORTFOLIO_ID }}
-          TARGET_COMPANY: ${{ inputs.company }}
-          # Isracard — supports multiple cards via numbered CARD6 secrets
-          ISRACARD_USERNAME: ${{ secrets.ISRACARD_USERNAME }}
-          ISRACARD_PASSWORD: ${{ secrets.ISRACARD_PASSWORD }}
-          ISRACARD_CARD6:   ${{ secrets.ISRACARD_CARD6 }}
-          ISRACARD_CARD6_2: ${{ secrets.ISRACARD_CARD6_2 }}
-          ISRACARD_CARD6_3: ${{ secrets.ISRACARD_CARD6_3 }}
-          # Cal
-          CAL_USERNAME: ${{ secrets.CAL_USERNAME }}
-          CAL_PASSWORD: ${{ secrets.CAL_PASSWORD }}
-          # Max
-          MAX_USERNAME: ${{ secrets.MAX_USERNAME }}
-          MAX_PASSWORD: ${{ secrets.MAX_PASSWORD }}
-          # Leumi Card
-          LEUMI_CARD_USERNAME: ${{ secrets.LEUMI_CARD_USERNAME }}
-          LEUMI_CARD_PASSWORD: ${{ secrets.LEUMI_CARD_PASSWORD }}
-          LEUMI_CARD_NATIONAL_ID: ${{ secrets.LEUMI_CARD_NATIONAL_ID }}
-          # Amex
-          AMEX_USERNAME: ${{ secrets.AMEX_USERNAME }}
-          AMEX_PASSWORD: ${{ secrets.AMEX_PASSWORD }}
+          SCRAPER_SECRET:    ${{ secrets.SCRAPER_SECRET }}
+          PORTFOLIO_ID:      ${{ secrets.PORTFOLIO_ID }}
+          CONNECTOR_ID:      ${{ inputs.connector_id }}
+          # Credentials are fetched from the DB via the credentials endpoint at runtime.
+          # No card-company secrets needed here anymore.
         run: npm run scrape
