@@ -70,6 +70,10 @@
       "conflicts": "קונפליקטים"
     },
     "approve_all_high": "אשר את כל בעלי הביטחון הגבוה (>90%)",
+    "approve_all_queue": "אשר עם ביטחון גבוה ({{count}})",
+    "approve_bulk_confirm_title": "אישור תנועות בביטחון גבוה",
+    "approve_bulk_confirm_msg": "לאשר {{count}} תנועות עם ביטחון > 90%? פעולה זו תעדכן את הפועל התקציבי.",
+    "approved_bulk": "אושרו {{count}} תנועות",
     "test_result": "{{count}} תנועות יתאימו לחוק זה",
     "no_matches": "אין תנועות תואמות בנתונים האחרונים",
     "go_to_review": "עבור לתור בדיקה",

@@ -70,6 +70,10 @@
       "conflicts": "Conflicts"
     },
     "approve_all_high": "Approve all with high confidence (>90%)",
+    "approve_all_queue": "Approve high confidence ({{count}})",
+    "approve_bulk_confirm_title": "Approve high confidence transactions",
+    "approve_bulk_confirm_msg": "Approve {{count}} transactions with confidence > 90%? This will update your budget actuals.",
+    "approved_bulk": "Approved {{count}} transactions",
     "test_result": "{{count}} transactions would match this rule",
     "no_matches": "No matching transactions in recent data",
     "go_to_review": "Go to review queue",

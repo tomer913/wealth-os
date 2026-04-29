@@ -285,6 +285,15 @@ export async function categorizePendingTx(
   return data
 }
 
+export async function approveBulkReview(minConfidence = 0.9): Promise<{ approved: number; total_amount: number; categories: Record<string, number> }> {
+  const { data } = await apiClient.post(
+    '/api/v1/budget/review/approve-bulk/',
+    { min_confidence: minConfidence },
+    { params: { portfolio_id: pid() } },
+  )
+  return data
+}
+
 export async function getBudgetSummary(year: number, month?: number) {
   const { data } = await apiClient.get('/api/v1/budget/summary/', {
     params: { portfolio_id: pid(), year, ...(month != null ? { month } : {}) },

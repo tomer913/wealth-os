@@ -845,6 +845,125 @@ async def categorize_review_item(
     }
 
 
+# ── Bulk approve high-confidence review items ─────────────────────────────────
+
+@router.post("/review/approve-bulk/")
+async def approve_bulk_review(
+    body: dict,
+    portfolio_id: UUID = Depends(_verified_pid),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Approve all review-queue items whose confidence >= min_confidence and that
+    already have a category assigned (AI classified but flagged for confirmation).
+    Runs in a single flush so a failure leaves the DB consistent.
+    """
+    min_confidence = float(body.get("min_confidence", 0.9))
+
+    q = (
+        select(ClassificationLog)
+        .join(RawTransaction, ClassificationLog.raw_transaction_id == RawTransaction.id)
+        .where(
+            RawTransaction.portfolio_id == portfolio_id,
+            ClassificationLog.needs_review == True,
+            ClassificationLog.reviewed_at == None,
+            ClassificationLog.category_id != None,
+            ClassificationLog.confidence >= min_confidence,
+        )
+    )
+    entries = (await db.execute(q)).scalars().all()
+
+    if not entries:
+        return {"approved": 0, "total_amount": 0.0, "categories": {}}
+
+    # Pre-load category names for the summary
+    cat_ids = {e.category_id for e in entries if e.category_id}
+    cats: dict = {}
+    if cat_ids:
+        cq = select(BudgetCategory).where(BudgetCategory.id.in_(cat_ids))
+        cats = {c.id: c.name for c in (await db.execute(cq)).scalars().all()}
+
+    now = datetime.now(timezone.utc)
+    approved = 0
+    total_amount = Decimal(0)
+    cat_counts: dict = {}
+
+    for log_entry in entries:
+        cat_id = log_entry.category_id
+        if not cat_id:
+            continue
+
+        # Mark reviewed
+        log_entry.reviewed_at = now
+        log_entry.reviewed_by = "bulk_approve"
+        log_entry.needs_review = False
+
+        raw_tx = await db.get(RawTransaction, log_entry.raw_transaction_id)
+        if not raw_tx or not raw_tx.raw_date:
+            approved += 1
+            continue
+
+        year = raw_tx.raw_date.year
+        month = raw_tx.raw_date.month
+        amount = abs(raw_tx.amount)
+        total_amount += amount
+
+        # Upsert monthly bucket
+        actual_stmt = (
+            pg_insert(BudgetActual)
+            .values(
+                id=uuid.uuid4(),
+                portfolio_id=portfolio_id,
+                category_id=cat_id,
+                year=year,
+                month=month,
+                actual_amount=Decimal(0),
+                transaction_count=0,
+                last_updated=now,
+            )
+            .on_conflict_do_update(
+                constraint="uq_budget_actuals_category_month",
+                set_={"last_updated": now},
+            )
+            .returning(BudgetActual.__table__.c.id)
+        )
+        actual_id: UUID = (await db.execute(actual_stmt)).scalar_one()
+
+        # Upsert junction row (idempotent)
+        bat_stmt = (
+            pg_insert(BudgetActualTransaction)
+            .values(
+                raw_transaction_id=log_entry.raw_transaction_id,
+                budget_actual_id=actual_id,
+                amount=amount,
+                categorized_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=["raw_transaction_id"],
+                set_={
+                    "budget_actual_id": actual_id,
+                    "amount": amount,
+                    "categorized_at": now,
+                },
+            )
+        )
+        await db.execute(bat_stmt)
+        await _recalculate_budget_actual(db, actual_id, now)
+
+        cat_name = cats.get(cat_id, str(cat_id))
+        cat_counts[cat_name] = cat_counts.get(cat_name, 0) + 1
+        approved += 1
+
+    await db.flush()
+    log.info("Bulk approved %d transactions (min_confidence=%.2f)", approved, min_confidence)
+
+    return {
+        "approved": approved,
+        "total_amount": float(total_amount),
+        "categories": cat_counts,
+    }
+
+
 # ── Classification log ─────────────────────────────────────────────────────────
 
 @router.get("/classification-log/", response_model=List[ClassificationLogRead])

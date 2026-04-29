@@ -8,7 +8,7 @@ import {
   getBudgetRules, getBudgetCategories, getBudgetReviewQueue, getBudgetSummary,
   createBudgetRule, updateBudgetRule, deleteBudgetRule,
   approveBudgetRule, testBudgetRule, testBudgetConditions,
-  categorizePendingTx, createBudgetCategory,
+  categorizePendingTx, createBudgetCategory, approveBulkReview,
 } from '../api/portfolio'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ interface ReviewItem {
   category_id: string | null
   method: string
   needs_review: boolean
+  confidence: number
   raw_description: string | null
   raw_amount: number | null
   raw_date: string | null
@@ -661,6 +662,17 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
   const qc = useQueryClient()
   const currentYear = new Date().getFullYear()
 
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
+  const approveBulkMut = useMutation({
+    mutationFn: () => approveBulkReview(0.9),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['budget-review'] })
+      qc.invalidateQueries({ queryKey: ['budget-actuals'] })
+      qc.invalidateQueries({ queryKey: ['budget-summary'] })
+      setShowBulkConfirm(false)
+    },
+  })
+
   // Fetch annual usage counts to sort categories by frequency
   const { data: annualSummary = [] } = useQuery({
     queryKey: ['budget-summary', currentYear, null],
@@ -729,9 +741,34 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
     }
   }
 
+  const highConfCount = (queue as ReviewItem[]).filter(
+    item => item.confidence >= 0.9 && item.category_id != null,
+  ).length
+
   if (isLoading) return <p className="text-[12px] text-gray-400 text-center py-10">{t('rules.loading')}</p>
 
   return (
+    <>
+      {highConfCount > 0 && (
+        <div className="flex justify-end mb-3">
+          <button
+            type="button"
+            onClick={() => setShowBulkConfirm(true)}
+            disabled={approveBulkMut.isPending}
+            className="px-3 py-1.5 text-[12px] font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50"
+          >
+            {approveBulkMut.isPending ? '…' : t('rules.approve_all_queue', { count: highConfCount })}
+          </button>
+        </div>
+      )}
+      <ConfirmDialog
+        open={showBulkConfirm}
+        title={t('rules.approve_bulk_confirm_title')}
+        message={t('rules.approve_bulk_confirm_msg', { count: highConfCount })}
+        confirmLabel={t('rules.approve_all_queue', { count: highConfCount })}
+        onConfirm={() => approveBulkMut.mutate()}
+        onCancel={() => setShowBulkConfirm(false)}
+      />
     <table className="w-full text-[12px]">
       <thead>
         <tr className="border-b border-gray-100">
@@ -868,6 +905,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
         ))}
       </tbody>
     </table>
+    </>
   )
 }
 
