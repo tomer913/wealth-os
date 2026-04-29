@@ -59,6 +59,7 @@ def _to_read(connector: Connector, latest_run: ConnectorRun | None = None) -> Co
     )
     if latest_run:
         data.last_run_status = latest_run.status
+        data.last_run_started_at = latest_run.started_at
         data.last_run_summary = {
             "transactions_created": latest_run.transactions_created,
             "assets_created": latest_run.assets_created,
@@ -220,12 +221,12 @@ async def trigger_run(
     if not connector.is_active:
         raise HTTPException(status_code=400, detail="Connector is disabled")
 
-    # Create run record immediately with pending status
+    # Create run record immediately with status=running so the UI reflects it at once
     run = ConnectorRun(
         id=uuid.uuid4(),
         connector_id=connector_id,
         portfolio_id=connector.portfolio_id,
-        status="pending",
+        status="running",
         triggered_by="manual",
         started_at=datetime.now(timezone.utc),
     )
@@ -244,7 +245,7 @@ async def trigger_run(
     return TriggerRunResponse(
         run_id=run_id,
         connector_id=connector_id,
-        status="pending",
+        status="running",
         message=f"Run started for connector '{connector.name}'",
     )
 
@@ -261,9 +262,6 @@ async def _execute_connector_run(connector_id: str, run_id: str):
             if not run or not connector:
                 return
 
-            # Mark as running
-            run.status = "running"
-            run.started_at = datetime.now(timezone.utc)
             await db.flush()
 
             # Decrypt config; auto-migrate plain text configs to encrypted format
@@ -478,6 +476,76 @@ async def test_connector_credentials(
         diag["error"] = str(exc)
 
     return diag
+
+
+# ── Connector status ─────────────────────────────────────────────────────────
+
+_STUCK_AFTER_SECONDS = 20 * 60  # 20 minutes
+
+
+@router.get("/{connector_id}/status/")
+async def get_connector_status(
+    connector_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Live status of a connector — is it running, stuck, or idle?
+    Also auto-fails runs stuck in 'running'/'pending' for > 20 minutes.
+    """
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.portfolio_id:
+        await verify_portfolio_access(
+            db, connector.portfolio_id,
+            current_user["user_id"], current_user.get("org_id"),
+        )
+
+    run_q = (
+        select(ConnectorRun)
+        .where(ConnectorRun.connector_id == connector_id)
+        .order_by(ConnectorRun.created_at.desc())
+        .limit(1)
+    )
+    latest_run = (await db.execute(run_q)).scalar_one_or_none()
+
+    # Stuck-run detection: auto-fail runs that have been 'running' too long
+    if latest_run and latest_run.status in ("running", "pending") and latest_run.started_at:
+        started = latest_run.started_at
+        if started.tzinfo is None:
+            from datetime import timezone as _tz
+            started = started.replace(tzinfo=_tz.utc)
+        age = (datetime.now(timezone.utc) - started).total_seconds()
+        if age > _STUCK_AFTER_SECONDS:
+            latest_run.status = "failed"
+            latest_run.error_message = "Run timed out — connector may have crashed or the server restarted"
+            latest_run.finished_at = datetime.now(timezone.utc)
+            latest_run.duration_ms = int(age * 1000)
+            connector.last_error = "Run timed out after 20 minutes"
+            await db.commit()
+
+    is_running = bool(latest_run and latest_run.status in ("running", "pending"))
+
+    result: dict = {"connector_id": str(connector_id), "is_running": is_running}
+
+    if latest_run:
+        run_data = {
+            "id": str(latest_run.id),
+            "status": latest_run.status,
+            "triggered_by": latest_run.triggered_by,
+            "started_at": latest_run.started_at.isoformat() if latest_run.started_at else None,
+            "finished_at": latest_run.finished_at.isoformat() if latest_run.finished_at else None,
+            "records_fetched": latest_run.records_fetched,
+            "transactions_created": latest_run.transactions_created,
+            "error_message": latest_run.error_message,
+        }
+        if is_running:
+            result["current_run"] = run_data
+        else:
+            result["last_run"] = run_data
+
+    return result
 
 
 # ── GitHub Secrets push ───────────────────────────────────────────────────────

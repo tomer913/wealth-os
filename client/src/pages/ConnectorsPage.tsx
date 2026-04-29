@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppStore } from '../store'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
@@ -23,6 +23,7 @@ interface ConnectorRead {
   last_run_at: string | null
   last_error: string | null
   last_run_status: string | null
+  last_run_started_at: string | null
   last_run_summary: {
     transactions_created: number | null
     assets_created: number | null
@@ -158,6 +159,14 @@ function buildSecretsPayload(
   return out
 }
 
+function formatElapsed(startedAt: string | null): string {
+  if (!startedAt) return ''
+  const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  return `${mins}m ${secs % 60}s`
+}
+
 function formatDuration(ms: number | null) {
   if (!ms) return '—'
   if (ms < 1000) return `${ms}ms`
@@ -183,6 +192,14 @@ export default function ConnectorsPage() {
   const { data: connectors = [], isLoading } = useQuery({
     queryKey: ['connectors'],
     queryFn: getConnectors,
+    // Poll every 5 s while any connector is running so the UI updates automatically
+    refetchInterval: (query) => {
+      const data = query.state.data as ConnectorRead[] | undefined
+      const anyRunning = data?.some(
+        c => c.last_run_status === 'running' || c.last_run_status === 'pending'
+      )
+      return anyRunning ? 5000 : false
+    },
   })
 
   const { data: connectorTypes = [] } = useQuery({
@@ -213,11 +230,9 @@ export default function ConnectorsPage() {
 
   const runMut = useMutation({
     mutationFn: triggerRun,
-    onSuccess: (_, id) => {
-      setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ['connectors'] })
-        qc.invalidateQueries({ queryKey: ['runs', id] })
-      }, 2000)
+    onSuccess: () => {
+      // Refetch immediately so last_run_status = 'running' shows up
+      qc.invalidateQueries({ queryKey: ['connectors'] })
     },
   })
 
@@ -236,6 +251,22 @@ export default function ConnectorsPage() {
   const [newCard, setNewCard] = useState({ name: '', card6: '' })
   const [showAddCard, setShowAddCard] = useState(false)
   const [secretsPending, setSecretsPending] = useState(false)
+
+  // On mount: hit the status endpoint for any connector that appears running so
+  // the backend can auto-fail stuck runs and the UI gets fresh data.
+  const checkedRef = useRef(false)
+  useEffect(() => {
+    if (checkedRef.current || connectors.length === 0) return
+    const running = connectors.filter(
+      c => c.last_run_status === 'running' || c.last_run_status === 'pending'
+    )
+    if (running.length === 0) return
+    checkedRef.current = true
+    running.forEach(c =>
+      apiClient.get(`/api/v1/connectors/${c.id}/status/`).catch(() => {})
+    )
+    qc.invalidateQueries({ queryKey: ['connectors'] })
+  }, [connectors.length])
 
   const selectedTypeDef = connectorTypes.find(t => t.type === selectedType)
 
@@ -355,7 +386,14 @@ export default function ConnectorsPage() {
   function handleRun(c: ConnectorRead) {
     setRunningIds(prev => new Set(prev).add(c.id))
     runMut.mutate(c.id, {
-      onSettled: () => setRunningIds(prev => { const s = new Set(prev); s.delete(c.id); return s }),
+      // Keep runningIds until the DB echoes back status='running' in the next poll
+      onSettled: () => {
+        // Remove from local set after a short delay — DB status takes over from here
+        setTimeout(
+          () => setRunningIds(prev => { const s = new Set(prev); s.delete(c.id); return s }),
+          3000,
+        )
+      },
     })
   }
 
@@ -384,7 +422,11 @@ export default function ConnectorsPage() {
             <ConnectorCard
               key={c.id}
               connector={c}
-              isRunning={runningIds.has(c.id)}
+              isRunning={
+                runningIds.has(c.id) ||
+                c.last_run_status === 'running' ||
+                c.last_run_status === 'pending'
+              }
               onRun={() => handleRun(c)}
               onEdit={() => openEdit(c)}
               onDelete={() => setDeleteTarget(c)}
@@ -688,8 +730,17 @@ function ConnectorCard({
                   <span>Last run {formatRelative(c.last_run_at)}</span>
                 </>
               )}
-              {(status === 'running' || status === 'pending') && (isScraperType(c.type)) && (
-                <span className="text-amber-600">Scraping credit cards… (up to 15 min)</span>
+              {isRunning && isScraperType(c.type) && (
+                <span className="text-amber-600">
+                  Scraping credit cards…
+                  {c.last_run_started_at && ` (${formatElapsed(c.last_run_started_at)} elapsed)`}
+                </span>
+              )}
+              {isRunning && !isScraperType(c.type) && (
+                <span className="text-amber-600">
+                  Running…
+                  {c.last_run_started_at && ` (${formatElapsed(c.last_run_started_at)})`}
+                </span>
               )}
               {status === 'success' && summary && (
                 <>

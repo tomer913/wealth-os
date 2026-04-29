@@ -44,6 +44,7 @@ class ConnectorRead(BaseModel):
 
     # Computed from latest run
     last_run_status: Optional[str] = None
+    last_run_started_at: Optional[datetime] = None
     last_run_summary: Optional[Dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
