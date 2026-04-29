@@ -17,6 +17,15 @@ log = logging.getLogger(__name__)
 
 _GITHUB_REPO = "tomer913/wealth-os"
 _WORKFLOW_FILE = "scrape-cards.yml"
+_GH_ACTIONS_BASE = f"https://github.com/{_GITHUB_REPO}/actions/runs"
+
+
+class CardScraperError(RuntimeError):
+    """RuntimeError that carries a checkpoint dict so the DB run record gets
+    github_run_url even when the workflow fails."""
+    def __init__(self, message: str, checkpoint: dict | None = None):
+        super().__init__(message)
+        self.checkpoint = checkpoint or {}
 
 
 class CardScraperConnector(BaseConnector):
@@ -47,9 +56,12 @@ class CardScraperConnector(BaseConnector):
             "Accept": "application/vnd.github.v3+json",
         }
 
+    def _run_url(self, run_id: str) -> str:
+        return f"{_GH_ACTIONS_BASE}/{run_id}"
+
     async def run(self) -> ConnectorResult:
         if not self._token:
-            raise RuntimeError("GITHUB_TOKEN is not set — cannot trigger GitHub Actions")
+            raise CardScraperError("GITHUB_TOKEN is not set — cannot trigger GitHub Actions")
 
         triggered_at = datetime.now(timezone.utc)
         run_id = await self._trigger_workflow(triggered_at)
@@ -57,22 +69,25 @@ class CardScraperConnector(BaseConnector):
 
         outcome = await self._wait_for_completion(run_id)
         conclusion = outcome["conclusion"]
-        run_url = outcome.get("url", "")
+        run_url = outcome.get("url") or self._run_url(run_id)
+        checkpoint = {"github_run_id": run_id, "github_run_url": run_url}
 
         if conclusion == "timed_out":
-            raise RuntimeError(
-                f"GitHub Actions run {run_id} timed out after {self.MAX_WAIT}s"
+            raise CardScraperError(
+                f"GitHub Actions run {run_id} timed out after {self.MAX_WAIT}s\n\nFull logs: {run_url}",
+                checkpoint=checkpoint,
             )
+
         if conclusion != "success":
-            raise RuntimeError(
-                f"GitHub Actions run {run_id} concluded '{conclusion}' — {run_url}"
+            detail = outcome.get("error") or f"Workflow concluded '{conclusion}'"
+            raise CardScraperError(
+                f"{detail}\n\nFull logs: {run_url}",
+                checkpoint=checkpoint,
             )
 
         await self._run_processors()
 
-        return ConnectorResult(
-            checkpoint={"github_run_id": run_id, "github_run_url": run_url},
-        )
+        return ConnectorResult(checkpoint=checkpoint)
 
     async def _trigger_workflow(self, triggered_at: datetime) -> str:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -83,7 +98,7 @@ class CardScraperConnector(BaseConnector):
                 json={"ref": "main", "inputs": {"company": self._company}},
             )
             if resp.status_code != 204:
-                raise RuntimeError(
+                raise CardScraperError(
                     f"Failed to trigger GitHub Actions: {resp.status_code} {resp.text}"
                 )
 
@@ -103,7 +118,7 @@ class CardScraperConnector(BaseConnector):
 
             workflow_runs = runs_data.get("workflow_runs", [])
             if not workflow_runs:
-                raise RuntimeError("Triggered workflow but no run appeared in GitHub API")
+                raise CardScraperError("Triggered workflow but no run appeared in GitHub API")
             return str(workflow_runs[0]["id"])
 
     async def _wait_for_completion(self, run_id: str) -> dict:
@@ -127,13 +142,74 @@ class CardScraperConnector(BaseConnector):
                 )
 
                 if status == "completed":
+                    error_detail = None
+                    if conclusion != "success":
+                        error_detail = await self._get_failure_reason(client, run_id)
                     return {
                         "conclusion": conclusion,
                         "url": run.get("html_url"),
                         "duration": elapsed,
+                        "error": error_detail,
                     }
 
-        return {"conclusion": "timed_out"}
+        return {
+            "conclusion": "timed_out",
+            "error": f"Workflow did not complete in {self.MAX_WAIT}s",
+        }
+
+    async def _get_failure_reason(self, client: httpx.AsyncClient, run_id: str) -> str:
+        """Fetch the actual failure details from GitHub Actions job logs."""
+        try:
+            jobs_resp = await client.get(
+                f"https://api.github.com/repos/{_GITHUB_REPO}/actions/runs/{run_id}/jobs",
+                headers=self._headers,
+            )
+            jobs_data = jobs_resp.json()
+
+            error_parts: list[str] = []
+
+            for job in jobs_data.get("jobs", []):
+                if job.get("conclusion") != "failure":
+                    continue
+
+                job_name = job.get("name", "unknown")
+
+                # Record which step failed
+                for step in job.get("steps", []):
+                    if step.get("conclusion") == "failure":
+                        error_parts.append(
+                            f"Job '{job_name}' failed at step '{step.get('name', 'unknown')}'"
+                        )
+
+                # Fetch the raw log text for the failed job
+                logs_resp = await client.get(
+                    f"https://api.github.com/repos/{_GITHUB_REPO}"
+                    f"/actions/jobs/{job['id']}/logs",
+                    headers=self._headers,
+                    follow_redirects=True,
+                )
+
+                if logs_resp.status_code == 200:
+                    lines = logs_resp.text.strip().split("\n")
+
+                    def strip_ts(line: str) -> str:
+                        # GitHub log lines: "2024-01-01T00:00:00.0000000Z message"
+                        parts = line.split(" ", 1)
+                        return parts[1].strip() if len(parts) > 1 else line.strip()
+
+                    clean = [strip_ts(ln) for ln in lines if ln.strip()]
+
+                    keywords = ("error", "failed", "exception", "invalid", "unauthorized", "scrape failed")
+                    error_lines = [ln for ln in clean if any(kw in ln.lower() for kw in keywords)]
+
+                    if error_lines:
+                        error_parts.extend(error_lines[-5:])
+
+            return "\n".join(error_parts) if error_parts else "Run failed — no specific error captured in logs"
+
+        except Exception as exc:
+            log.warning("Could not fetch GitHub job logs for run %s: %s", run_id, exc)
+            return "Run failed (log fetch unavailable)"
 
     async def _run_processors(self):
         log.info(

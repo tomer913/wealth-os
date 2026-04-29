@@ -865,9 +865,21 @@ function RunHistoryDrawer({ connector, onClose }: { connector: ConnectorRead; on
 
               {/* Expanded error details */}
               {expandedId === run.id && run.error_message && (
-                <div className="mx-5 mb-3 p-3 bg-rose-50 rounded-lg">
-                  <p className="text-[12px] font-medium text-rose-700 mb-1">Error</p>
-                  <p className="text-[11px] text-rose-600">{run.error_message}</p>
+                <div className="mx-5 mb-3 p-3 bg-rose-50 rounded-lg space-y-2">
+                  <p className="text-[12px] font-medium text-rose-700">Error</p>
+                  <pre className="text-[11px] text-rose-600 whitespace-pre-wrap font-sans leading-relaxed">
+                    {run.error_message}
+                  </pre>
+                  {run.checkpoint?.github_run_url && (
+                    <a
+                      href={run.checkpoint.github_run_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 text-[11px] text-teal-600 hover:underline font-medium">
+                      View full logs on GitHub →
+                    </a>
+                  )}
                 </div>
               )}
             </div>

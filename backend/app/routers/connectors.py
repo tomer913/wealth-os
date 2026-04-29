@@ -329,8 +329,12 @@ async def _execute_connector_run(connector_id: str, run_id: str):
                         run.duration_ms = int(
                             (finished - run.started_at).total_seconds() * 1000
                         )
+                    # CardScraperError carries github_run_url even on failure
+                    if hasattr(e, "checkpoint") and e.checkpoint:
+                        run.checkpoint = e.checkpoint
                 if connector:
-                    connector.last_error = str(e)
+                    # Store only the first line so the card summary stays concise
+                    connector.last_error = str(e).split("\n")[0]
                 await err_db.commit()
 
 
