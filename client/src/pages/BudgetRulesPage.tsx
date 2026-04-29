@@ -152,111 +152,93 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-// ─── Condition Builder ────────────────────────────────────────────────────────
+// ─── Condition Row ─────────────────────────────────────────────────────────────
+// Inline styled with plain <select>/<input> to avoid the Select wrapper's
+// w-full base class collapsing the flex layout.
 
-function ConditionBuilder({ conditions, onChange }: {
-  conditions: Conditions
-  onChange: (c: Conditions) => void
+interface CondRow {
+  id: string
+  field: string
+  op: string
+  value: string
+}
+
+const SEL_CLS = 'px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-50 transition-colors'
+const IN_CLS  = 'flex-1 px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-50 transition-colors min-w-0'
+
+function ConditionRows({ rows, op, onRowsChange, onOpChange }: {
+  rows: CondRow[]
+  op: 'AND' | 'OR'
+  onRowsChange: (rows: CondRow[]) => void
+  onOpChange: (op: 'AND' | 'OR') => void
 }) {
-  function updateOp(op: 'AND' | 'OR') {
-    onChange({ ...conditions, operator: op })
+  function update(id: string, patch: Partial<CondRow>) {
+    onRowsChange(rows.map(r => r.id === id ? { ...r, ...patch } : r))
   }
-
-  function updateRule(i: number, patch: Partial<Condition>) {
-    const rules = [...conditions.rules]
-    rules[i] = { ...rules[i], ...patch }
-    // Reset value when switching op
-    if (patch.op && patch.op === 'between') rules[i].value = [0, 9999999]
-    else if (patch.op && NUMBER_OPS.includes(patch.op) && !Array.isArray(rules[i].value)) rules[i].value = 0
-    else if (patch.op && STRING_OPS.includes(patch.op) && typeof rules[i].value !== 'string') rules[i].value = ''
-    onChange({ ...conditions, rules })
+  function remove(id: string) {
+    const next = rows.filter(r => r.id !== id)
+    onRowsChange(next.length ? next : [{ id: crypto.randomUUID(), field: 'description', op: 'contains', value: '' }])
   }
-
-  function addRule() {
-    onChange({ ...conditions, rules: [...conditions.rules, { field: 'description', op: 'contains', value: '' }] })
-  }
-
-  function removeRule(i: number) {
-    const rules = conditions.rules.filter((_, idx) => idx !== i)
-    onChange({ ...conditions, rules: rules.length ? rules : [{ field: 'description', op: 'contains', value: '' }] })
+  function add() {
+    onRowsChange([...rows, { id: crypto.randomUUID(), field: 'description', op: 'contains', value: '' }])
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 mb-1">
         <span className="text-[12px] text-gray-500">Match</span>
-        {(['AND', 'OR'] as const).map((op) => (
-          <button
-            key={op}
-            type="button"
-            onClick={() => updateOp(op)}
-            className={clsx(
-              'px-2.5 py-1 text-[11px] font-semibold rounded transition-colors',
-              conditions.operator === op
-                ? 'bg-teal-600 text-white'
-                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-            )}
-          >{op}</button>
+        {(['AND', 'OR'] as const).map((o) => (
+          <button key={o} type="button" onClick={() => onOpChange(o)}
+            className={clsx('px-2.5 py-1 text-[11px] font-semibold rounded transition-colors',
+              op === o ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
+            {o}
+          </button>
         ))}
         <span className="text-[12px] text-gray-500">conditions</span>
       </div>
 
-      {conditions.rules.map((rule, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <Select
-            value={rule.field}
-            onChange={(e) => updateRule(i, { field: e.target.value })}
-            className="flex-shrink-0 w-36 text-[12px]"
-          >
-            {FIELDS.map((f) => <option key={f} value={f}>{f}</option>)}
-          </Select>
+      {rows.map((row) => (
+        <div key={row.id} className="flex items-center gap-2">
+          {/* Field */}
+          <select value={row.field} onChange={e => update(row.id, { field: e.target.value })}
+            className={clsx(SEL_CLS, 'w-36 flex-shrink-0')}>
+            {FIELDS.map(f => <option key={f} value={f}>{FIELD_LABELS[f] ?? f}</option>)}
+          </select>
 
-          <Select
-            value={rule.op}
-            onChange={(e) => updateRule(i, { op: e.target.value })}
-            className="flex-shrink-0 w-32 text-[12px]"
-          >
-            {ALL_OPS.map((op) => <option key={op} value={op}>{op.replace('_', ' ')}</option>)}
-          </Select>
+          {/* Operator */}
+          <select value={row.op} onChange={e => update(row.id, { op: e.target.value })}
+            className={clsx(SEL_CLS, 'w-32 flex-shrink-0')}>
+            {STRING_OPS.map(o => <option key={o} value={o}>{OP_LABELS[o] ?? o}</option>)}
+            <optgroup label="Numeric">
+              {NUMBER_OPS.map(o => <option key={o} value={o}>{OP_LABELS[o] ?? o}</option>)}
+            </optgroup>
+          </select>
 
-          {rule.op === 'between' ? (
-            <div className="flex items-center gap-1 flex-1">
-              <Input
-                type="number"
-                value={Array.isArray(rule.value) ? rule.value[0] : 0}
-                onChange={(e) => updateRule(i, { value: [Number(e.target.value), Array.isArray(rule.value) ? rule.value[1] : 0] })}
-                className="w-24 text-[12px]"
-              />
-              <span className="text-[11px] text-gray-400">–</span>
-              <Input
-                type="number"
-                value={Array.isArray(rule.value) ? rule.value[1] : 0}
-                onChange={(e) => updateRule(i, { value: [Array.isArray(rule.value) ? rule.value[0] : 0, Number(e.target.value)] })}
-                className="w-24 text-[12px]"
-              />
+          {/* Value — always visible */}
+          {row.op === 'between' ? (
+            <div className="flex items-center gap-1 flex-1 min-w-0">
+              <input type="number" value={row.value.split(',')[0] ?? ''}
+                onChange={e => update(row.id, { value: `${e.target.value},${row.value.split(',')[1] ?? ''}` })}
+                className={clsx(IN_CLS, 'flex-none w-24')} placeholder="min" />
+              <span className="text-[11px] text-gray-400 flex-shrink-0">–</span>
+              <input type="number" value={row.value.split(',')[1] ?? ''}
+                onChange={e => update(row.id, { value: `${row.value.split(',')[0] ?? ''},${e.target.value}` })}
+                className={clsx(IN_CLS, 'flex-none w-24')} placeholder="max" />
             </div>
-          ) : NUMBER_OPS.includes(rule.op) ? (
-            <Input
-              type="number"
-              value={typeof rule.value === 'number' ? rule.value : 0}
-              onChange={(e) => updateRule(i, { value: Number(e.target.value) })}
-              className="flex-1 text-[12px]"
-            />
           ) : (
-            <Input
-              value={typeof rule.value === 'string' ? rule.value : ''}
-              onChange={(e) => updateRule(i, { value: e.target.value })}
-              placeholder="value"
-              className="flex-1 text-[12px]"
+            <input
+              type={NUMBER_OPS.includes(row.op) ? 'number' : 'text'}
+              value={row.value}
+              onChange={e => update(row.id, { value: e.target.value })}
+              placeholder="value…"
               dir="rtl"
+              className={IN_CLS}
             />
           )}
 
-          <button
-            type="button"
-            onClick={() => removeRule(i)}
-            className="text-gray-300 hover:text-rose-500 transition-colors flex-shrink-0"
-          >
+          {/* Remove */}
+          <button type="button" onClick={() => remove(row.id)}
+            className="text-gray-300 hover:text-rose-500 transition-colors flex-shrink-0">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M1 1l12 12M13 1L1 13"/>
             </svg>
@@ -264,15 +246,48 @@ function ConditionBuilder({ conditions, onChange }: {
         </div>
       ))}
 
-      <button
-        type="button"
-        onClick={addRule}
-        className="text-[12px] text-teal-600 hover:text-teal-700 font-medium"
-      >
+      <button type="button" onClick={add}
+        className="text-[12px] text-teal-600 hover:text-teal-700 font-medium">
         + Add condition
       </button>
     </div>
   )
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function parseCondRows(conditions: Conditions | null | undefined): CondRow[] {
+  const rules = conditions?.rules ?? []
+  if (!rules.length) {
+    return [{ id: crypto.randomUUID(), field: 'description', op: 'contains', value: '' }]
+  }
+  return rules.map((r: Condition & { operator?: string }) => ({
+    id: crypto.randomUUID(),
+    field: r.field || 'description',
+    // handle both 'op' (UI-created) and 'operator' (AI-generated)
+    op: r.op || (r as { operator?: string }).operator || 'contains',
+    value: Array.isArray(r.value)
+      ? `${r.value[0]},${r.value[1]}`
+      : r.value !== undefined && r.value !== null ? String(r.value) : '',
+  }))
+}
+
+function buildConditions(rows: CondRow[], op: 'AND' | 'OR'): Conditions {
+  return {
+    operator: op,
+    rules: rows
+      .filter(r => r.value.trim() !== '')
+      .map(r => {
+        if (r.op === 'between') {
+          const [a, b] = r.value.split(',').map(Number)
+          return { field: r.field, op: r.op, value: [a || 0, b || 0] as [number, number] }
+        }
+        if (NUMBER_OPS.includes(r.op)) {
+          return { field: r.field, op: r.op, value: Number(r.value) }
+        }
+        return { field: r.field, op: r.op, value: r.value }
+      }),
+  }
 }
 
 // ─── Rule Form Modal ──────────────────────────────────────────────────────────
@@ -284,6 +299,8 @@ function RuleFormModal({ open, onClose, rule, categories }: {
   categories: BudgetCategory[]
 }) {
   const qc = useQueryClient()
+  const { t } = useTranslation('budget')
+
   const flatCats = flattenCategories(categories)
   const grouped = flatCats.reduce((acc: Record<string, BudgetCategory[]>, c) => {
     if (!acc[c.category_type]) acc[c.category_type] = []
@@ -291,38 +308,34 @@ function RuleFormModal({ open, onClose, rule, categories }: {
     return acc
   }, {})
 
-  const [form, setForm] = useState(() => {
-    if (!rule) return emptyRuleForm()
-    // Normalize AI-generated rules that use 'operator' instead of 'op'
-    const conditions: Conditions = {
-      operator: rule.conditions?.operator ?? 'AND',
-      rules: (rule.conditions?.rules ?? []).map((r: Condition & { operator?: string }) => ({
-        field: r.field,
-        op: r.op || r.operator || 'contains',
-        value: r.value,
-      })),
-    }
-    if (!conditions.rules.length) conditions.rules = [{ field: 'description', op: 'contains', value: '' }]
-    return { name: rule.name, category_id: rule.category_id, priority: rule.priority, status: rule.status, conditions }
-  })
+  // Core fields — conditions kept separately so the two don't interfere
+  const [form, setForm] = useState(() => rule
+    ? { name: rule.name, category_id: rule.category_id, priority: rule.priority, status: rule.status }
+    : { name: '', category_id: '', priority: 100, status: 'active' }
+  )
+
+  // Condition rows — parsed from rule.conditions on mount (key forces remount on edit)
+  const [condRows, setCondRows] = useState<CondRow[]>(() => parseCondRows(rule?.conditions))
+  const [condOp, setCondOp] = useState<'AND' | 'OR'>(() => rule?.conditions?.operator ?? 'AND')
+
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
 
   const createMut = useMutation({
-    mutationFn: (payload: typeof form) => createBudgetRule(payload),
+    mutationFn: (payload: Record<string, unknown>) => createBudgetRule(payload),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['budget-rules'] }); onClose() },
   })
   const updateMut = useMutation({
-    mutationFn: (payload: typeof form) => updateBudgetRule(rule!.id, payload),
+    mutationFn: (payload: Record<string, unknown>) => updateBudgetRule(rule!.id, payload),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['budget-rules'] }); onClose() },
   })
 
   async function handleTest() {
     setTesting(true)
     try {
-      const result = await testBudgetConditions(form.conditions as unknown as Record<string, unknown>)
+      const result = await testBudgetConditions(buildConditions(condRows, condOp) as unknown as Record<string, unknown>)
       setTestResult(result)
-    } catch (e) {
+    } catch {
       alert('Test failed')
     } finally {
       setTesting(false)
@@ -331,13 +344,12 @@ function RuleFormModal({ open, onClose, rule, categories }: {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (rule) updateMut.mutate(form)
-    else createMut.mutate(form)
+    const payload = { ...form, conditions: buildConditions(condRows, condOp) }
+    if (rule) updateMut.mutate(payload)
+    else createMut.mutate(payload)
   }
 
   const saving = createMut.isPending || updateMut.isPending
-
-  const { t } = useTranslation('budget')
 
   return (
     <Modal open={open} onClose={onClose} title={rule ? t('rules.form_edit_title') : t('rules.form_new_title')} width="max-w-2xl">
@@ -390,13 +402,15 @@ function RuleFormModal({ open, onClose, rule, categories }: {
 
         <Divider />
         <FormSection title={t('rules.form_conditions_label')}>
-          <ConditionBuilder
-            conditions={form.conditions}
-            onChange={(c) => setForm({ ...form, conditions: c })}
+          <ConditionRows
+            rows={condRows}
+            op={condOp}
+            onRowsChange={setCondRows}
+            onOpChange={setCondOp}
           />
         </FormSection>
 
-        {/* Test inline */}
+        {/* Inline test */}
         <div className="pt-2">
           <button
             type="button"
