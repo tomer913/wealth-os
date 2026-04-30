@@ -149,6 +149,7 @@
     "delete_category_warning": "לקטגוריה זו {{count}} תנועות מסווגות. מחיקה תבטל את הסיווג שלהן.",
     "delete_anyway": "מחק בכל מקרה",
     "edit_category": "ערוך קטגוריה",
-    "no_categories": "לא נמצאו קטגוריות"
+    "no_categories": "לא נמצאו קטגוריות",
+    "btn_create": "צור"
   }
 }

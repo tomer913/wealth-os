@@ -149,6 +149,7 @@
     "delete_category_warning": "This category has {{count}} classified transactions. Deleting will unclassify them.",
     "delete_anyway": "Delete anyway",
     "edit_category": "Edit category",
-    "no_categories": "No categories found"
+    "no_categories": "No categories found",
+    "btn_create": "Create"
   }
 }

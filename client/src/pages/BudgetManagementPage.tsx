@@ -270,12 +270,7 @@ function CategoriesPanel({ categories, onRefresh }: {
   const [deleteConflict, setDeleteConflict] = useState<number | null>(null)
 
   const createMut = useMutation({
-    mutationFn: () => createBudgetCategory({
-      name: newName.trim(),
-      name_en: newNameEn.trim() || null,
-      category_type: newType,
-      sort_order: 99,
-    }),
+    mutationFn: (payload: Record<string, unknown>) => createBudgetCategory(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['budget-categories'] })
       setShowCreate(false)
@@ -284,6 +279,16 @@ function CategoriesPanel({ categories, onRefresh }: {
       setNewType('expense')
     },
   })
+
+  function submitCreate() {
+    if (!newName.trim() || createMut.isPending) return
+    createMut.mutate({
+      name: newName.trim(),
+      name_en: newNameEn.trim() || null,
+      category_type: newType,
+      sort_order: 99,
+    })
+  }
 
   const updateMut = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) =>
@@ -355,7 +360,7 @@ function CategoriesPanel({ categories, onRefresh }: {
                 onChange={e => setNewName(e.target.value)}
                 placeholder={t('rules.category_name_placeholder')}
                 className={clsx(inputCls, 'w-full')}
-                onKeyDown={e => { if (e.key === 'Enter') createMut.mutate() }}
+                onKeyDown={e => { if (e.key === 'Enter') submitCreate() }}
                 dir="rtl"
               />
             </div>
@@ -395,10 +400,10 @@ function CategoriesPanel({ categories, onRefresh }: {
               <button
                 type="button"
                 disabled={!newName.trim() || createMut.isPending}
-                onClick={() => createMut.mutate()}
+                onClick={submitCreate}
                 className="px-3 py-1.5 text-[12px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
               >
-                {createMut.isPending ? '…' : t('rules.create_and_select')}
+                {createMut.isPending ? '…' : t('rules.btn_create')}
               </button>
               <button type="button" onClick={() => setShowCreate(false)}
                 className="px-3 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
