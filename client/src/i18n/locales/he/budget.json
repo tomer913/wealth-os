@@ -137,6 +137,18 @@
     "form_create_rule": "צור חוק",
     "test_modal_matches": "{{count}} תנועות תואמות ב-90 הימים האחרונים",
     "test_no_matches": "לא נמצאו תנועות תואמות",
-    "category_placeholder_name": "שם הקטגוריה"
+    "category_placeholder_name": "שם הקטגוריה",
+    "categories_tab": "קטגוריות",
+    "plans_tab": "תקציב",
+    "category_name_he": "שם (עברית)",
+    "category_name_en": "שם (אנגלית)",
+    "category_type_label": "סוג",
+    "category_created": "קטגוריה \"{{name}}\" נוצרה",
+    "create_and_select": "צור ובחר",
+    "category_name_placeholder": "שם הקטגוריה…",
+    "delete_category_warning": "לקטגוריה זו {{count}} תנועות מסווגות. מחיקה תבטל את הסיווג שלהן.",
+    "delete_anyway": "מחק בכל מקרה",
+    "edit_category": "ערוך קטגוריה",
+    "no_categories": "לא נמצאו קטגוריות"
   }
 }

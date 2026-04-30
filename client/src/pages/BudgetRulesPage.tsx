@@ -861,7 +861,7 @@ function ReviewQueueTab({ categories }: { categories: BudgetCategory[] }) {
                     <button
                       type="button"
                       disabled={!newCatName.trim() || createCatMut.isPending}
-                      onClick={() => createCatMut.mutate({ name: newCatName.trim(), category_type: newCatType })}
+                      onClick={() => createCatMut.mutate({ name: newCatName.trim(), name_en: newCatName.trim(), category_type: newCatType, sort_order: 99 })}
                       className="flex-1 py-1.5 text-[11px] font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-40 transition-colors"
                     >
                       {createCatMut.isPending ? '…' : t('rules.btn_create_select')}

@@ -354,8 +354,10 @@ export async function updateBudgetCategory(id: string, payload: Record<string, u
   return data
 }
 
-export async function deleteBudgetCategory(id: string) {
-  await apiClient.delete(`/api/v1/budget/categories/${id}/`)
+export async function deleteBudgetCategory(id: string, force = false) {
+  await apiClient.delete(`/api/v1/budget/categories/${id}/`, {
+    params: force ? { force: 'true' } : undefined,
+  })
 }
 
 // ─── Processors ───────────────────────────────────────────────────────────────

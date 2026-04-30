@@ -194,11 +194,38 @@ async def update_category(
 
 
 @router.delete("/categories/{cat_id}/", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_category(cat_id: UUID, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):
+async def delete_category(
+    cat_id: UUID,
+    force: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    from sqlalchemy import update as sa_update
     cat = await db.get(BudgetCategory, cat_id)
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
-    # Soft delete
+
+    # Count transactions classified to this category
+    tx_count = (
+        await db.execute(
+            select(func.count()).select_from(ClassificationLog).where(ClassificationLog.category_id == cat_id)
+        )
+    ).scalar_one()
+
+    if tx_count > 0 and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Category has {tx_count} classified transactions. Delete with force=true to unclassify them.",
+        )
+
+    if tx_count > 0 and force:
+        # Unclassify affected transactions so they re-enter the review queue
+        await db.execute(
+            sa_update(ClassificationLog)
+            .where(ClassificationLog.category_id == cat_id)
+            .values(category_id=None, needs_review=True, reviewed_at=None)
+        )
+
     cat.is_active = False
     await db.flush()
 

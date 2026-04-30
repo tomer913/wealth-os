@@ -137,6 +137,18 @@
     "form_create_rule": "Create Rule",
     "test_modal_matches": "{{count}} matching transactions in the last 90 days",
     "test_no_matches": "No matches found",
-    "category_placeholder_name": "שם הקטגוריה"
+    "category_placeholder_name": "שם הקטגוריה",
+    "categories_tab": "Categories",
+    "plans_tab": "Budget Plans",
+    "category_name_he": "Name (Hebrew)",
+    "category_name_en": "Name (English)",
+    "category_type_label": "Type",
+    "category_created": "Category \"{{name}}\" created",
+    "create_and_select": "Create & Select",
+    "category_name_placeholder": "Category name…",
+    "delete_category_warning": "This category has {{count}} classified transactions. Deleting will unclassify them.",
+    "delete_anyway": "Delete anyway",
+    "edit_category": "Edit category",
+    "no_categories": "No categories found"
   }
 }
