@@ -587,9 +587,25 @@ function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['budget-rules'] }),
   })
 
-  function approveAll() {
-    const highConf = suggested.filter((r) => r.confidence >= 0.9)
-    highConf.forEach((r) => approveMut.mutate(r.id))
+  const [approving, setApproving] = useState(false)
+
+  async function handleApproveAll() {
+    setApproving(true)
+    try {
+      // 1. Bulk-approve high-confidence review-queue items (>= 90 %)
+      await approveBulkReview(0.9)
+      qc.invalidateQueries({ queryKey: ['budget-review'] })
+      qc.invalidateQueries({ queryKey: ['budget-actuals'] })
+      qc.invalidateQueries({ queryKey: ['budget-summary'] })
+      // 2. Also promote any suggested rules with >= 90 % confidence
+      const highConf = suggested.filter((r) => r.confidence >= 0.9)
+      await Promise.all(highConf.map((r) => approveBudgetRule(r.id)))
+      qc.invalidateQueries({ queryKey: ['budget-rules'] })
+    } catch (err) {
+      console.error('Approve all high confidence failed:', err)
+    } finally {
+      setApproving(false)
+    }
   }
 
   return (
@@ -597,10 +613,12 @@ function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
       {suggested.length > 0 && (
         <div className="flex justify-end">
           <button
-            onClick={approveAll}
-            className="px-3 py-1.5 text-[12px] font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
+            type="button"
+            onClick={handleApproveAll}
+            disabled={approving}
+            className="px-3 py-1.5 text-[12px] font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50"
           >
-            {t('rules.approve_all_high')}
+            {approving ? '…' : t('rules.approve_all_high')}
           </button>
         </div>
       )}
