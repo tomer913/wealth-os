@@ -269,19 +269,36 @@ function CategoriesPanel({ categories, onRefresh }: {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleteConflict, setDeleteConflict] = useState<number | null>(null)
 
+  const [nameError, setNameError] = useState('')
+
   const createMut = useMutation({
     mutationFn: (payload: Record<string, unknown>) => createBudgetCategory(payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['budget-categories'] })
+      onRefresh()                                                  // exact key — guaranteed refetch
+      qc.invalidateQueries({ queryKey: ['budget-categories'] })   // catch any other cached variants
       setShowCreate(false)
       setNewName('')
       setNewNameEn('')
       setNewType('expense')
+      setNameError('')
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { detail?: string } } }
+      if (e?.response?.data?.detail) setNameError(e.response.data.detail)
     },
   })
 
   function submitCreate() {
     if (!newName.trim() || createMut.isPending) return
+    // Front-end uniqueness guard (backend also enforces with 409)
+    const duplicate = flat.some(
+      c => c.is_active && c.name.trim().toLowerCase() === newName.trim().toLowerCase()
+    )
+    if (duplicate) {
+      setNameError(`"${newName.trim()}" already exists`)
+      return
+    }
+    setNameError('')
     createMut.mutate({
       name: newName.trim(),
       name_en: newNameEn.trim() || null,
@@ -357,12 +374,15 @@ function CategoriesPanel({ categories, onRefresh }: {
                 autoFocus
                 type="text"
                 value={newName}
-                onChange={e => setNewName(e.target.value)}
+                onChange={e => { setNewName(e.target.value); setNameError('') }}
                 placeholder={t('rules.category_name_placeholder')}
-                className={clsx(inputCls, 'w-full')}
+                className={clsx(inputCls, 'w-full', nameError ? 'border-rose-400' : '')}
                 onKeyDown={e => { if (e.key === 'Enter') submitCreate() }}
                 dir="rtl"
               />
+              {nameError && (
+                <p className="text-[11px] text-rose-500 mt-1">{nameError}</p>
+              )}
             </div>
             <div className="flex-1">
               <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">

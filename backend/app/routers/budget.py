@@ -104,6 +104,7 @@ async def list_categories(
     """
     q = select(BudgetCategory).where(
         BudgetCategory.portfolio_id == portfolio_id,
+        BudgetCategory.is_active == True,
     ).order_by(BudgetCategory.sort_order)
     cats = (await db.execute(q)).scalars().all()
 
@@ -165,6 +166,17 @@ async def create_category(
     portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
 ):
+    # Uniqueness check (case-sensitive, active categories only)
+    dup = (await db.execute(
+        select(BudgetCategory).where(
+            BudgetCategory.portfolio_id == portfolio_id,
+            BudgetCategory.name == payload.name,
+            BudgetCategory.is_active == True,
+        )
+    )).scalar_one_or_none()
+    if dup:
+        raise HTTPException(status_code=409, detail=f"Category '{payload.name}' already exists")
+
     cat = BudgetCategory(id=uuid.uuid4(), portfolio_id=portfolio_id, **payload.model_dump())
     db.add(cat)
     await db.flush()
