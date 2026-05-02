@@ -171,38 +171,28 @@ def _classify(description: str, amount: Decimal, extra_raw: Optional[Dict]) -> D
     }
 
 
-# ─── BUY/SELL → asset symbol matching ────────────────────────────────────────
+# ─── Mizrachi-specific lookups ────────────────────────────────────────────────
 
-DESCRIPTION_TO_SYMBOL: Dict[str, str] = {
-    "ibi.כספית":        "IBI_CASH",
-    "כספית שק כש":      "IBI_CASH",
-    "ibi":              "IBI_CASH",
-    "מגדל כסשק לאקונ":  "MIGDAL_CASH",
-    "מגדל כסשק":        "MIGDAL_CASH",
+# Account ID for the Mizrachi bank account (used on every Mizrachi row)
+MIZRACHI_ACCOUNT_ID = UUID("1f3bb142-c706-4792-9d4b-5899e3ac999a")
+
+# Direct description-substring → asset UUID map (longer keys first so more
+# specific patterns match before shorter ones)
+MIZRACHI_ASSET_MAP: Dict[str, UUID] = {
+    "מגדל כסשק לאקונ": UUID("d9ed3f89-9f39-5cad-a19f-2a73344b9073"),
+    "מגדל כסשק":       UUID("d9ed3f89-9f39-5cad-a19f-2a73344b9073"),
+    "ibi.כספית":       UUID("3d28abc7-8bb2-55ec-b6c4-d351b54bdeea"),
+    "ibi כספית":       UUID("3d28abc7-8bb2-55ec-b6c4-d351b54bdeea"),
 }
 
 
-async def _find_asset_id(
-    description: str,
-    portfolio_id: UUID,
-    db: AsyncSession,
-) -> Optional[UUID]:
-    """Return asset.id for a BUY/SELL row by matching description keywords, or None."""
-    from app.models.asset import Asset
-
+def _find_asset_id(description: str) -> Optional[UUID]:
+    """Return asset UUID for a BUY/SELL row by matching description, or None."""
     desc_lower = description.lower()
-    for keyword, symbol in DESCRIPTION_TO_SYMBOL.items():
+    for keyword, asset_id in MIZRACHI_ASSET_MAP.items():
         if keyword.lower() in desc_lower:
-            asset = (await db.execute(
-                select(Asset).where(
-                    Asset.symbol.ilike(f"%{symbol}%"),
-                    Asset.portfolio_id == portfolio_id,
-                )
-            )).scalar_one_or_none()
-            if asset:
-                log.info("Linked '%s' to asset %s", description[:40], symbol)
-                return asset.id
-            break
+            log.info("Linked '%s' to asset %s", description[:40], asset_id)
+            return asset_id
     return None
 
 
@@ -237,10 +227,9 @@ class BankProcessor(BaseProcessor):
             dedup_key = f"PROC-{row.external_ref_id}"
             clf = _classify(desc, row.amount, row.extra_raw)
 
-            # BUY/SELL: try to link to a known asset
-            asset_id = None
-            if clf["type"] in WEALTH_OS_TYPES:
-                asset_id = await _find_asset_id(desc, portfolio_id, db)
+            # Mizrachi: always set account_id; BUY/SELL also get asset_id
+            account_id = MIZRACHI_ACCOUNT_ID if row.source == "mizrachi_bank" else None
+            asset_id = _find_asset_id(desc) if clf["type"] in WEALTH_OS_TYPES else None
 
             values = dict(
                 id=uuid_mod.uuid4(),
@@ -257,6 +246,7 @@ class BankProcessor(BaseProcessor):
                 source=row.source,
                 external_reference_id=dedup_key,
                 status="confirmed",
+                account_id=account_id,
                 asset_id=asset_id,
             )
 
