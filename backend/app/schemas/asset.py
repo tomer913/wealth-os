@@ -56,6 +56,11 @@ class AssetRead(AssetBase):
     price_updated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    # Read schemas use str, not enums — DB may contain values added after enum was defined
+    asset_behavior: Optional[str] = None
+    category: Optional[str] = None
+    lifecycle_stage: Optional[str] = None
+    pricing_mode: Optional[str] = None
     model_config = {"from_attributes": True}
 
 
