@@ -94,20 +94,61 @@ class CostBasisResult:
 
 # ── Model-specific overrides ───────────────────────────────────────────────────
 
+# Economic types that represent money going INTO a FUND / CASH_OR_DEBT asset
+_NET_INFLOW_TYPES  = frozenset({"BUY", "DEPOSIT", "INVESTMENT_OUTFLOW", "ALLOCATION"})
+# Economic types that represent money coming OUT of a FUND / CASH_OR_DEBT asset
+_NET_OUTFLOW_TYPES = frozenset({"SELL", "WITHDRAWAL", "INVESTMENT_INFLOW"})
+
+
+def _calc_net_invested(transactions: list) -> tuple:
+    """
+    Return (gross_inflows, net_invested) for FUND / CASH_OR_DEBT assets.
+
+    invested_capital = sum(inflows) - sum(outflows), floored at 0.
+    This gives a meaningful yield when subtracted from current_value:
+        profit     = current_value - net_invested   (interest earned)
+        return_pct = profit / net_invested           (yield %)
+    """
+    inflows = ZERO
+    outflows = ZERO
+    for tx in transactions:
+        eco = (
+            (tx.economic_type or "").upper()
+            if hasattr(tx, "economic_type")
+            else (tx.get("economic_type") or "").upper()
+        )
+        raw = (
+            tx.total_amount if hasattr(tx, "total_amount") else tx.get("total_amount")
+        ) or ZERO
+        amount = abs(Decimal(str(raw)))
+        if eco in _NET_INFLOW_TYPES:
+            inflows += amount
+        elif eco in _NET_OUTFLOW_TYPES:
+            outflows += amount
+    return inflows, max(inflows - outflows, ZERO)
+
+
 def _apply_fund_rules(result: CostBasisResult, asset, transactions: list) -> CostBasisResult:
     """
-    FUND special rule: if tracking_level = valuation_only,
-    we can't trust transaction history as the full picture.
-    invested_capital = first known valuation baseline (handled in snapshot_builder).
-    Here we just flag it.
+    FUND: invested_capital = net cash still in the fund (inflows − outflows).
+
+    Replaces the flags-based gross/net computed in the main loop so that
+    SELL/WITHDRAWAL transactions properly reduce the displayed invested capital.
     """
-    meta = asset.extra_data or {} if hasattr(asset, "extra_data") else {}
-    tracking_level = meta.get("tracking_level", "")
-    if tracking_level == "valuation_only" and result.gross_invested_capital == ZERO:
-        result.warnings.append(
-            "fund_valuation_only: no deposit transactions found — "
-            "invested_capital will be set from first known valuation in snapshot_builder"
-        )
+    gross, net = _calc_net_invested(transactions)
+    result.gross_invested_capital = gross
+    result.net_invested_capital = net
+    return result
+
+
+def _apply_cash_or_debt_rules(result: CostBasisResult, asset, transactions: list) -> CostBasisResult:
+    """
+    CASH_OR_DEBT (BTB, money-market, deposits, P2P loans):
+    same net-invested logic as FUND.
+    """
+    gross, net = _calc_net_invested(transactions)
+    result.gross_invested_capital = gross
+    result.net_invested_capital = net
     return result
 
 
@@ -232,6 +273,9 @@ def calc_cost_basis(
     # ── Model-specific post-processing ────────────────────────────────────
     if model == CalcModel.FUND:
         result = _apply_fund_rules(result, asset, transactions)
+
+    elif model == CalcModel.CASH_OR_DEBT:
+        result = _apply_cash_or_debt_rules(result, asset, transactions)
 
     elif model == CalcModel.REAL_ESTATE_PIPELINE:
         result = _apply_pipeline_rules(result, asset, transactions)
