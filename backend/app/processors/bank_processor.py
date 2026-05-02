@@ -72,10 +72,12 @@ KEYWORD_RULES: List[Tuple[str, str, str, bool]] = [
     # Securities (BUY/SELL — checked before credit card to avoid mis-match)
     (r"קניית|נע.קניה",             "BUY",              "securities",  False),
     (r"מכירת|נע.מכירה|מכירה של",   "SELL",             "securities",  False),
-    # Real estate / loans
+    # Real estate / loans — interest must come BEFORE the generic loan rule
     (r"טפחות.+לווים",               "FINANCING_OUTFLOW", "real_estate", False),
+    (r"ריבית על הלוואה|תשלום ריבית","EXPENSE",           "loan",        False),
     (r"הלוואה|הלואה",               "FINANCING_OUTFLOW", "loan",        False),
-    (r"ריבית על הלוואה",            "EXPENSE",          "loan",        False),
+    # Bank bonuses / special grants
+    (r"מענק מיוחד מהבנק",           "INCOME",            "general",     False),
     # Credit cards (domain credit_card, not general)
     (r"הרשאה כאל|הרשאה ישראכרט|הרשאה מקס|ויזה כא.ל|ישראכרט|מסטרקרד",
                                     "EXPENSE",          "credit_card", False),
@@ -171,25 +173,33 @@ def _classify(description: str, amount: Decimal, extra_raw: Optional[Dict]) -> D
     }
 
 
-# ─── Mizrachi-specific lookups ────────────────────────────────────────────────
+# ─── Source-specific account and asset lookups ────────────────────────────────
 
-# Account ID for the Mizrachi bank account (used on every Mizrachi row)
 MIZRACHI_ACCOUNT_ID = UUID("1f3bb142-c706-4792-9d4b-5899e3ac999a")
+FIBI_ACCOUNT_ID     = UUID("d34d0d6a-6f5c-4ebc-a305-f0dcc619d5e0")
 
-# Direct description-substring → asset UUID map (longer keys first so more
-# specific patterns match before shorter ones)
-MIZRACHI_ASSET_MAP: Dict[str, UUID] = {
+SOURCE_ACCOUNT_MAP: Dict[str, UUID] = {
+    "mizrachi_bank": MIZRACHI_ACCOUNT_ID,
+    "fibi_bank":     FIBI_ACCOUNT_ID,
+}
+
+# Description substring → asset UUID (longer keys first — more specific match wins)
+DESCRIPTION_TO_ASSET_ID: Dict[str, UUID] = {
+    # Mizrachi — Kaspit / money-market fund descriptions
     "מגדל כסשק לאקונ": UUID("d9ed3f89-9f39-5cad-a19f-2a73344b9073"),
     "מגדל כסשק":       UUID("d9ed3f89-9f39-5cad-a19f-2a73344b9073"),
     "ibi.כספית":       UUID("3d28abc7-8bb2-55ec-b6c4-d351b54bdeea"),
     "ibi כספית":       UUID("3d28abc7-8bb2-55ec-b6c4-d351b54bdeea"),
+    # FIBI — fund codes embedded in description (e.g. "נע-קניה 510351")
+    "510351":          UUID("3d28abc7-8bb2-55ec-b6c4-d351b54bdeea"),  # IBI_CASH via FIBI
+    "514078":          UUID("4c324483-e8ef-4ebf-ae4d-ca4e51f69ca8"),  # CASH_FIBI
 }
 
 
 def _find_asset_id(description: str) -> Optional[UUID]:
     """Return asset UUID for a BUY/SELL row by matching description, or None."""
     desc_lower = description.lower()
-    for keyword, asset_id in MIZRACHI_ASSET_MAP.items():
+    for keyword, asset_id in DESCRIPTION_TO_ASSET_ID.items():
         if keyword.lower() in desc_lower:
             log.info("Linked '%s' to asset %s", description[:40], asset_id)
             return asset_id
@@ -227,8 +237,8 @@ class BankProcessor(BaseProcessor):
             dedup_key = f"PROC-{row.external_ref_id}"
             clf = _classify(desc, row.amount, row.extra_raw)
 
-            # Mizrachi: always set account_id; BUY/SELL also get asset_id
-            account_id = MIZRACHI_ACCOUNT_ID if row.source == "mizrachi_bank" else None
+            # Set account_id for known sources; BUY/SELL also get asset_id
+            account_id = SOURCE_ACCOUNT_MAP.get(row.source)
             asset_id = _find_asset_id(desc) if clf["type"] in WEALTH_OS_TYPES else None
 
             values = dict(
