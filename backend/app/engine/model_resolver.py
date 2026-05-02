@@ -101,38 +101,43 @@ def resolve_model(asset) -> CalcModel:
     if sub_type in ("solar", "energy") or asset_type == "solar" or category == "special_income":
         return CalcModel.ENERGY_INCOME
 
-    # ── 2. Cash / Debt instruments ─────────────────────────────────────────
+    # ── 2. Explicit asset_behavior wins over type/category inference ───────
+    # This must come before the type/category checks so that e.g. a FUND
+    # with category='cash' (money-market fund) is not mis-classified as
+    # CASH_OR_DEBT by rule 3.
+    BEHAVIOR_MAP = {
+        "MARKET":               CalcModel.MARKET,
+        "FUND":                 CalcModel.FUND,
+        "MANUAL":               CalcModel.MANUAL,
+        "REAL_ESTATE":          CalcModel.REAL_ESTATE,
+        "REAL_ESTATE_PIPELINE": CalcModel.REAL_ESTATE_PIPELINE,
+        "ENERGY_INCOME":        CalcModel.ENERGY_INCOME,
+        "CASH_OR_DEBT":         CalcModel.CASH_OR_DEBT,
+        "LOAN":                 CalcModel.CASH_OR_DEBT,
+        "NO_RETURN":            CalcModel.MANUAL,
+    }
+    if behavior in BEHAVIOR_MAP:
+        return BEHAVIOR_MAP[behavior]
+
+    # ── 3. Cash / Debt instruments (no explicit behavior set) ─────────────
     if asset_type in ("cash", "debt", "money_market", "p2p_lending", "deposit"):
         return CalcModel.CASH_OR_DEBT
-    if category in ("cash", "debt_income") and behavior != "MARKET":
+    if category in ("cash", "debt_income"):
         return CalcModel.CASH_OR_DEBT
 
-    # ── 3. Real estate — split by lifecycle ───────────────────────────────
+    # ── 4. Real estate — split by lifecycle ───────────────────────────────
     if asset_type == "real_estate":
         if lifecycle in ("pipeline", "pre_completion"):
             return CalcModel.REAL_ESTATE_PIPELINE
-        # operational / stabilized / speculative / exited / paused / unknown
         return CalcModel.REAL_ESTATE
 
-    # ── 4. MARKET assets (stocks, ETF, crypto) ────────────────────────────
-    if behavior == "MARKET":
-        return CalcModel.MARKET
-
-    # ── 5. FUND assets (pension, insurance, keren hishtalmut) ─────────────
-    if behavior == "FUND":
-        return CalcModel.FUND
+    # ── 5. FUND assets inferred from type/pricing_mode ────────────────────
     if asset_type in ("fund", "pension", "insurance", "etf_fund"):
         return CalcModel.FUND
     if pricing_mode == "derived_from_transactions" and category == "pension":
         return CalcModel.FUND
 
-    # ── 6. MANUAL assets (whisky, land, collectibles) ─────────────────────
-    if behavior == "MANUAL":
-        return CalcModel.MANUAL
-
-    # ── 7. Fallback ────────────────────────────────────────────────────────
-    # If we reach here, we couldn't determine the model — default to MANUAL
-    # and let the engine emit a warning.
+    # ── 6. Fallback ────────────────────────────────────────────────────────
     return CalcModel.MANUAL
 
 
