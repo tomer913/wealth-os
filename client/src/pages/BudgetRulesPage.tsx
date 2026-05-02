@@ -355,6 +355,11 @@ function RuleFormModal({ open, onClose, rule, categories }: {
   return (
     <Modal open={open} onClose={onClose} title={rule ? t('rules.form_edit_title') : t('rules.form_new_title')} width="max-w-2xl">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {rule?.status === 'suggested' && (
+          <div className="px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg text-[12px] text-blue-700">
+            {t('rules.editing_suggested')}
+          </div>
+        )}
         <FormGrid>
           <Field label={t('rules.form_name_label')} required>
             <Input
@@ -573,7 +578,7 @@ function ActiveRulesTab({ rules, categories, onEdit }: {
 
 // ─── Suggested Rules Tab ──────────────────────────────────────────────────────
 
-function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
+function SuggestedRulesTab({ rules, onEdit }: { rules: BudgetRule[]; onEdit: (r: BudgetRule) => void }) {
   const { t } = useTranslation('budget')
   const qc = useQueryClient()
   const suggested = rules.filter((r) => r.status === 'suggested')
@@ -649,10 +654,17 @@ function SuggestedRulesTab({ rules }: { rules: BudgetRule[] }) {
               <td className="py-2.5 px-3">
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={() => approveMut.mutate(rule.id)}
                     className="text-emerald-600 hover:text-emerald-700 font-medium"
                   >{t('rules.btn_approve')}</button>
                   <button
+                    type="button"
+                    onClick={() => onEdit(rule)}
+                    className="text-blue-600 hover:text-blue-700 font-medium"
+                  >{t('rules.btn_edit')}</button>
+                  <button
+                    type="button"
                     onClick={() => deleteMut.mutate(rule.id)}
                     className="text-rose-500 hover:text-rose-600 font-medium"
                   >{t('rules.btn_reject')}</button>
@@ -1009,7 +1021,7 @@ export default function BudgetRulesPage() {
               onEdit={handleEdit}
             />
           ) : activeTab === 'Suggested' ? (
-            <SuggestedRulesTab rules={rules as BudgetRule[]} />
+            <SuggestedRulesTab rules={rules as BudgetRule[]} onEdit={handleEdit} />
           ) : activeTab === 'Review Queue' ? (
             <ReviewQueueTab categories={categories as BudgetCategory[]} />
           ) : (

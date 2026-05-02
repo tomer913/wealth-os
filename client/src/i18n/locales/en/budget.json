@@ -150,6 +150,7 @@
     "delete_anyway": "Delete anyway",
     "edit_category": "Edit category",
     "no_categories": "No categories found",
-    "btn_create": "Create"
+    "btn_create": "Create",
+    "editing_suggested": "Editing suggested rule — click Approve after saving to activate it"
   }
 }
