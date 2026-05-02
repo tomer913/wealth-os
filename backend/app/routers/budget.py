@@ -163,9 +163,12 @@ async def list_categories(
              status_code=status.HTTP_201_CREATED)
 async def create_category(
     payload: BudgetCategoryCreate,
-    portfolio_id: UUID = Depends(_verified_pid),
     db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
+    portfolio_id = payload.portfolio_id
+    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
+
     # Uniqueness check (case-sensitive, active categories only)
     dup = (await db.execute(
         select(BudgetCategory).where(
@@ -177,7 +180,11 @@ async def create_category(
     if dup:
         raise HTTPException(status_code=409, detail=f"Category '{payload.name}' already exists")
 
-    cat = BudgetCategory(id=uuid.uuid4(), portfolio_id=portfolio_id, **payload.model_dump())
+    cat = BudgetCategory(
+        id=uuid.uuid4(),
+        portfolio_id=portfolio_id,
+        **payload.model_dump(exclude={"portfolio_id"}),
+    )
     db.add(cat)
     await db.flush()
     await db.refresh(cat)

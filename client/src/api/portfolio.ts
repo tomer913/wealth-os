@@ -343,8 +343,9 @@ export async function importPlansFromYear(sourceYear: number, targetYear: number
 }
 
 export async function createBudgetCategory(payload: Record<string, unknown>) {
-  const { data } = await apiClient.post('/api/v1/budget/categories/', payload, {
-    params: { portfolio_id: pid() },
+  const { data } = await apiClient.post('/api/v1/budget/categories/', {
+    portfolio_id: pid(),
+    ...payload,
   })
   return data
 }

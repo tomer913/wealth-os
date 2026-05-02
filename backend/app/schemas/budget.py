@@ -21,7 +21,7 @@ class BudgetCategoryBase(BaseModel):
 
 
 class BudgetCategoryCreate(BudgetCategoryBase):
-    pass
+    portfolio_id: UUID
 
 
 class BudgetCategoryUpdate(BaseModel):
