@@ -235,27 +235,93 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
 
 def _calc_fund(asset, db: Session, as_of: date) -> CurrentValueResult:
     """
-    FUND: pension, keren hishtalmut, bituach menahalim.
-    Priority: latest ManualValuation → asset.current_price (used as total value) → null
+    FUND: Kaspit / money-market funds, pension, keren hishtalmut.
+
+    Value = current account balance in ILS. Changes from:
+      - Manual valuations entered by the user (exact)
+      - BUY/SELL transactions since last valuation (estimated delta)
+
+    Priority:
+      1. Latest ManualValuation (value_ils)
+         + delta from BUY/SELL transactions AFTER the valuation date
+            → confidence 'high' if no post-valuation txns
+            → confidence 'medium' if txns exist (estimated)
+      2. asset.current_price (Base44 snapshot)  → medium
+      3. Sum of BUY/SELL transactions            → low
     """
+    from app.models.transaction import Transaction
+
     currency = asset.currency or "ILS"
 
-    # Primary: latest manual valuation
+    # ── Step 1: Latest manual valuation ──────────────────────────────────────
     val = get_latest_valuation(db, asset.id, as_of)
-    if val and val.market_value:
-        value_native = val.market_value
-        value_ils = val.value_ils or (value_native * (val.fx_rate_to_ils or ONE))
+    if val and (val.value_ils or val.market_value):
+        # Prefer the pre-converted ILS value; fall back to market_value × fx
+        if val.value_ils:
+            base_value = Decimal(str(val.value_ils))
+        else:
+            base_value = Decimal(str(val.market_value)) * (
+                Decimal(str(val.fx_rate_to_ils)) if val.fx_rate_to_ils else ONE
+            )
+
+        base_date = val.valuation_date
+
+        # ── Look for BUY/SELL transactions AFTER the valuation ────────────
+        post_txns = (
+            db.query(Transaction)
+            .filter(
+                Transaction.asset_id == asset.id,
+                Transaction.transaction_date > base_date,
+                Transaction.transaction_date <= as_of,
+                Transaction.economic_type.in_([
+                    "BUY", "SELL", "DEPOSIT", "WITHDRAWAL",
+                    "INVESTMENT_OUTFLOW", "INVESTMENT_INFLOW",
+                ]),
+            )
+            .all()
+        )
+
+        if post_txns:
+            delta = ZERO
+            for tx in post_txns:
+                eco = (tx.economic_type or "").upper()
+                amount = abs(Decimal(str(tx.total_amount))) if tx.total_amount else ZERO
+                if eco in ("BUY", "DEPOSIT", "INVESTMENT_OUTFLOW"):
+                    delta += amount
+                elif eco in ("SELL", "WITHDRAWAL", "INVESTMENT_INFLOW"):
+                    delta -= amount
+
+            estimated = base_value + delta
+            log.info(
+                "FUND %s: base=%s + delta=%s = %s (%d post-valuation txns)",
+                asset.symbol, base_value, delta, estimated, len(post_txns),
+            )
+            return CurrentValueResult(
+                value_native=estimated,
+                value_ils=estimated,
+                currency=currency,
+                fx_rate_used=ONE,
+                value_source="fund_estimated",
+                model_used=CalcModel.FUND,
+                confidence="medium",
+                warning=(
+                    f"Estimated: last valuation {base_date} + {len(post_txns)} "
+                    f"transaction(s). Add a new valuation for exact value."
+                ),
+            )
+
+        # No post-valuation transactions — valuation is current
         return CurrentValueResult(
-            value_native=value_native,
-            value_ils=value_ils,
-            currency=val.currency or currency,
+            value_native=base_value,
+            value_ils=base_value,
+            currency=currency,
             fx_rate_used=val.fx_rate_to_ils or ONE,
-            value_source="manual_valuation",
+            value_source="fund_valuation",
             model_used=CalcModel.FUND,
             confidence="high",
         )
 
-    # Fallback: current_price stored in asset (Base44 snapshot value)
+    # ── Step 2: Base44 snapshot in asset.current_price ───────────────────────
     if asset.current_price:
         value_native = Decimal(str(asset.current_price))
         value_ils, fx = to_ils(value_native, currency, db, as_of)
@@ -270,11 +336,38 @@ def _calc_fund(asset, db: Session, as_of: date) -> CurrentValueResult:
             warning="no manual valuation — using Base44 snapshot price",
         )
 
+    # ── Step 3: Transaction balance (rough estimate) ──────────────────────────
+    txns = get_asset_transactions(db, asset.id, as_of)
+    balance = ZERO
+    for tx in txns:
+        eco = (tx.economic_type or "").upper()
+        amount = abs(Decimal(str(tx.total_amount))) if tx.total_amount else ZERO
+        if eco in ("BUY", "DEPOSIT", "INVESTMENT_OUTFLOW"):
+            balance += amount
+        elif eco in ("SELL", "WITHDRAWAL", "INVESTMENT_INFLOW"):
+            balance -= amount
+
+    if balance != ZERO:
+        value_ils, fx = to_ils(balance, currency, db, as_of)
+        return CurrentValueResult(
+            value_native=balance,
+            value_ils=value_ils,
+            currency=currency,
+            fx_rate_used=fx,
+            value_source="fund_transactions",
+            model_used=CalcModel.FUND,
+            confidence="low",
+            warning=(
+                "No valuation found — using transaction sum. "
+                "Add a manual valuation for accurate value."
+            ),
+        )
+
     return CurrentValueResult(
         value_native=None, value_ils=None, currency=currency,
         fx_rate_used=ONE, value_source="none",
         model_used=CalcModel.FUND, confidence="low",
-        warning="no valuation found for FUND asset",
+        warning="no valuation or transactions found for FUND asset",
     )
 
 
