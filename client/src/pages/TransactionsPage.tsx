@@ -149,6 +149,11 @@ export default function TransactionsPage() {
     mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) =>
       updateTransaction(id, payload),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['transactions'] }); closeModal() },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setErrors({ _api: detail ?? 'Save failed — check the console for details' })
+      console.error('updateTransaction failed:', err)
+    },
   })
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteTransaction(id),
@@ -195,7 +200,10 @@ export default function TransactionsPage() {
     if (!form.transaction_date) e.transaction_date = t('error_date_required')
     if (!form.type) e.type = t('error_type_required')
     if (!form.currency) e.currency = t('error_currency_required')
-    if (!form.total_amount && !form.cashflow_amount) e.total_amount = t('error_amount_required')
+    // Only require an amount on new transactions; edits may keep the existing values
+    if (!editTarget && !form.total_amount && !form.cashflow_amount) {
+      e.total_amount = t('error_amount_required')
+    }
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -251,7 +259,7 @@ export default function TransactionsPage() {
             {totalPages > 1 && ` · ${t('page_of', { page: safePage, total: totalPages })}`}
           </p>
         </div>
-        <button onClick={openAdd}
+        <button type="button" onClick={openAdd}
           className="flex items-center gap-2 px-4 py-2 bg-[#0d9488] hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg transition-colors">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M6 1v10M1 6h10"/></svg>
           {t('add_transaction')}
@@ -568,12 +576,15 @@ export default function TransactionsPage() {
           </FormSection>
 
           <Divider />
+          {errors._api && (
+            <p className="text-[12px] text-rose-600 bg-rose-50 px-3 py-2 rounded-lg">{errors._api}</p>
+          )}
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={closeModal}
+            <button type="button" onClick={closeModal}
               className="px-4 py-2 text-[13px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
               Cancel
             </button>
-            <button onClick={handleSubmit} disabled={isSaving}
+            <button type="button" onClick={handleSubmit} disabled={isSaving}
               className="px-4 py-2 text-[13px] font-medium bg-[#0d9488] hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-60">
               {isSaving ? 'Saving…' : editTarget ? 'Save changes' : t('add_transaction')}
             </button>
