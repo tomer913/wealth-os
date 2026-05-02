@@ -13,6 +13,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -187,10 +188,13 @@ async def create_category(
     )
     db.add(cat)
     await db.flush()
-    await db.refresh(cat)
-    r = BudgetCategoryRead.model_validate(cat)
-    r.children = []
-    return r
+    # Re-fetch with eager-loaded children to avoid MissingGreenlet on async lazy load
+    cat = (await db.execute(
+        select(BudgetCategory)
+        .options(selectinload(BudgetCategory.children))
+        .where(BudgetCategory.id == cat.id)
+    )).scalar_one()
+    return BudgetCategoryRead.model_validate(cat)
 
 
 @router.patch("/categories/{cat_id}/", response_model=BudgetCategoryRead)
@@ -206,10 +210,13 @@ async def update_category(
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(cat, field, value)
     await db.flush()
-    await db.refresh(cat)
-    r = BudgetCategoryRead.model_validate(cat)
-    r.children = []
-    return r
+    # Re-fetch with eager-loaded children to avoid MissingGreenlet on async lazy load
+    cat = (await db.execute(
+        select(BudgetCategory)
+        .options(selectinload(BudgetCategory.children))
+        .where(BudgetCategory.id == cat_id)
+    )).scalar_one()
+    return BudgetCategoryRead.model_validate(cat)
 
 
 @router.delete("/categories/{cat_id}/", status_code=status.HTTP_204_NO_CONTENT)
