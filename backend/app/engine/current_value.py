@@ -92,6 +92,32 @@ def to_ils(amount: Decimal, currency: str, db: Session, as_of: date) -> tuple:
     return amount * fx, fx
 
 
+# ── Price history helper ───────────────────────────────────────────────────────
+
+def _get_asset_price(db: Session, asset, as_of: date):
+    """
+    Return the most recent price for an asset on or before as_of.
+    Priority: AssetPriceHistory row → asset.current_price hot cache.
+    Returns a Decimal/float or None.
+    """
+    try:
+        from app.models.price_history import AssetPriceHistory
+        ph = (
+            db.query(AssetPriceHistory)
+            .filter(
+                AssetPriceHistory.asset_id == asset.id,
+                AssetPriceHistory.price_date <= as_of,
+            )
+            .order_by(AssetPriceHistory.price_date.desc())
+            .first()
+        )
+        if ph and ph.price:
+            return ph.price
+    except Exception:
+        pass
+    return asset.current_price
+
+
 # ── Valuation helper ───────────────────────────────────────────────────────────
 
 def get_latest_valuation(db: Session, asset_id, as_of: date):
