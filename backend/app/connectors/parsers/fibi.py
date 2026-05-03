@@ -28,17 +28,21 @@ log = logging.getLogger(__name__)
 _DATE_RE = re.compile(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})")
 
 
-def _rtl_to_ltr(text: str) -> str:
-    """Reverse word order for RTL Hebrew text.
-
-    Hebrew is right-to-left but numbers within it are left-to-right.
-    Reversing the whole string ([::-1]) corrupts numbers.
-    Reversing only the word order fixes the reading direction while
-    keeping each word/number token intact.
-    """
-    words = text.strip().split()
-    return " ".join(reversed(words))
 _AMOUNT_RE = re.compile(r"-?[\d,]+\.\d{2}")
+
+
+def fix_rtl_text(text: str) -> str:
+    """Fix RTL Hebrew display order using python-bidi when available.
+
+    python-bidi applies the Unicode Bidirectional Algorithm which correctly
+    handles mixed Hebrew (RTL) and numeric (LTR) runs.
+    Falls back to word-order reversal if the library is not installed.
+    """
+    try:
+        from bidi.algorithm import get_display
+        return get_display(text)
+    except ImportError:
+        return " ".join(reversed(text.strip().split()))
 
 # Hebrew column name → normalized key mapping
 _COL_MAP = {
@@ -356,7 +360,7 @@ def _extract_table_row(
 
     # RTL Hebrew word order needs reversing; keep each word/number token intact
     raw_desc = str(fields.get("description", "")).strip()
-    description = _rtl_to_ltr(raw_desc) if raw_desc else ""
+    description = fix_rtl_text(raw_desc) if raw_desc else ""
     if not description:
         return None
 
@@ -480,10 +484,10 @@ def _parse_pdf_lines_fibi(lines: List[str], page_num: int) -> List[Dict[str, Any
             reference = ref_match.group(1)
             working = working[:ref_match.start()] + working[ref_match.end():]
         # RTL Hebrew word order needs reversing; keep each word/number token intact
-        description = _rtl_to_ltr(re.sub(r"\s+", " ", working).strip())
+        description = fix_rtl_text(re.sub(r"\s+", " ", working).strip())
 
         if not description and i + 1 < len(lines):
-            description = _rtl_to_ltr(lines[i + 1])
+            description = fix_rtl_text(lines[i + 1])
         if not description:
             description = "Unknown"
 
