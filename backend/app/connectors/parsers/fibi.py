@@ -191,6 +191,7 @@ def parse_fibi_pdf(file_bytes: bytes) -> List[Dict[str, Any]]:
       2. pdfplumber extract_text()    — line parser as fallback
       3. pypdf extract_text()         — last resort
     """
+    log.info("=== FIBI PARSER CALLED === bytes=%d", len(file_bytes))
     log.info("parse_fibi_pdf: parsing %d bytes", len(file_bytes))
 
     # ── Primary: pdfplumber table extraction ─────────────────────────────────

@@ -758,6 +758,8 @@ async def upload_bank_statement(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    _log.info("=== UPLOAD CALLED === connector_type=%s portfolio_id=%s filename=%s",
+              connector_type, portfolio_id, getattr(file, 'filename', None))
     await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
     """
     Accept a PDF or XLSX bank statement, parse it, and write to raw_transactions.
