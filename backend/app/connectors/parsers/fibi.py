@@ -30,19 +30,21 @@ _AMOUNT_RE = re.compile(r"-?[\d,]+\.\d{2}")
 
 # Hebrew column name → normalized key mapping
 _COL_MAP = {
-    # Date
-    "תאריך": "date", "תאריך ערך": "date", "תאריך פעולה": "date",
+    # Transaction date — preferred
+    "תאריך": "date", "תאריך פעולה": "date",
+    # Value date — separate key so it doesn't overwrite transaction date
+    "תאריך ערך": "value_date",
     # Description
     "תיאור": "description", "פרטים": "description", "תיאור פעולה": "description",
-    # Amount
-    "סכום": "amount", "סכום בש\"ח": "amount", "סכום הפעולה": "amount",
+    # Amount variants
+    "סכום": "amount", 'סכום בש"ח': "amount", "סכום הפעולה": "amount",
     "חובה": "debit", "זכות": "credit",
     # Currency
     "מטבע": "currency",
     # Reference
     "אסמכתא": "reference", "מספר אסמכתא": "reference",
-    # Op type (FIBI-specific)
-    "קוד פעולה": "op_type", "קוד": "op_type",
+    # Op / transaction code (FIBI uses 'סו"פ', others use 'קוד פעולה')
+    'סו"פ': "op_type", "קוד פעולה": "op_type", "קוד": "op_type",
     # Balance (ignored)
     "יתרה": "balance",
 }
@@ -218,11 +220,16 @@ def parse_fibi_pdf(file_bytes: bytes) -> List[Dict[str, Any]]:
         )
 
     reader = PdfReader(io.BytesIO(file_bytes))
+    log.info("FIBI pypdf fallback: %d page(s)", len(reader.pages))
     rows = []
     for page_num, page in enumerate(reader.pages):
         text = page.extract_text() or ""
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        rows.extend(_parse_pdf_lines_fibi(lines, page_num))
+        log.info("  pypdf page %d: %d lines, first 5: %s",
+                 page_num + 1, len(lines), lines[:5])
+        page_rows = _parse_pdf_lines_fibi(lines, page_num)
+        log.info("  pypdf page %d: extracted %d transaction(s)", page_num + 1, len(page_rows))
+        rows.extend(page_rows)
 
     log.info("parse_fibi_pdf: %d rows via pypdf text (%d pages)", len(rows), len(reader.pages))
     return rows
@@ -237,9 +244,16 @@ def _parse_pdf_pdfplumber(file_bytes: bytes) -> List[Dict[str, Any]]:
     import pdfplumber
     rows: List[Dict[str, Any]] = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        log.info("FIBI pdfplumber: %d page(s)", len(pdf.pages))
         for page_num, page in enumerate(pdf.pages):
-            for table in (page.extract_tables() or []):
-                rows.extend(_parse_pdfplumber_table(table, page_num))
+            tables = page.extract_tables() or []
+            log.info("  page %d: %d table(s) found", page_num + 1, len(tables))
+            for t_idx, table in enumerate(tables):
+                log.info("  table %d: %d row(s), first row: %s",
+                         t_idx, len(table), table[0] if table else "empty")
+                page_rows = _parse_pdfplumber_table(table, page_num)
+                log.info("  table %d: extracted %d transaction(s)", t_idx, len(page_rows))
+                rows.extend(page_rows)
     return rows
 
 
@@ -251,7 +265,12 @@ def _parse_pdf_pdfplumber_text(file_bytes: bytes) -> List[Dict[str, Any]]:
         for page_num, page in enumerate(pdf.pages):
             text = page.extract_text() or ""
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            rows.extend(_parse_pdf_lines_fibi(lines, page_num))
+            log.info("  pdfplumber text page %d: %d lines, first 5: %s",
+                     page_num + 1, len(lines), lines[:5])
+            page_rows = _parse_pdf_lines_fibi(lines, page_num)
+            log.info("  pdfplumber text page %d: extracted %d transaction(s)",
+                     page_num + 1, len(page_rows))
+            rows.extend(page_rows)
     return rows
 
 
@@ -269,15 +288,25 @@ def _parse_pdfplumber_table(table: list, page_num: int) -> List[Dict[str, Any]]:
     for i, row in enumerate(table):
         candidate: Dict[int, str] = {}
         for j, cell in enumerate(row or []):
-            mapped = _COL_MAP.get(str(cell).strip() if cell else "")
+            cell_str = str(cell).strip() if cell else ""
+            mapped = _COL_MAP.get(cell_str)
             if mapped:
                 candidate[j] = mapped
+        log.debug("  row %d candidate col_map: %s", i, candidate)
         if len(candidate) >= 2:
             col_map = candidate
             header_idx = i
+            log.info("  header row found at index %d: col_map=%s", i, col_map)
             break
 
     if header_idx is None:
+        # Log what we DID find so the caller can diagnose column name mismatches
+        log.warning(
+            "  no header row found in table with %d rows. "
+            "First row cells: %s",
+            len(table),
+            [str(c).strip() for c in (table[0] or [])] if table else [],
+        )
         return []
 
     results: List[Dict[str, Any]] = []
