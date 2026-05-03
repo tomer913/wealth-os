@@ -74,10 +74,10 @@ KEYWORD_RULES: List[Tuple[str, str, str, bool]] = [
     (r"מכירת|נע.מכירה|מכירה של",   "SELL",             "securities",  False),
     # Real estate / loans — interest must come BEFORE the generic loan rule
     (r"טפחות.+לווים",               "FINANCING_OUTFLOW", "real_estate", False),
-    (r"ריבית על הלוואה|תשלום ריבית","EXPENSE",           "loan",        False),
+    (r"ריבית על הלוואה|תשלום ריבית","EXPENSE",           "loan_interest", False),
     (r"הלוואה|הלואה",               "FINANCING_OUTFLOW", "loan",        False),
     # Bank bonuses / special grants
-    (r"מענק מיוחד מהבנק",           "INCOME",            "general",     False),
+    (r"מענק מיוחד מהבנק",           "INCOME",            "bank_bonus",  False),
     # Credit cards (domain credit_card, not general)
     (r"הרשאה כאל|הרשאה ישראכרט|הרשאה מקס|ויזה כא.ל|ישראכרט|מסטרקרד",
                                     "EXPENSE",          "credit_card", False),

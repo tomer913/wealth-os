@@ -290,7 +290,8 @@ def _parse_pdfplumber_table(table: list, page_num: int) -> List[Dict[str, Any]]:
         candidate: Dict[int, str] = {}
         for j, cell in enumerate(row or []):
             cell_str = str(cell).strip() if cell else ""
-            mapped = _COL_MAP.get(cell_str)
+            # pdfplumber may return RTL Hebrew in reversed visual order
+            mapped = _COL_MAP.get(cell_str) or _COL_MAP.get(cell_str[::-1])
             if mapped:
                 candidate[j] = mapped
         log.debug("  row %d candidate col_map: %s", i, candidate)
@@ -335,7 +336,9 @@ def _extract_table_row(
     if raw_date is None:
         return None
 
-    description = str(fields.get("description", "")).strip()
+    # RTL Hebrew arrives in reversed visual order from pdfplumber — un-reverse it
+    raw_desc = str(fields.get("description", "")).strip()
+    description = raw_desc[::-1] if raw_desc else ""
     if not description:
         return None
 
@@ -458,10 +461,11 @@ def _parse_pdf_lines_fibi(lines: List[str], page_num: int) -> List[Dict[str, Any
         if ref_match:
             reference = ref_match.group(1)
             working = working[:ref_match.start()] + working[ref_match.end():]
-        description = re.sub(r"\s+", " ", working).strip()
+        # RTL Hebrew arrives reversed — un-reverse the remaining text portion
+        description = re.sub(r"\s+", " ", working).strip()[::-1]
 
         if not description and i + 1 < len(lines):
-            description = lines[i + 1]
+            description = lines[i + 1][::-1]
         if not description:
             description = "Unknown"
 
