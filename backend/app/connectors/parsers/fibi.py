@@ -26,6 +26,18 @@ from typing import Any, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 _DATE_RE = re.compile(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})")
+
+
+def _rtl_to_ltr(text: str) -> str:
+    """Reverse word order for RTL Hebrew text.
+
+    Hebrew is right-to-left but numbers within it are left-to-right.
+    Reversing the whole string ([::-1]) corrupts numbers.
+    Reversing only the word order fixes the reading direction while
+    keeping each word/number token intact.
+    """
+    words = text.strip().split()
+    return " ".join(reversed(words))
 _AMOUNT_RE = re.compile(r"-?[\d,]+\.\d{2}")
 
 # Hebrew column name → normalized key mapping
@@ -312,7 +324,12 @@ def _parse_pdfplumber_table(table: list, page_num: int) -> List[Dict[str, Any]]:
         return []
 
     results: List[Dict[str, Any]] = []
-    for row in table[header_idx + 1:]:
+    for row_idx, row in enumerate(table[header_idx + 1:]):
+        # Log first 3 data rows so we can verify column index → field mapping
+        if row_idx < 3:
+            log.info("  RAW ROW[%d] (%d cells): %s",
+                     row_idx, len(row or []),
+                     [(i, repr(c)) for i, c in enumerate(row or [])])
         tx = _extract_table_row(row or [], col_map, page_num)
         if tx:
             results.append(tx)
@@ -332,13 +349,14 @@ def _extract_table_row(
             if val and val not in ("nan", "None"):
                 fields[key] = val
 
+    log.info("  FIELDS: %s", fields)
     raw_date = _parse_date(fields.get("date"))
     if raw_date is None:
         return None
 
-    # RTL Hebrew arrives in reversed visual order from pdfplumber — un-reverse it
+    # RTL Hebrew word order needs reversing; keep each word/number token intact
     raw_desc = str(fields.get("description", "")).strip()
-    description = raw_desc[::-1] if raw_desc else ""
+    description = _rtl_to_ltr(raw_desc) if raw_desc else ""
     if not description:
         return None
 
@@ -461,11 +479,11 @@ def _parse_pdf_lines_fibi(lines: List[str], page_num: int) -> List[Dict[str, Any
         if ref_match:
             reference = ref_match.group(1)
             working = working[:ref_match.start()] + working[ref_match.end():]
-        # RTL Hebrew arrives reversed — un-reverse the remaining text portion
-        description = re.sub(r"\s+", " ", working).strip()[::-1]
+        # RTL Hebrew word order needs reversing; keep each word/number token intact
+        description = _rtl_to_ltr(re.sub(r"\s+", " ", working).strip())
 
         if not description and i + 1 < len(lines):
-            description = lines[i + 1][::-1]
+            description = _rtl_to_ltr(lines[i + 1])
         if not description:
             description = "Unknown"
 
