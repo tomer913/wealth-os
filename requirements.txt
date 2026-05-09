@@ -25,3 +25,4 @@ anthropic==0.49.0
 pdfplumber==0.11.4
 pypdf>=4.0.0
 python-bidi>=0.4.2
+xlrd>=2.0.1

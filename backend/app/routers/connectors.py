@@ -2,7 +2,7 @@ import logging as _logging
 import os
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import date as date_type, datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -68,6 +68,22 @@ def _to_read(connector: Connector, latest_run: ConnectorRun | None = None) -> Co
             "duration_ms": latest_run.duration_ms,
         }
     return data
+
+
+def _normalize_fibi_row(row: dict) -> dict:
+    """Map parse_fibi_xlsx() output keys to the upload handler's raw row format."""
+    d = row["date"]
+    raw_date = datetime(d.year, d.month, d.day) if isinstance(d, date_type) else d
+    extra = row.get("extra_data") or {}
+    return {
+        "raw_date": raw_date,
+        "description": row["description"],
+        "amount": row["amount"],
+        "currency": "ILS",
+        "reference": extra.get("reference") or None,
+        "extra_raw": extra,
+        "external_ref_id": row["reference_id"],
+    }
 
 
 # ── Connector CRUD ────────────────────────────────────────────────────────────
@@ -803,14 +819,23 @@ async def upload_bank_statement(
             rows = parse_mizrachi_pdf(file_bytes)
 
         else:  # fibi_bank
-            if ext == "xlsx":
+            if ext in ("xls", "xlsx"):
+                import os as _os
+                import tempfile
                 from app.connectors.parsers.fibi import parse_fibi_xlsx
-                rows = parse_fibi_xlsx(file_bytes)
+                with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+                    tmp.write(file_bytes)
+                    tmp_path = tmp.name
+                try:
+                    parsed = parse_fibi_xlsx(tmp_path, str(portfolio_id))
+                finally:
+                    _os.unlink(tmp_path)
+                rows = [_normalize_fibi_row(r) for r in parsed]
             elif ext == "pdf":
                 from app.connectors.parsers.fibi import parse_fibi_pdf
                 rows = parse_fibi_pdf(file_bytes)
             else:
-                raise HTTPException(status_code=400, detail="FIBI Bank accepts PDF or XLSX files only")
+                raise HTTPException(status_code=400, detail="FIBI Bank accepts PDF, XLS, or XLSX files only")
 
     except HTTPException:
         raise

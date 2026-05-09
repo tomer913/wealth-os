@@ -1036,7 +1036,7 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
           <label className="text-[11px] text-gray-500 font-medium">File</label>
           <input
             type="file"
-            accept=".pdf,.xlsx"
+            accept=".pdf,.xls,.xlsx"
             ref={el => { fileRef.current = el }}
             onChange={e => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(null) }}
             className="text-[13px] text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-[12px] file:bg-white file:text-gray-600 hover:file:bg-gray-50 cursor-pointer"

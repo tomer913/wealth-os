@@ -152,3 +152,12 @@ Now adding **raw data layer** (April 2026):
 - `GET /api/v1/connectors/{id}/credentials/` — returns decrypted credentials to the scraper; auth: `X-Scraper-Token`
 - GitHub Actions workflow receives only `CONNECTOR_ID`; no card secrets stored in GitHub
 - `scraper/index.js` fetches from API when `CONNECTOR_ID` is set; falls back to env vars for local testing
+
+### FIBI bank import
+- **Primary:** XLS export from FIBI online banking — parsed by `parse_fibi_xlsx()` in `backend/app/connectors/parsers/fibi.py`
+- Sheet: `"Activities"`, rows 7+ are transactions; columns 3/4 = credit/debit, col 5 = description, col 7 = op code, col 8 = date
+- Op codes mapped via `FIBI_OP_CODE_MAP`; fund codes in description matched via `FIBI_ASSET_MAP`
+- Paired interest dedup: op=245 (credit mirror) dropped when matched by op=295 (real outflow) on same date + amount
+- **Fallback:** PDF parser (`parse_fibi_pdf`) kept for old files
+- Upload handler (`POST /api/v1/connectors/upload/`) accepts `.xls`, `.xlsx`, and `.pdf`; XLS/XLSX written to temp file, then parsed
+- `xlrd>=2.0.1` required in both `backend/requirements.txt` and root `requirements.txt` (Railway uses the root one)

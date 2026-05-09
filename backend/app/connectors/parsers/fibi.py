@@ -1,223 +1,323 @@
 """
-First International Bank of Israel (FIBI) — XLSX and PDF statement parsers.
+First International Bank of Israel (FIBI) — XLS and PDF statement parsers.
 
-XLSX layout (typical export from FIBI online banking):
-  Row 1-N: headers in Hebrew
-  Expected columns (order may vary):
-    תאריך          → date
-    תיאור / פרטים  → description
-    סכום           → amount (negative = debit, positive = credit)
-    מטבע           → currency
-    אסמכתא        → reference
-    קוד פעולה      → op_type (e.g. 466=BUY, 416=SELL)
+XLS layout (export from FIBI online banking, sheet name "Activities"):
+  Rows 0-4:  metadata headers (account number, date range, etc.)
+  Row 5:     column headers (Hebrew)
+  Row 6:     opening balance row
+  Rows 7+:   actual transaction data
 
-PDF layout: same fields extracted via text parsing (fallback).
+  Columns (0-indexed):
+    0  —  empty (always NaN)
+    1  יתרה          Balance        (ignore for amount)
+    2  תאריך ערך     Value date
+    3  זכות          Credit         (positive inflow)
+    4  חובה          Debit          (positive, negate for amount)
+    5  תאור          Description
+    6  אסמכתא        Reference number
+    7  סוג פעולה     Op code        (e.g. '466')
+    8  תאריך         Transaction date  ← USE THIS as the canonical date
 
-Returns list of dicts compatible with BaseConnector raw row format:
-  raw_date, description, amount, currency, reference, external_ref_id, extra_raw
+PDF layout: same fields via text extraction (legacy fallback).
 """
 import hashlib
 import io
 import logging
 import re
+from datetime import date as date_type
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
 _DATE_RE = re.compile(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})")
-
-
 _AMOUNT_RE = re.compile(r"-?[\d,]+\.\d{2}")
 
+# ── XLS constants ─────────────────────────────────────────────────────────────
+
+FIBI_OP_CODE_MAP: Dict[str, str] = {
+    '466': 'BUY',               # נע-קניה   — kaspit fund purchase
+    '416': 'SELL',              # נע-מכירה  — kaspit fund sale
+    '240': 'FINANCING_INFLOW',  # הלוואה - תשלום קרן — loan disbursement
+    '293': 'FINANCING_OUTFLOW', # הלואה-תשלום — loan principal repayment
+    '290': 'FINANCING_OUTFLOW', # הלוואה - תשלום קרן
+    '495': 'EXPENSE',           # ריבית על הלוואה — loan interest charged
+    '245': 'EXPENSE',           # הלוואה - תשלום ריבית
+    '295': 'EXPENSE',           # הלוואה - תשלום ריבית
+    '222': 'INCOME',            # משהב"ט-תגמולים / אגף השיקום
+    '272': 'TRANSFER',          # העברה מהחשבון
+    '212': 'INCOME',            # מענק מיוחד מהבנק
+}
+
+FIBI_ASSET_MAP: Dict[str, Dict[str, str]] = {
+    '510351': {
+        'symbol': 'IBI_CASH',
+        'asset_id': '3d28abc7-8bb2-55ec-b6c4-d351b54bdeea',
+        'domain': 'securities',
+    },
+    '514078': {
+        'symbol': 'CASH_FIBI',
+        'asset_id': '4c324483-e8ef-4ebf-ae4d-ca4e51f69ca8',
+        'domain': 'securities',
+    },
+}
+
+_FIBI_ACCOUNT_ID = 'd34d0d6a-6f5c-4ebc-a305-f0dcc619d5e0'
+_FIBI_SOURCE = 'fibi_bank'
+
+
+# ── XLS parser ────────────────────────────────────────────────────────────────
+
+def parse_fibi_xlsx(file_path: str, portfolio_id: str) -> List[Dict[str, Any]]:
+    """
+    Parse a FIBI bank XLS export file and return a list of raw transaction dicts
+    ready for insertion into raw_transactions via the ingest pipeline.
+
+    Args:
+        file_path: Path to the .xls file downloaded from FIBI online banking
+        portfolio_id: UUID string of the active portfolio
+
+    Returns:
+        List of transaction dicts in raw_transaction ingest format
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        raise RuntimeError("pandas is required: pip install pandas")
+
+    ext = file_path.rsplit('.', 1)[-1].lower() if '.' in file_path else 'xls'
+    engine = 'openpyxl' if ext == 'xlsx' else 'xlrd'
+
+    try:
+        df = pd.read_excel(file_path, sheet_name='Activities', header=None, engine=engine)
+    except Exception as exc:
+        log.error("parse_fibi_xlsx: failed to read %s (engine=%s): %s", file_path, engine, exc)
+        raise
+
+    if len(df) <= 7:
+        log.warning("parse_fibi_xlsx: file has only %d rows, need >7", len(df))
+        return []
+
+    # Rows 0-6 are metadata / header / opening balance — skip them
+    data = df.iloc[7:].reset_index(drop=True)
+
+    raw_txns: List[Dict[str, Any]] = []
+    for _, row in data.iterrows():
+        cells = list(row)
+        if len(cells) < 9:
+            continue
+
+        # Column 8: canonical transaction date
+        tx_date = _parse_date_cell(cells[8])
+        if tx_date is None:
+            continue
+
+        # Column 2: value date (stored in extra_data only)
+        value_date = _parse_date_cell(cells[2])
+
+        # Column 3: credit (inflow), column 4: debit (outflow, stored as positive)
+        credit = _parse_amount(cells[3])
+        debit  = _parse_amount(cells[4])
+        amount = credit - debit  # positive = income/inflow, negative = expense/outflow
+
+        # Column 5: description (Hebrew, correct encoding in XLS)
+        description = _cell_str(cells[5])
+
+        # Column 6: reference number
+        reference = _cell_str(cells[6])
+
+        # Column 7: op code (integer stored as float in XLS, e.g. 466.0)
+        op_code = _cell_str(cells[7])
+
+        # Column 1: balance (do not use for amount; store for audit)
+        balance_raw = _safe_float(cells[1])
+        balance: Optional[float] = balance_raw if balance_raw != 0.0 else None
+
+        # Transaction type from op code map
+        transaction_type = FIBI_OP_CODE_MAP.get(op_code, 'EXPENSE')
+
+        # Asset matching: check if a known fund code appears in the description
+        asset_id: Optional[str] = None
+        asset_symbol: Optional[str] = None
+        domain = 'securities' if transaction_type in ('BUY', 'SELL') else 'banking'
+
+        for fund_code, info in FIBI_ASSET_MAP.items():
+            if fund_code in description:
+                asset_id = info['asset_id']
+                asset_symbol = info['symbol']
+                domain = info['domain']
+                break
+
+        # Stable dedup key
+        reference_id = f"fibi_{tx_date.isoformat()}_{op_code}_{reference}_{amount:.2f}"
+
+        raw_txns.append({
+            'date': tx_date,
+            'amount': amount,
+            'description': description,
+            'reference_id': reference_id,
+            'source': _FIBI_SOURCE,
+            'account_id': _FIBI_ACCOUNT_ID,
+            'asset_id': asset_id,
+            'asset_symbol': asset_symbol,
+            'transaction_type': transaction_type,
+            'domain': domain,
+            'op_code': op_code,
+            'extra_data': {
+                'op_code': op_code,
+                'reference': reference,
+                'value_date': value_date.isoformat() if value_date else None,
+                'balance': balance,
+            },
+        })
+
+    raw_txns = _dedup_paired_interest(raw_txns)
+    log.info("parse_fibi_xlsx: extracted %d transactions from %s", len(raw_txns), file_path)
+    return raw_txns
+
+
+def _parse_amount(val: Any) -> float:
+    """Parse a credit/debit XLS cell to float, handling comma-formatted strings and spaces."""
+    s = str(val).strip()
+    if s in ('', 'nan', 'none'):
+        return 0.0
+    try:
+        return float(s.replace(',', ''))
+    except ValueError:
+        return 0.0
+
+
+def _cell_str(val: Any) -> str:
+    """Convert an XLS cell to a clean string, stripping trailing .0 from floats."""
+    if val is None:
+        return ''
+    try:
+        import pandas as pd
+        if pd.isna(val):
+            return ''
+    except (TypeError, ValueError):
+        pass
+    s = str(val).strip()
+    if s == 'nan':
+        return ''
+    # Excel stores integer op codes as floats (e.g. 466.0) — strip the .0
+    if s.endswith('.0') and s[:-2].lstrip('-').isdigit():
+        s = s[:-2]
+    return s
+
+
+def _parse_date_cell(val: Any) -> Optional[date_type]:
+    """Parse an XLS cell value (datetime/date/Timestamp/string) to a Python date."""
+    if val is None:
+        return None
+    try:
+        import pandas as pd
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date_type):
+        return val
+    try:
+        import pandas as pd
+        return pd.Timestamp(val).date()
+    except Exception:
+        return None
+
+
+def _safe_float(val: Any) -> float:
+    """Convert a cell value to float, returning 0.0 on blank/NaN/error."""
+    if val is None:
+        return 0.0
+    try:
+        import pandas as pd
+        if pd.isna(val):
+            return 0.0
+    except (TypeError, ValueError):
+        pass
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _dedup_paired_interest(txns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Remove paired interest rows that cancel each other out.
+
+    FIBI sometimes emits two rows on the same date with the same absolute amount:
+      op=245  +amount  (credit leg — looks like income)
+      op=295  -amount  (debit leg  — the real outflow)
+
+    Keep only the op=295 row (the actual expense); drop the op=245 mirror.
+    """
+    pairs_245: Dict[tuple, List[int]] = {}  # (date, abs_amount) → row indices
+    pairs_295: set = set()                  # (date, abs_amount) keys for op=295 rows
+
+    for i, tx in enumerate(txns):
+        if tx['op_code'] == '245':
+            key = (tx['date'], round(abs(tx['amount']), 2))
+            pairs_245.setdefault(key, []).append(i)
+        elif tx['op_code'] == '295':
+            key = (tx['date'], round(abs(tx['amount']), 2))
+            pairs_295.add(key)
+
+    to_remove: set = set()
+    for key, indices in pairs_245.items():
+        if key in pairs_295:
+            to_remove.update(indices)
+
+    if to_remove:
+        log.info("parse_fibi_xlsx: dedup removed %d op=245 paired interest row(s)", len(to_remove))
+
+    return [tx for i, tx in enumerate(txns) if i not in to_remove]
+
+
+# ── PDF parser (legacy fallback) ──────────────────────────────────────────────
 
 def fix_rtl_text(text: str) -> str:
-    """Fix RTL Hebrew display order using python-bidi when available.
-
-    python-bidi applies the Unicode Bidirectional Algorithm which correctly
-    handles mixed Hebrew (RTL) and numeric (LTR) runs.
-    Falls back to word-order reversal if the library is not installed.
-    """
+    """Fix RTL Hebrew display order using python-bidi when available."""
     try:
         from bidi.algorithm import get_display
         return get_display(text)
     except ImportError:
         return " ".join(reversed(text.strip().split()))
 
-# Hebrew column name → normalized key mapping
+
+# Hebrew column name → normalized key mapping (used by PDF path)
 _COL_MAP = {
-    # Transaction date — preferred
     "תאריך": "date", "תאריך פעולה": "date",
-    # Value date — separate key so it doesn't overwrite transaction date
     "תאריך ערך": "value_date",
-    # Description
     "תיאור": "description", "פרטים": "description", "תיאור פעולה": "description",
-    # Amount variants
     "סכום": "amount", 'סכום בש"ח': "amount", "סכום הפעולה": "amount",
     "חובה": "debit", "זכות": "credit",
-    # Currency
     "מטבע": "currency",
-    # Reference
     "אסמכתא": "reference", "מספר אסמכתא": "reference",
-    # Op / transaction code (FIBI uses 'סו"פ', others use 'קוד פעולה')
     'סו"פ': "op_type", "קוד פעולה": "op_type", "קוד": "op_type",
-    # Balance (ignored)
     "יתרה": "balance",
 }
-
-
-def parse_fibi_xlsx(file_bytes: bytes) -> List[Dict[str, Any]]:
-    """
-    Parse a FIBI bank XLSX statement and return raw transaction rows.
-    """
-    try:
-        import openpyxl
-    except ImportError:
-        raise RuntimeError("openpyxl is required: pip install openpyxl")
-
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-    ws = wb.active
-
-    rows_iter = list(ws.iter_rows(values_only=True))
-    if not rows_iter:
-        return []
-
-    # Find header row: first row that contains a recognized Hebrew column name
-    header_row_idx = None
-    col_map: Dict[int, str] = {}
-
-    for idx, row in enumerate(rows_iter):
-        matched = 0
-        candidate_map: Dict[int, str] = {}
-        for col_idx, cell in enumerate(row):
-            cell_str = str(cell).strip() if cell is not None else ""
-            if cell_str in _COL_MAP:
-                candidate_map[col_idx] = _COL_MAP[cell_str]
-                matched += 1
-        if matched >= 2:
-            header_row_idx = idx
-            col_map = candidate_map
-            break
-
-    if header_row_idx is None:
-        log.warning("parse_fibi_xlsx: could not find header row — attempting positional parse")
-        return _parse_xlsx_positional(rows_iter)
-
-    results = []
-    for row in rows_iter[header_row_idx + 1:]:
-        tx = _extract_xlsx_row(row, col_map)
-        if tx:
-            results.append(tx)
-
-    log.info("parse_fibi_xlsx: extracted %d rows", len(results))
-    return results
-
-
-def _extract_xlsx_row(row: tuple, col_map: Dict[int, str]) -> Optional[Dict[str, Any]]:
-    """Extract one transaction from an XLSX row using the column map."""
-    fields: Dict[str, Any] = {}
-    for col_idx, field_name in col_map.items():
-        if col_idx < len(row):
-            fields[field_name] = row[col_idx]
-
-    # Date
-    raw_date = _parse_date(fields.get("date"))
-    if raw_date is None:
-        return None
-
-    description = str(fields.get("description", "")).strip() or "Unknown"
-
-    # Amount: prefer "amount" column; fall back to debit/credit
-    amount_raw = fields.get("amount")
-    if amount_raw is not None:
-        amount = _parse_amount_val(amount_raw)
-    else:
-        debit = _parse_amount_val(fields.get("debit", 0))
-        credit = _parse_amount_val(fields.get("credit", 0))
-        amount = credit - debit
-
-    if amount == 0 and fields.get("amount") is None and fields.get("debit") is None:
-        return None
-
-    currency = str(fields.get("currency", "ILS")).strip() or "ILS"
-    reference = str(fields.get("reference", "")).strip() or None
-    op_type = fields.get("op_type")
-
-    ref_src = f"{raw_date.date()}|{description}|{amount}"
-    external_ref_id = hashlib.sha256(ref_src.encode()).hexdigest()[:32]
-
-    extra: Dict[str, Any] = {}
-    if op_type is not None:
-        try:
-            extra["op_type"] = int(op_type)
-        except (ValueError, TypeError):
-            extra["op_type"] = op_type
-
-    return {
-        "raw_date": raw_date,
-        "description": description,
-        "amount": amount,
-        "currency": currency,
-        "reference": reference,
-        "external_ref_id": external_ref_id,
-        "extra_raw": extra or None,
-    }
-
-
-def _parse_xlsx_positional(rows: list) -> List[Dict[str, Any]]:
-    """
-    Fallback: assume columns are [date, description, amount, currency] by position.
-    Used when no Hebrew headers are detected (e.g. English export).
-    """
-    results = []
-    for row in rows:
-        if len(row) < 3:
-            continue
-        raw_date = _parse_date(row[0])
-        if raw_date is None:
-            continue
-        description = str(row[1]).strip() if row[1] else "Unknown"
-        amount = _parse_amount_val(row[2])
-        currency = str(row[3]).strip() if len(row) > 3 and row[3] else "ILS"
-
-        ref_src = f"{raw_date.date()}|{description}|{amount}"
-        external_ref_id = hashlib.sha256(ref_src.encode()).hexdigest()[:32]
-
-        results.append({
-            "raw_date": raw_date,
-            "description": description,
-            "amount": amount,
-            "currency": currency,
-            "reference": None,
-            "external_ref_id": external_ref_id,
-            "extra_raw": None,
-        })
-    return results
 
 
 def parse_fibi_pdf(file_bytes: bytes) -> List[Dict[str, Any]]:
     """
     Parse a FIBI bank PDF statement.
 
-    FIBI PDF columns (Hebrew RTL layout):
-      תאריך | תיאור | זכות | חובה | יתרה | אסמכתא | סו"פ | תאריך ערך
-
     Strategy:
-      1. pdfplumber extract_tables()  — best for structured tables
-      2. pdfplumber extract_text()    — line parser as fallback
-      3. pypdf extract_text()         — last resort
+      1. pdfplumber extract_tables()
+      2. pdfplumber extract_text()
+      3. pypdf extract_text()
     """
     log.info("=== FIBI PARSER CALLED === bytes=%d", len(file_bytes))
     log.info("parse_fibi_pdf: parsing %d bytes", len(file_bytes))
 
-    # ── Primary: pdfplumber table extraction ─────────────────────────────────
     try:
         import pdfplumber
         rows = _parse_pdf_pdfplumber(file_bytes)
         if rows:
             log.info("parse_fibi_pdf: %d rows via pdfplumber tables", len(rows))
             return rows
-        # Tables empty — try pdfplumber text
         rows = _parse_pdf_pdfplumber_text(file_bytes)
         if rows:
             log.info("parse_fibi_pdf: %d rows via pdfplumber text", len(rows))
@@ -228,7 +328,6 @@ def parse_fibi_pdf(file_bytes: bytes) -> List[Dict[str, Any]]:
     except Exception as exc:
         log.warning("pdfplumber failed (%s), falling back to pypdf", exc)
 
-    # ── Fallback: pypdf text extraction ───────────────────────────────────────
     try:
         from pypdf import PdfReader
     except ImportError:
@@ -252,12 +351,9 @@ def parse_fibi_pdf(file_bytes: bytes) -> List[Dict[str, Any]]:
     return rows
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# pdfplumber helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ── pdfplumber helpers ────────────────────────────────────────────────────────
 
 def _parse_pdf_pdfplumber(file_bytes: bytes) -> List[Dict[str, Any]]:
-    """Extract tables with pdfplumber and parse each using column name detection."""
     import pdfplumber
     rows: List[Dict[str, Any]] = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -275,7 +371,6 @@ def _parse_pdf_pdfplumber(file_bytes: bytes) -> List[Dict[str, Any]]:
 
 
 def _parse_pdf_pdfplumber_text(file_bytes: bytes) -> List[Dict[str, Any]]:
-    """Extract plain text with pdfplumber, then parse line by line."""
     import pdfplumber
     rows: List[Dict[str, Any]] = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -292,21 +387,15 @@ def _parse_pdf_pdfplumber_text(file_bytes: bytes) -> List[Dict[str, Any]]:
 
 
 def _parse_pdfplumber_table(table: list, page_num: int) -> List[Dict[str, Any]]:
-    """
-    Parse one pdfplumber table.  Finds the header row by matching Hebrew
-    column names in _COL_MAP, then processes every data row.
-    """
     if not table:
         return []
 
-    # Detect header row (need at least 2 recognised column names)
     col_map: Dict[int, str] = {}
     header_idx: Optional[int] = None
     for i, row in enumerate(table):
         candidate: Dict[int, str] = {}
         for j, cell in enumerate(row or []):
             cell_str = str(cell).strip() if cell else ""
-            # pdfplumber may return RTL Hebrew in reversed visual order
             mapped = _COL_MAP.get(cell_str) or _COL_MAP.get(cell_str[::-1])
             if mapped:
                 candidate[j] = mapped
@@ -318,10 +407,8 @@ def _parse_pdfplumber_table(table: list, page_num: int) -> List[Dict[str, Any]]:
             break
 
     if header_idx is None:
-        # Log what we DID find so the caller can diagnose column name mismatches
         log.warning(
-            "  no header row found in table with %d rows. "
-            "First row cells: %s",
+            "  no header row found in table with %d rows. First row cells: %s",
             len(table),
             [str(c).strip() for c in (table[0] or [])] if table else [],
         )
@@ -329,7 +416,6 @@ def _parse_pdfplumber_table(table: list, page_num: int) -> List[Dict[str, Any]]:
 
     results: List[Dict[str, Any]] = []
     for row_idx, row in enumerate(table[header_idx + 1:]):
-        # Log first 3 data rows so we can verify column index → field mapping
         if row_idx < 3:
             log.info("  RAW ROW[%d] (%d cells): %s",
                      row_idx, len(row or []),
@@ -345,7 +431,6 @@ def _extract_table_row(
     col_map: Dict[int, str],
     page_num: int,
 ) -> Optional[Dict[str, Any]]:
-    """Build one raw transaction dict from a pdfplumber table row."""
     fields: Dict[str, Any] = {}
     for j, key in col_map.items():
         if j < len(row) and row[j] is not None:
@@ -358,19 +443,17 @@ def _extract_table_row(
     if raw_date is None:
         return None
 
-    # RTL Hebrew word order needs reversing; keep each word/number token intact
     raw_desc = str(fields.get("description", "")).strip()
     description = fix_rtl_text(raw_desc) if raw_desc else ""
     if not description:
         return None
 
-    # Skip header/summary rows that contain balance keywords
     _SKIP_WORDS = ("יתרה", "ח-ן", "חשבון", "תנועות", "סה\"כ", "סיכום", "פרטים")
     if any(w in description for w in _SKIP_WORDS):
         return None
 
     credit = _parse_amount_val(fields.get("credit"))
-    debit  = _parse_amount_val(fields.get("debit"))
+    debit = _parse_amount_val(fields.get("debit"))
 
     if credit == 0.0 and debit == 0.0:
         combined = fields.get("amount")
@@ -378,7 +461,7 @@ def _extract_table_row(
             return None
         amount = _parse_amount_val(combined)
     else:
-        amount = credit - debit  # credit > 0 → income; debit > 0 → expense
+        amount = credit - debit
 
     if amount == 0.0:
         return None
@@ -386,7 +469,6 @@ def _extract_table_row(
     reference = str(fields.get("reference", "")).strip() or None
     op_type_raw = str(fields.get("op_type", "")).strip()
 
-    # Dedup key uses reference when available (more stable than hash of description)
     date_str = raw_date.strftime("%d/%m/%Y")
     ref_key = (
         f"FIBI-{date_str}-{reference}-{amount:.2f}"
@@ -413,26 +495,13 @@ def _extract_table_row(
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Line-based parser (pypdf / pdfplumber text fallback)
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Line-based parser (pypdf / pdfplumber text fallback) ─────────────────────
 
-# FIBI transaction code is a 3-digit number that starts with 4 or 5
 _OP_TYPE_RE = re.compile(r"\b([45]\d{2})\b")
-# Balance column values tend to be large integers (>= 5 digits); we skip those
 _BALANCE_RE = re.compile(r"\b\d{5,}[,\d]*\.\d{2}\b")
 
 
 def _parse_pdf_lines_fibi(lines: List[str], page_num: int) -> List[Dict[str, Any]]:
-    """
-    Line-by-line parser for FIBI text extraction.
-
-    For each line that starts with a date, extracts:
-      - description (text between the first and last dates on the line)
-      - credit OR debit (the smallest non-balance amount)
-      - reference (integer-looking token after amounts)
-      - op_type (3-digit code starting with 4 or 5)
-    """
     rows: List[Dict[str, Any]] = []
 
     for i, line in enumerate(lines):
@@ -449,41 +518,32 @@ def _parse_pdf_lines_fibi(lines: List[str], page_num: int) -> List[Dict[str, Any
         except ValueError:
             continue
 
-        # Collect all decimal amounts
         all_amounts = _AMOUNT_RE.findall(line)
         if not all_amounts:
             continue
 
-        # Remove the balance (typically the largest amount / last position)
         parsed_amounts = [_parse_amount_val(a) for a in all_amounts]
         balance_candidates = [a for a in parsed_amounts if a > 10000]
         non_balance = [a for a in parsed_amounts if a not in balance_candidates or a == 0]
 
         if not non_balance and parsed_amounts:
-            # All amounts look like balances — take the smallest as the transaction
             non_balance = [min(parsed_amounts)]
 
-        # The transaction amount: credit → positive, debit → negative
-        # We can't always tell from text alone; use the first non-balance amount
         amount = non_balance[0] if non_balance else parsed_amounts[0]
 
-        # Strip date, all amounts, and trailing noise from line to get description
         working = _DATE_RE.sub(" ", line)
         for a in all_amounts:
             working = working.replace(a, " ")
-        # Remove op_type code and reference number
         op_match = _OP_TYPE_RE.search(working)
         op_type: Optional[int] = None
         if op_match:
             op_type = int(op_match.group(1))
             working = working[:op_match.start()] + working[op_match.end():]
-        # What remains should be the description (and possibly a reference number)
         ref_match = re.search(r"\b(\d{5,12})\b", working)
         reference: Optional[str] = None
         if ref_match:
             reference = ref_match.group(1)
             working = working[:ref_match.start()] + working[ref_match.end():]
-        # RTL Hebrew word order needs reversing; keep each word/number token intact
         description = fix_rtl_text(re.sub(r"\s+", " ", working).strip())
 
         if not description and i + 1 < len(lines):
@@ -519,16 +579,14 @@ def _parse_pdf_lines_fibi(lines: List[str], page_num: int) -> List[Dict[str, Any
     return rows
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _parse_date(val: Any) -> Optional[datetime]:
     if val is None:
         return None
     if isinstance(val, datetime):
         return val
-    # openpyxl may return date objects
     try:
-        from datetime import date as date_type
         if isinstance(val, date_type):
             return datetime(val.year, val.month, val.day)
     except Exception:
