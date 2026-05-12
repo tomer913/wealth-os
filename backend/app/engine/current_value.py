@@ -118,6 +118,27 @@ def _get_asset_price(db: Session, asset, as_of: date):
     return asset.current_price
 
 
+def _get_latest_price_row(db: Session, asset, as_of: date):
+    """
+    Return the most recent AssetPriceHistory row on or before as_of.
+    Returns None if no row exists (caller should fall back to asset.current_price).
+    Unlike _get_asset_price, this preserves the full row so callers can read price_date.
+    """
+    try:
+        from app.models.price_history import AssetPriceHistory
+        return (
+            db.query(AssetPriceHistory)
+            .filter(
+                AssetPriceHistory.asset_id == asset.id,
+                AssetPriceHistory.price_date <= as_of,
+            )
+            .order_by(AssetPriceHistory.price_date.desc())
+            .first()
+        )
+    except Exception:
+        return None
+
+
 # ── Valuation helper ───────────────────────────────────────────────────────────
 
 def get_latest_valuation(db: Session, asset_id, as_of: date):
@@ -168,21 +189,33 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
     """
     MARKET: stocks, ETF, crypto.
 
-    Priority:
-    1. latest ManualValuation         — user-entered value OR Base44 bootstrap snapshot
-    2. quantity × current_price       — if quantity is known in extra_data
-    3. current_price alone            — unit price only (low confidence)
+    Priority — date-aware:
+    1. If price history exists and is >= manual valuation date → price × net_quantity
+    2. If manual valuation is newer than latest price history → use manual valuation
+    3. No price history → fall back to manual valuation if present
+    4. price alone (quantity unknown) → low confidence
+    5. Nothing found → zero result
 
-    The user's manually entered value always wins.
-    Base44 bootstrap snapshots are stored as ManualValuation rows with
-    valuation_source='b44_snapshot' and will be superseded automatically
-    when the user enters a newer value.
+    Manual valuations only win when they are strictly more recent than the
+    latest price history row. Stale bootstrap valuations are therefore
+    automatically superseded once a price feed starts arriving.
     """
     currency = asset.currency or "ILS"
 
-    # Priority 1: latest manual valuation (covers both user entries and b44 bootstrap)
+    # Fetch both candidates with their dates for comparison
+    ph  = _get_latest_price_row(db, asset, as_of)   # full row, carries price_date
     val = get_latest_valuation(db, asset.id, as_of)
+
+    # Decide: manual valuation wins only if strictly newer than price history
+    use_manual = False
     if val and val.market_value:
+        if ph is None:
+            use_manual = True                           # no price feed → use manual
+        elif val.valuation_date > ph.price_date:
+            use_manual = True                           # manual is fresher → use manual
+        # else: price history is same date or newer → price × quantity wins
+
+    if use_manual:
         value_native = val.market_value
         value_ils = val.value_ils or (value_native * (val.fx_rate_to_ils or ONE))
         source = "manual_valuation" if val.valuation_source != "b44_snapshot" else "b44_snapshot_valuation"
@@ -196,17 +229,15 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
             confidence="high" if val.valuation_source != "b44_snapshot" else "medium",
         )
 
-    # Priority 2: quantity × current_price
-    # quantity comes from extra_data OR computed from transaction history
-    # price comes from asset_price_history by date, fallback to asset.current_price
-    current_price = _get_asset_price(db, asset, as_of)
+    # Price × quantity path
+    # Price: from history row if available, else asset.current_price hot cache
+    current_price = ph.price if ph else asset.current_price
+
     extra = asset.extra_data or {}
     quantity = extra.get("quantity") or extra.get("units")
 
     if not quantity:
         # Compute net quantity from transactions (sum of buys - sells)
-        from app.models.transaction import Transaction
-        from sqlalchemy import func as sqlfunc
         buy_types = ("buy", "vest", "allocation", "swap_in", "external_deposit")
         sell_types = ("sell", "swap_out", "external_withdrawal")
         txns = get_asset_transactions(db, asset.id, as_of)
@@ -236,7 +267,7 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
             confidence="medium",
         )
 
-    # Priority 3: current_price alone (unit price — no position size known)
+    # Price alone — no position size known
     if current_price:
         value_native = Decimal(str(current_price))
         value_ils, fx = to_ils(value_native, currency, db, as_of)
