@@ -1,11 +1,19 @@
 """
 Be The Bank (BTB Israel) — monthly PDF portfolio report parser.
 
-The PDF is a 1-page Hebrew RTL report with labeled fields.
-pdfplumber extracts the full text; one regex per field label finds the value.
+pdfplumber extracts RTL Hebrew text in reversed word order. Both Hebrew words
+and multi-word field labels appear with characters in reverse order.
+Values (₪ amounts, percentages) appear BEFORE their label on each line.
 
-Returns a single dict (not a list of rows) — the PDF is a snapshot, not a
-list of transactions.
+Example extracted line:
+    ₪408,207.85 תיחכונ הרתי
+    ← value    ← reversed label ("יתרה נוכחית" reversed)
+
+Title line example:
+    2026 לירפא שדוחל ישיא ישדוח ח"וד
+    ← year ← reversed month ← reversed "לחודש"
+
+Returns a single dict — the PDF is a snapshot, not a list of transactions.
 """
 import calendar
 import io
@@ -16,15 +24,26 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
+# Hebrew month names as pdfplumber extracts them (each word reversed by RTL rendering)
 _HEBREW_MONTHS = {
-    'ינואר': 1, 'פברואר': 2, 'מרץ': 3, 'אפריל': 4,
-    'מאי': 5, 'יוני': 6, 'יולי': 7, 'אוגוסט': 8,
-    'ספטמבר': 9, 'אוקטובר': 10, 'נובמבר': 11, 'דצמבר': 12,
+    'ראוני':   1,   # ינואר
+    'יראורפ':  2,   # פברואר
+    'ץרמ':     3,   # מרץ
+    'לירפא':   4,   # אפריל
+    'יאמ':     5,   # מאי
+    'ינוי':    6,   # יוני
+    'ילוי':    7,   # יולי
+    'טסוגוא':  8,   # אוגוסט
+    'רבמטפס':  9,   # ספטמבר
+    'רבוטקוא': 10,  # אוקטובר
+    'רבמבונ':  11,  # נובמבר
+    'רבמצד':   12,  # דצמבר
 }
 
-# Matches: דו"ח חודשי אישי לחודש אפריל 2026
+# Title: "2026 לירפא שדוחל ישיא ישדוח ח"וד"
+# Pattern: year, reversed-month, שדוחל (= לחודש reversed)
 _TITLE_RE = re.compile(
-    r'לחודש\s+(' + '|'.join(_HEBREW_MONTHS) + r')\s+(\d{4})'
+    r'(\d{4})\s+(' + '|'.join(_HEBREW_MONTHS) + r')\s+שדוחל'
 )
 
 
@@ -33,25 +52,31 @@ def _parse_report_date(text: str) -> Optional[date_type]:
     m = _TITLE_RE.search(text)
     if not m:
         return None
-    month = _HEBREW_MONTHS[m.group(1)]
-    year = int(m.group(2))
+    year = int(m.group(1))
+    month = _HEBREW_MONTHS[m.group(2)]
     last_day = calendar.monthrange(year, month)[1]
     return date_type(year, month, last_day)
 
 
-def _extract_amount(text: str, label: str) -> float:
-    """Find label then return the ₪ amount that follows within ~120 chars."""
-    pattern = rf"{re.escape(label)}[^₪\d]{{0,120}}₪?\s*([\d,]+\.?\d*)"
-    m = re.search(pattern, text, re.DOTALL)
+def _extract_amount(text: str, reversed_label: str) -> float:
+    """
+    Find a ₪ amount that appears directly before reversed_label on the same line.
+    Format in extracted text: '₪408,207.85 תיחכונ הרתי'
+    """
+    pattern = rf"₪([\d,]+\.?\d*)\s+{re.escape(reversed_label)}"
+    m = re.search(pattern, text)
     if m:
         return float(m.group(1).replace(',', ''))
     return 0.0
 
 
-def _extract_pct(text: str, label: str) -> float:
-    """Find label then return the % value that follows within ~120 chars."""
-    pattern = rf"{re.escape(label)}[^%\d]{{0,120}}([\d]+\.?[\d]*)%"
-    m = re.search(pattern, text, re.DOTALL)
+def _extract_pct(text: str, reversed_label: str) -> float:
+    """
+    Find a percentage that appears directly before reversed_label on the same line.
+    Format in extracted text: '13.72% םויה דע )וטנ( תיביטקפא תיביר'
+    """
+    pattern = rf"([\d.]+)%\s+{re.escape(reversed_label)}"
+    m = re.search(pattern, text)
     if m:
         return float(m.group(1))
     return 0.0
@@ -59,7 +84,7 @@ def _extract_pct(text: str, label: str) -> float:
 
 def _parse_btb_text(text: str) -> dict:
     """
-    Parse all fields from pdfplumber-extracted text.
+    Parse all fields from pdfplumber-extracted text (RTL-reversed).
 
     Raises ValueError if the report month/year cannot be found.
     """
@@ -67,21 +92,21 @@ def _parse_btb_text(text: str) -> dict:
     if report_date is None:
         raise ValueError("Could not find report month/year in PDF text")
 
-    total_deposits = _extract_amount(text, "הפקדות")
-    total_withdrawn = _extract_amount(text, "נמשך מהחשבון")
+    total_deposits = _extract_amount(text, "תודקפה")
+    total_withdrawn = _extract_amount(text, "ןובשחהמ ךשמנ")
 
     return {
         'report_date': report_date,
-        'current_value': _extract_amount(text, "יתרה נוכחית"),
-        'total_deposits': total_deposits,
-        'total_withdrawn': total_withdrawn,
-        'gross_interest': _extract_amount(text, "ריבית ברוטו עד היום"),
-        'tax_withheld': _extract_amount(text, "מס שקוזז"),
-        'net_return_pct': _extract_pct(text, "ריבית אפקטיבית (נטו) עד היום"),
-        'avg_interest_rate': _extract_pct(text, "ריבית ממוצעת בתיק ההשקעות"),
-        'last_month_return_pct': _extract_pct(text, "רווח מריבית בחודש הקודם (נטו אחרי מס)"),
-        'mgmt_fee': _extract_amount(text, "דמי ניהול חודשיים"),
-        'net_invested': round(total_deposits - total_withdrawn, 4),
+        'current_value':        _extract_amount(text, "תיחכונ הרתי"),
+        'total_deposits':       total_deposits,
+        'total_withdrawn':      total_withdrawn,
+        'gross_interest':       _extract_amount(text, "םויה דע וטורב תיביר"),
+        'tax_withheld':         _extract_amount(text, "זזוקש סמ"),
+        'net_return_pct':       _extract_pct(text, "םויה דע )וטנ( תיביטקפא תיביר"),
+        'avg_interest_rate':    _extract_pct(text, "תועקשהה קיתב תעצוממ תיביר"),
+        'last_month_return_pct':_extract_pct(text, ")סמ ירחא וטנ( םדוקה שדוחב תיבירמ חוור"),
+        'mgmt_fee':             _extract_amount(text, "םיישדוח לוהינ ימד"),
+        'net_invested':         round(total_deposits - total_withdrawn, 4),
     }
 
 
