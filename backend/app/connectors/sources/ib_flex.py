@@ -334,6 +334,7 @@ class IBFlexConnector(BaseConnector):
         total_amount = abs(trade_money) if trade_money != 0 else abs(quantity * price)
 
         from app.models.transaction import Transaction
+        units_delta = quantity if buy_sell == "BUY" else -quantity
         txn = Transaction(
             portfolio_id=self.portfolio_id,
             asset_id=asset_id,
@@ -342,6 +343,7 @@ class IBFlexConnector(BaseConnector):
             economic_type=economic_type,
             domain="securities",
             quantity=abs(quantity),
+            units_delta=units_delta,
             price_per_unit=price if price > 0 else None,
             total_amount=total_amount,
             cashflow_amount=net_cash if net_cash != 0 else None,
