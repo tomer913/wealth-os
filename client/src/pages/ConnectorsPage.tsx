@@ -73,7 +73,7 @@ interface ConnectorType {
 // ─── API functions ────────────────────────────────────────────────────────────
 
 import apiClient from '../api/client'
-import { DEFAULT_PORTFOLIO_ID, uploadBankStatement } from '../api/portfolio'
+import { DEFAULT_PORTFOLIO_ID, uploadBankStatement, uploadBTBReport, BTBUploadResult } from '../api/portfolio'
 
 async function getConnectors(): Promise<ConnectorRead[]> {
   const { data } = await apiClient.get('/api/v1/connectors/', {
@@ -979,16 +979,42 @@ function RunHistoryDrawer({ connector, onClose }: { connector: ConnectorRead; on
 
 const UPLOAD_TYPES = ['mizrachi_bank', 'fibi_bank']
 
+// BTB is a static upload option — it has no Connector DB record.
+// UploadOption is a minimal shape shared by DB connectors and the BTB entry.
+interface UploadOption {
+  id: string
+  name: string
+  type: string
+  portfolio_id: string
+}
+
+const BTB_STATIC: UploadOption = {
+  id: '__btb__',
+  name: 'BTB - Be The Bank',
+  type: 'btb',
+  portfolio_id: DEFAULT_PORTFOLIO_ID,
+}
+
+type BankResult = { kind: 'bank'; created: number; skipped: number; total: number }
+type BTBResult  = { kind: 'btb' } & BTBUploadResult
+type AnyResult  = BankResult | BTBResult
+
 function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]; onUploaded: () => void }) {
-  const uploadable = connectors.filter(c => UPLOAD_TYPES.includes(c.type) && c.is_active)
+  const bankOptions: UploadOption[] = connectors
+    .filter(c => UPLOAD_TYPES.includes(c.type) && c.is_active)
+    .map(c => ({ id: c.id, name: c.name, type: c.type, portfolio_id: c.portfolio_id }))
+  const allOptions: UploadOption[] = [...bankOptions, BTB_STATIC]
+
   const [selectedId, setSelectedId] = useState('')
-  const [file, setFile] = useState<File | null>(null)
-  const [result, setResult] = useState<{ created: number; skipped: number; total: number } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
+  const [file, setFile]             = useState<File | null>(null)
+  const [result, setResult]         = useState<AnyResult | null>(null)
+  const [error, setError]           = useState<string | null>(null)
+  const [uploading, setUploading]   = useState(false)
   const fileRef = useMemo(() => ({ current: null as HTMLInputElement | null }), [])
 
-  const selected = uploadable.find(c => c.id === selectedId) ?? uploadable[0] ?? null
+  const selected   = allOptions.find(c => c.id === selectedId) ?? allOptions[0] ?? null
+  const isBTB      = selected?.type === 'btb'
+  const acceptAttr = isBTB ? '.pdf' : '.pdf,.xls,.xlsx'
 
   async function handleUpload() {
     if (!file || !selected) return
@@ -996,8 +1022,13 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
     setResult(null)
     setError(null)
     try {
-      const res = await uploadBankStatement(selected.type, selected.portfolio_id, file)
-      setResult(res)
+      if (isBTB) {
+        const res = await uploadBTBReport(selected.portfolio_id, file)
+        setResult({ kind: 'btb', ...res })
+      } else {
+        const res = await uploadBankStatement(selected.type, selected.portfolio_id, file)
+        setResult({ kind: 'bank', ...res })
+      }
       setFile(null)
       if (fileRef.current) fileRef.current.value = ''
       onUploaded()
@@ -1009,7 +1040,7 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
     }
   }
 
-  if (uploadable.length === 0) return null
+  if (allOptions.length === 0) return null
 
   return (
     <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
@@ -1025,18 +1056,18 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
             onChange={e => setSelectedId(e.target.value)}
             className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"
           >
-            {uploadable.map(c => (
-              <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
+            {allOptions.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
         </div>
 
-        {/* File picker */}
+        {/* File picker — accept changes based on selected bank */}
         <div className="flex flex-col gap-1">
           <label className="text-[11px] text-gray-500 font-medium">File</label>
           <input
             type="file"
-            accept=".pdf,.xls,.xlsx"
+            accept={acceptAttr}
             ref={el => { fileRef.current = el }}
             onChange={e => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(null) }}
             className="text-[13px] text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-[12px] file:bg-white file:text-gray-600 hover:file:bg-gray-50 cursor-pointer"
@@ -1058,8 +1089,8 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
         </button>
       </div>
 
-      {/* Result */}
-      {result && (
+      {/* Result — bank: transaction counts */}
+      {result?.kind === 'bank' && (
         <div className="mt-3 flex items-center gap-2 text-[12px] text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 6.5l3 3 6-6"/></svg>
           <span>
@@ -1069,6 +1100,31 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
           </span>
         </div>
       )}
+
+      {/* Result — BTB: valuation summary */}
+      {result?.kind === 'btb' && (
+        <div className="mt-3 text-[12px] text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 space-y-1">
+          <div className="flex items-center gap-2 font-medium">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 6.5l3 3 6-6"/></svg>
+            BTB report uploaded — {result.report_date}
+          </div>
+          <div className="ml-5 grid grid-cols-2 gap-x-6 gap-y-0.5 text-gray-700">
+            <span>Current value</span>
+            <span className="font-medium">
+              ₪{result.current_value.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span>Net invested</span>
+            <span className="font-medium">
+              ₪{result.net_invested.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span>Last month return</span>
+            <span className="font-medium">{result.last_month_return_pct}%</span>
+            <span>Net return to date</span>
+            <span className="font-medium">{result.net_return_pct}%</span>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="mt-3 text-[12px] text-rose-600 bg-rose-50 rounded-lg px-3 py-2">
           {error}
