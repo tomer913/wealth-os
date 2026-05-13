@@ -54,6 +54,12 @@ async def upload_btb_report(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Failed to read PDF: {exc}") from exc
 
+    log.info(
+        "BTB parsed OK: portfolio=%s date=%s current_value=%.2f net_return=%.2f%% avg_rate=%.2f%%",
+        portfolio_id, parsed["report_date"], parsed["current_value"],
+        parsed["net_return_pct"], parsed["avg_interest_rate"],
+    )
+
     report_date = parsed["report_date"]
 
     # ── Upsert ManualValuation ────────────────────────────────────────────────
@@ -64,65 +70,80 @@ async def upload_btb_report(
         f"avg rate {parsed['avg_interest_rate']}%"
     )
 
-    existing_val = (await db.execute(
-        select(ManualValuation).where(
-            ManualValuation.asset_id == _BTB_ASSET_ID,
-            ManualValuation.valuation_date == report_date,
-        )
-    )).scalar_one_or_none()
+    try:
+        existing_val = (await db.execute(
+            select(ManualValuation).where(
+                ManualValuation.asset_id == _BTB_ASSET_ID,
+                ManualValuation.valuation_date == report_date,
+            )
+        )).scalar_one_or_none()
 
-    if existing_val:
-        existing_val.market_value = parsed["current_value"]
-        existing_val.value_ils = parsed["current_value"]
-        existing_val.notes = notes
-        valuation_action = "updated"
-    else:
-        db.add(ManualValuation(
-            portfolio_id=portfolio_id,
-            asset_id=_BTB_ASSET_ID,
-            valuation_date=report_date,
-            market_value=parsed["current_value"],
-            currency="ILS",
-            fx_rate_to_ils=1.0,
-            value_ils=parsed["current_value"],
-            valuation_method="manual",
-            confidence_level="high",
-            source="btb_pdf",
-            notes=notes,
-        ))
-        valuation_action = "created"
+        if existing_val:
+            existing_val.market_value = parsed["current_value"]
+            existing_val.value_ils = parsed["current_value"]
+            existing_val.source = "btb_pdf"
+            existing_val.notes = notes
+            valuation_action = "updated"
+            log.info("BTB: updating existing valuation id=%s", existing_val.id)
+        else:
+            new_val = ManualValuation(
+                portfolio_id=portfolio_id,
+                asset_id=_BTB_ASSET_ID,
+                valuation_date=report_date,
+                market_value=parsed["current_value"],
+                currency="ILS",
+                fx_rate_to_ils=1.0,
+                value_ils=parsed["current_value"],
+                valuation_method="manual",
+                confidence_level="high",
+                source="btb_pdf",
+                notes=notes,
+            )
+            db.add(new_val)
+            valuation_action = "created"
+            log.info("BTB: inserting new valuation for date=%s asset=%s", report_date, _BTB_ASSET_ID)
 
-    # ── Insert Income Transaction (idempotent) ────────────────────────────────
-    ext_ref = f"btb_{report_date.isoformat()}_monthly_income"
-    existing_tx = (await db.execute(
-        select(Transaction).where(Transaction.external_reference_id == ext_ref)
-    )).scalar_one_or_none()
+        # ── Insert Income Transaction (idempotent) ────────────────────────────
+        ext_ref = f"btb_{report_date.isoformat()}_monthly_income"
+        existing_tx = (await db.execute(
+            select(Transaction).where(Transaction.external_reference_id == ext_ref)
+        )).scalar_one_or_none()
 
-    if not existing_tx:
-        income_amount = round(
-            parsed["last_month_return_pct"] * parsed["current_value"] / 100, 4
-        )
-        db.add(Transaction(
-            portfolio_id=portfolio_id,
-            asset_id=_BTB_ASSET_ID,
-            transaction_date=report_date,
-            type="INCOME",
-            economic_type="income",
-            domain="alternatives",
-            total_amount=income_amount,
-            currency="ILS",
-            source="btb_pdf",
-            external_reference_id=ext_ref,
-            status="confirmed",
-        ))
-        tx_action = "created"
-    else:
-        tx_action = "skipped"
+        if not existing_tx:
+            income_amount = round(
+                parsed["last_month_return_pct"] * parsed["current_value"] / 100, 4
+            )
+            db.add(Transaction(
+                portfolio_id=portfolio_id,
+                asset_id=_BTB_ASSET_ID,
+                transaction_date=report_date,
+                type="income",           # TransactionType.INCOME
+                economic_type="INCOME",  # EconomicType.INCOME
+                domain="alternatives",
+                total_amount=income_amount,
+                currency="ILS",
+                source="btb_pdf",
+                external_reference_id=ext_ref,
+                status="confirmed",
+            ))
+            tx_action = "created"
+            log.info("BTB: inserting income transaction ext_ref=%s amount=%.4f", ext_ref, income_amount)
+        else:
+            tx_action = "skipped"
+            log.info("BTB: income transaction already exists ext_ref=%s", ext_ref)
 
-    await db.commit()
+        await db.flush()   # surfaces any DB constraint errors before commit
+        await db.commit()
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await db.rollback()
+        log.error("BTB upload DB error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"DB write failed: {exc}") from exc
 
     log.info(
-        "BTB upload: portfolio=%s date=%s value=%.2f valuation=%s tx=%s",
+        "BTB upload done: portfolio=%s date=%s value=%.2f valuation=%s tx=%s",
         portfolio_id, report_date, parsed["current_value"], valuation_action, tx_action,
     )
 
