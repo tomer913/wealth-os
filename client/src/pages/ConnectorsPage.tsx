@@ -67,13 +67,18 @@ interface ConnectorType {
   type: string
   display_name: string
   description: string
+  category: string                            // 'automatic' | 'manual_upload' | 'scraper'
+  supports_multi_asset: boolean
+  requires_asset_selection_on_upload: boolean // show asset dropdown in upload modal
+  supported_file_types: string[]              // e.g. ['pdf', 'xls', 'xlsx']
+  asset_linking: string
   config_fields: { key: string; label: string; type: string; default: string; hint: string }[]
 }
 
 // ─── API functions ────────────────────────────────────────────────────────────
 
 import apiClient from '../api/client'
-import { DEFAULT_PORTFOLIO_ID, uploadConnectorFile, UploadResult } from '../api/portfolio'
+import { DEFAULT_PORTFOLIO_ID, uploadConnectorFile, UploadResult, getAssets } from '../api/portfolio'
 
 async function getConnectors(): Promise<ConnectorRead[]> {
   const { data } = await apiClient.get('/api/v1/connectors/', {
@@ -462,7 +467,7 @@ export default function ConnectorsPage() {
       )}
 
       {/* Upload bank statement */}
-      <UploadSection connectors={connectors} onUploaded={() => qc.invalidateQueries({ queryKey: ['connectors'] })} />
+      <UploadSection connectors={connectors} connectorTypes={connectorTypes} onUploaded={() => qc.invalidateQueries({ queryKey: ['connectors'] })} />
 
       {/* Add/Edit Modal */}
       <Modal open={modalOpen} onClose={closeModal}
@@ -977,28 +982,51 @@ function RunHistoryDrawer({ connector, onClose }: { connector: ConnectorRead; on
 
 // ─── Upload Section ───────────────────────────────────────────────────────────
 
-// Connector types that support manual file upload
-const UPLOAD_TYPES = ['mizrachi_bank', 'fibi_bank', 'btb_pdf']
+function UploadSection({
+  connectors,
+  connectorTypes,
+  onUploaded,
+}: {
+  connectors: ConnectorRead[]
+  connectorTypes: ConnectorType[]
+  onUploaded: () => void
+}) {
+  // Use registry data to determine which connectors support upload — no hardcoded list
+  const uploadTypeKeys = new Set(
+    connectorTypes.filter(t => t.category === 'manual_upload').map(t => t.type)
+  )
+  const uploadable = connectors.filter(c => uploadTypeKeys.has(c.type) && c.is_active)
 
-// File extensions accepted per connector type
-const UPLOAD_ACCEPT: Record<string, string> = {
-  btb_pdf:       '.pdf',
-  mizrachi_bank: '.pdf',
-  fibi_bank:     '.pdf,.xls,.xlsx',
-}
-
-function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]; onUploaded: () => void }) {
-  const uploadable = connectors.filter(c => UPLOAD_TYPES.includes(c.type) && c.is_active)
-
-  const [selectedId, setSelectedId] = useState('')
-  const [file, setFile]             = useState<File | null>(null)
-  const [result, setResult]         = useState<UploadResult | null>(null)
-  const [error, setError]           = useState<string | null>(null)
-  const [uploading, setUploading]   = useState(false)
+  const [selectedId, setSelectedId]   = useState('')
+  const [file, setFile]               = useState<File | null>(null)
+  const [selectedAssetId, setSelectedAssetId] = useState('')
+  const [result, setResult]           = useState<UploadResult | null>(null)
+  const [error, setError]             = useState<string | null>(null)
+  const [uploading, setUploading]     = useState(false)
   const fileRef = useMemo(() => ({ current: null as HTMLInputElement | null }), [])
 
   const selected   = uploadable.find(c => c.id === selectedId) ?? uploadable[0] ?? null
-  const acceptAttr = UPLOAD_ACCEPT[selected?.type ?? ''] ?? '.pdf'
+  const typeDef    = connectorTypes.find(t => t.type === selected?.type) ?? null
+  const needsAsset = typeDef?.requires_asset_selection_on_upload ?? false
+
+  // Accept string from registry, e.g. ['pdf','xls','xlsx'] → '.pdf,.xls,.xlsx'
+  const acceptAttr = typeDef
+    ? typeDef.supported_file_types.map(e => `.${e}`).join(',')
+    : '.pdf'
+
+  // Fetch assets only when the selected connector requires asset selection
+  const { data: assetList } = useQuery({
+    queryKey: ['assets'],
+    queryFn: () => getAssets({ limit: 500 }),
+    enabled: needsAsset,
+  })
+  const assets = assetList?.items ?? []
+
+  // Reset asset selection when connector changes
+  const prevType = useMemo(() => selected?.type, [selected?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSelectedAssetId('') }, [selected?.id])
+
+  const canSubmit = !!file && (!needsAsset || !!selectedAssetId)
 
   async function handleUpload() {
     if (!file || !selected) return
@@ -1006,9 +1034,14 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
     setResult(null)
     setError(null)
     try {
-      const res = await uploadConnectorFile(selected.id, file)
+      const res = await uploadConnectorFile(
+        selected.id,
+        file,
+        needsAsset ? selectedAssetId : undefined,
+      )
       setResult(res)
       setFile(null)
+      setSelectedAssetId('')
       if (fileRef.current) fileRef.current.value = ''
       onUploaded()
     } catch (e: unknown) {
@@ -1032,7 +1065,7 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
           <label className="text-[11px] text-gray-500 font-medium">Connector</label>
           <select
             value={selectedId || selected?.id || ''}
-            onChange={e => setSelectedId(e.target.value)}
+            onChange={e => { setSelectedId(e.target.value); setResult(null); setError(null) }}
             className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"
           >
             {uploadable.map(c => (
@@ -1041,7 +1074,24 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
           </select>
         </div>
 
-        {/* File picker — accept list comes from connector type */}
+        {/* Asset picker — only shown when connector requires it (e.g. BTB) */}
+        {needsAsset && (
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-gray-500 font-medium">Asset</label>
+            <select
+              value={selectedAssetId}
+              onChange={e => setSelectedAssetId(e.target.value)}
+              className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"
+            >
+              <option value="">— select asset —</option>
+              {assets.map(a => (
+                <option key={a.id} value={a.id}>{a.name} ({a.symbol})</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* File picker — accept list comes from registry */}
         <div className="flex flex-col gap-1">
           <label className="text-[11px] text-gray-500 font-medium">File</label>
           <input
@@ -1056,7 +1106,7 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
         {/* Upload button */}
         <button
           onClick={handleUpload}
-          disabled={!file || uploading}
+          disabled={!canSubmit || uploading}
           className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg disabled:opacity-50 transition-colors"
         >
           {uploading ? (

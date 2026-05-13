@@ -443,10 +443,12 @@ export type UploadResult =
 export async function uploadConnectorFile(
   connectorId: string,
   file: File,
+  assetId?: string,  // required when connector.requires_asset_selection_on_upload
 ): Promise<UploadResult> {
   const form = new FormData()
   form.append('connector_id', connectorId)
   form.append('file', file)
+  if (assetId) form.append('asset_id', assetId)
   const { data } = await apiClient.post('/api/v1/connectors/upload/', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,

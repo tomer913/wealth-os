@@ -153,6 +153,17 @@ Now adding **raw data layer** (April 2026):
 - GitHub Actions workflow receives only `CONNECTOR_ID`; no card secrets stored in GitHub
 - `scraper/index.js` fetches from API when `CONNECTOR_ID` is set; falls back to env vars for local testing
 
+### Connector Registry
+See `backend/app/connectors/CONNECTORS.md` for full connector type documentation.
+All connector types, their properties, asset-linking strategies, and file upload support
+are defined in `backend/app/connectors/connector_registry.py` (`CONNECTOR_REGISTRY` dict)
+and documented in `CONNECTORS.md`. When adding a new connector type, update **both** files.
+
+Key properties per type:
+- `category`: `automatic` | `manual_upload` | `scraper`
+- `requires_asset_selection_on_upload`: if true, frontend shows asset dropdown at upload time
+- `supported_file_types`: list of accepted extensions for manual_upload types
+
 ### FIBI bank import
 - **Primary:** XLS export from FIBI online banking — parsed by `parse_fibi_xlsx()` in `backend/app/connectors/parsers/fibi.py`
 - Sheet: `"Activities"`, rows 7+ are transactions; columns 3/4 = credit/debit, col 5 = description, col 7 = op code, col 8 = date

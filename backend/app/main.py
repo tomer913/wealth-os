@@ -73,7 +73,31 @@ async def health():
 
 @app.get("/api/v1/connector-types")
 async def list_connector_types():
-    return connector_registry.list_connector_types()
+    """
+    Return all connector types with full metadata from the registry.
+    config_fields come from the Python class registry (for create-form rendering).
+    Category, upload, and asset-linking metadata come from CONNECTOR_REGISTRY.
+    """
+    from app.connectors.connector_registry import CONNECTOR_REGISTRY
+    # Class-based registry for config_fields
+    class_registry = connector_registry._REGISTRY
+
+    result = []
+    for type_key, type_def in CONNECTOR_REGISTRY.items():
+        cls = class_registry.get(type_key)
+        config_fields = getattr(cls, "CONFIG_FIELDS", []) if cls else []
+        result.append({
+            "type": type_def.type,
+            "display_name": type_def.display_name,
+            "description": type_def.description,
+            "category": type_def.category,
+            "supports_multi_asset": type_def.supports_multi_asset,
+            "requires_asset_selection_on_upload": type_def.requires_asset_selection_on_upload,
+            "supported_file_types": type_def.supported_file_types,
+            "asset_linking": type_def.asset_linking,
+            "config_fields": config_fields,
+        })
+    return result
 
 
 @app.post("/api/v1/scheduler/run-now")

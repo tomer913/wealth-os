@@ -763,31 +763,25 @@ async def get_run(
 
 # ── File upload endpoint ──────────────────────────────────────────────────────
 
-# Connector types that support manual file upload
-UPLOAD_SUPPORTED = {"mizrachi_bank", "fibi_bank", "btb_pdf"}
-
-# File extensions accepted per connector type
-_UPLOAD_ACCEPT = {
-    "btb_pdf":       ("pdf",),
-    "mizrachi_bank": ("pdf",),
-    "fibi_bank":     ("pdf", "xls", "xlsx"),
-}
-
-
 @router.post("/upload/")
 async def upload_bank_statement(
     file: UploadFile = File(...),
     connector_id: UUID = Form(...),
+    asset_id: Optional[str] = Form(None),  # required when requires_asset_selection_on_upload
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Accept a PDF/XLS/XLSX statement, parse it, and write to the appropriate
-    destination (raw_transactions for bank connectors; manual_valuation for BTB).
+    Accept a statement file, parse it, write results.
+    Routing and validation are driven entirely by CONNECTOR_REGISTRY — no
+    hardcoded type lists. New connector types only need a registry entry.
 
-    Routing is driven by connector.type — no hardcoding of asset IDs here.
-    Supported connector types: mizrachi_bank, fibi_bank, btb_pdf.
+    asset_id: required for connectors where requires_asset_selection_on_upload=True
+              (e.g. btb_pdf). Ignored for auto_by_description connectors.
+              Falls back to connector.config['asset_id'] for backward compatibility.
     """
+    from app.connectors.connector_registry import get_connector_type
+
     connector = await db.get(Connector, connector_id)
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
@@ -798,11 +792,11 @@ async def upload_bank_statement(
         required_role="editor",
     )
 
-    if connector.type not in UPLOAD_SUPPORTED:
+    type_def = get_connector_type(connector.type)
+    if not type_def or type_def.category != "manual_upload":
         raise HTTPException(
             status_code=400,
-            detail=f"Connector type '{connector.type}' does not support file upload. "
-                   f"Supported: {sorted(UPLOAD_SUPPORTED)}",
+            detail=f"Connector type '{connector.type}' does not support file upload",
         )
 
     portfolio_id = connector.portfolio_id
@@ -810,14 +804,30 @@ async def upload_bank_statement(
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    accepted = _UPLOAD_ACCEPT.get(connector.type, ())
-    if ext not in accepted:
+    if ext not in type_def.supported_file_types:
+        allowed = ", ".join(f".{e}" for e in type_def.supported_file_types)
         raise HTTPException(
             status_code=400,
-            detail=f"{connector.name} accepts {', '.join('.' + e for e in accepted)} only",
+            detail=f"{connector.name} accepts {allowed} only",
         )
 
-    _log.info("upload: connector_id=%s type=%s filename=%s", connector_id, connector.type, filename)
+    # Resolve asset_id: form field wins; fall back to connector config for backward compat
+    resolved_asset_id = asset_id
+    if not resolved_asset_id and connector.config:
+        config = decrypt_config(connector.config)
+        resolved_asset_id = config.get("asset_id")
+
+    if type_def.requires_asset_selection_on_upload and not resolved_asset_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"asset_id is required for connector type '{connector.type}'. "
+                   "Select the linked asset in the upload form.",
+        )
+
+    _log.info(
+        "upload: connector_id=%s type=%s filename=%s asset_id=%s",
+        connector_id, connector.type, filename, resolved_asset_id,
+    )
 
     started_at = datetime.now(timezone.utc)
 
@@ -839,20 +849,11 @@ async def upload_bank_statement(
         from app.models.transaction import Transaction
         from app.models.valuation import ManualValuation
 
-        # Asset ID is stored in connector config (set when user creates the connector)
-        config = decrypt_config(connector.config) if connector.config else {}
-        btb_asset_id_str = config.get("asset_id", "")
-        if not btb_asset_id_str:
-            raise HTTPException(
-                status_code=422,
-                detail="BTB connector is missing 'asset_id' in config. "
-                       "Edit the connector and add your BTB portfolio asset ID.",
-            )
         try:
             import uuid as _uuid
-            btb_asset_id = _uuid.UUID(btb_asset_id_str)
-        except ValueError:
-            raise HTTPException(status_code=422, detail=f"Invalid asset_id in BTB connector config: {btb_asset_id_str!r}")
+            btb_asset_id = _uuid.UUID(resolved_asset_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail=f"Invalid asset_id: {resolved_asset_id!r}")
 
         report_date = parsed["report_date"]
         month_label = report_date.strftime("%B %Y")
@@ -963,7 +964,7 @@ async def upload_bank_statement(
             "transaction": tx_action,
         }
 
-    # ── Bank connectors — write to raw_transactions ───────────────────────────
+    # ── Bank connectors (fibi_bank, mizrachi_bank) — write to raw_transactions ─
     try:
         if connector.type == "mizrachi_bank":
             from app.connectors.parsers.mizrachi import parse_mizrachi_pdf
