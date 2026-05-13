@@ -415,44 +415,39 @@ export async function triggerSnapshotRebuild() {
   return data
 }
 
-export async function uploadBankStatement(
-  connectorType: string,
-  portfolioId: string,
+// Unified upload result — discriminated by connector_type
+export type UploadResult =
+  | {
+      connector_type: 'btb_pdf'
+      connector_name: string
+      report_date: string
+      current_value: number
+      net_invested: number
+      last_month_return_pct: number
+      net_return_pct: number
+      avg_interest_rate: number
+      gross_interest: number
+      tax_withheld: number
+      mgmt_fee: number
+      valuation: 'created' | 'updated'
+      transaction: 'created' | 'skipped'
+    }
+  | {
+      connector_type: string
+      connector_name: string
+      created: number
+      skipped: number
+      total: number
+    }
+
+export async function uploadConnectorFile(
+  connectorId: string,
   file: File,
-): Promise<{ created: number; skipped: number; total: number; connector_name: string; source: string }> {
+): Promise<UploadResult> {
   const form = new FormData()
-  form.append('connector_type', connectorType)
-  form.append('portfolio_id', portfolioId)
+  form.append('connector_id', connectorId)
   form.append('file', file)
   const { data } = await apiClient.post('/api/v1/connectors/upload/', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 120000,
-  })
-  return data
-}
-
-export interface BTBUploadResult {
-  report_date: string           // "2026-04-30"
-  current_value: number
-  net_invested: number
-  last_month_return_pct: number
-  net_return_pct: number
-  avg_interest_rate: number
-  gross_interest: number
-  tax_withheld: number
-  mgmt_fee: number
-  valuation: 'created' | 'updated'
-  transaction: 'created' | 'skipped'
-}
-
-export async function uploadBTBReport(
-  portfolioId: string,
-  file: File,
-): Promise<BTBUploadResult> {
-  const form = new FormData()
-  form.append('portfolio_id', portfolioId)
-  form.append('file', file)
-  const { data } = await apiClient.post('/api/v1/connectors/btb/upload/', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   })

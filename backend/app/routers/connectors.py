@@ -763,59 +763,210 @@ async def get_run(
 
 # ── File upload endpoint ──────────────────────────────────────────────────────
 
-UPLOAD_SUPPORTED = {"mizrachi_bank", "fibi_bank"}
+# Connector types that support manual file upload
+UPLOAD_SUPPORTED = {"mizrachi_bank", "fibi_bank", "btb_pdf"}
+
+# File extensions accepted per connector type
+_UPLOAD_ACCEPT = {
+    "btb_pdf":       ("pdf",),
+    "mizrachi_bank": ("pdf",),
+    "fibi_bank":     ("pdf", "xls", "xlsx"),
+}
 
 
 @router.post("/upload/")
 async def upload_bank_statement(
     file: UploadFile = File(...),
-    connector_type: str = Form(...),
-    portfolio_id: UUID = Form(...),
+    connector_id: UUID = Form(...),
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    _log.info("=== UPLOAD CALLED === connector_type=%s portfolio_id=%s filename=%s",
-              connector_type, portfolio_id, getattr(file, 'filename', None))
-    await verify_portfolio_access(db, portfolio_id, current_user["user_id"], current_user.get("org_id"), required_role="editor")
     """
-    Accept a PDF or XLSX bank statement, parse it, and write to raw_transactions.
-    Supported connector_type values: mizrachi_bank, fibi_bank.
+    Accept a PDF/XLS/XLSX statement, parse it, and write to the appropriate
+    destination (raw_transactions for bank connectors; manual_valuation for BTB).
+
+    Routing is driven by connector.type — no hardcoding of asset IDs here.
+    Supported connector types: mizrachi_bank, fibi_bank, btb_pdf.
     """
-    if connector_type not in UPLOAD_SUPPORTED:
+    connector = await db.get(Connector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    await verify_portfolio_access(
+        db, connector.portfolio_id,
+        current_user["user_id"], current_user.get("org_id"),
+        required_role="editor",
+    )
+
+    if connector.type not in UPLOAD_SUPPORTED:
         raise HTTPException(
             status_code=400,
-            detail=f"Upload not supported for connector type '{connector_type}'. "
+            detail=f"Connector type '{connector.type}' does not support file upload. "
                    f"Supported: {sorted(UPLOAD_SUPPORTED)}",
         )
 
-    # Look up connector record
-    q = (
-        select(Connector)
-        .where(
-            Connector.type == connector_type,
-            Connector.portfolio_id == portfolio_id,
-            Connector.is_active.is_(True),
-        )
-        .limit(1)
-    )
-    connector = (await db.execute(q)).scalar_one_or_none()
-    if not connector:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No active connector of type '{connector_type}' found for this portfolio",
-        )
-
-    # Read file bytes
+    portfolio_id = connector.portfolio_id
     file_bytes = await file.read()
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    # Parse based on connector type and file extension
+    accepted = _UPLOAD_ACCEPT.get(connector.type, ())
+    if ext not in accepted:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{connector.name} accepts {', '.join('.' + e for e in accepted)} only",
+        )
+
+    _log.info("upload: connector_id=%s type=%s filename=%s", connector_id, connector.type, filename)
+
+    started_at = datetime.now(timezone.utc)
+
+    # ── BTB PDF — upsert manual valuation + income transaction ────────────────
+    if connector.type == "btb_pdf":
+        try:
+            from app.connectors.parsers.btb import parse_btb_pdf
+            parsed = parse_btb_pdf(file_bytes)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Could not parse BTB report: {exc}") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Failed to read PDF: {exc}") from exc
+
+        _log.info(
+            "BTB parsed: date=%s value=%.2f net_return=%.2f%%",
+            parsed["report_date"], parsed["current_value"], parsed["net_return_pct"],
+        )
+
+        from app.models.transaction import Transaction
+        from app.models.valuation import ManualValuation
+
+        # Asset ID is stored in connector config (set when user creates the connector)
+        config = decrypt_config(connector.config) if connector.config else {}
+        btb_asset_id_str = config.get("asset_id", "")
+        if not btb_asset_id_str:
+            raise HTTPException(
+                status_code=422,
+                detail="BTB connector is missing 'asset_id' in config. "
+                       "Edit the connector and add your BTB portfolio asset ID.",
+            )
+        try:
+            import uuid as _uuid
+            btb_asset_id = _uuid.UUID(btb_asset_id_str)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid asset_id in BTB connector config: {btb_asset_id_str!r}")
+
+        report_date = parsed["report_date"]
+        month_label = report_date.strftime("%B %Y")
+        notes = (
+            f"BTB {month_label} — "
+            f"net return {parsed['net_return_pct']}%, "
+            f"avg rate {parsed['avg_interest_rate']}%"
+        )
+
+        try:
+            existing_val = (await db.execute(
+                select(ManualValuation).where(
+                    ManualValuation.asset_id == btb_asset_id,
+                    ManualValuation.valuation_date == report_date,
+                )
+            )).scalar_one_or_none()
+
+            if existing_val:
+                existing_val.market_value = parsed["current_value"]
+                existing_val.value_ils = parsed["current_value"]
+                existing_val.source = "btb_pdf"
+                existing_val.notes = notes
+                valuation_action = "updated"
+            else:
+                db.add(ManualValuation(
+                    portfolio_id=portfolio_id,
+                    asset_id=btb_asset_id,
+                    valuation_date=report_date,
+                    market_value=parsed["current_value"],
+                    currency="ILS",
+                    fx_rate_to_ils=1.0,
+                    value_ils=parsed["current_value"],
+                    valuation_method="manual",
+                    confidence_level="high",
+                    source="btb_pdf",
+                    notes=notes,
+                ))
+                valuation_action = "created"
+
+            ext_ref = f"btb_{report_date.isoformat()}_monthly_income"
+            existing_tx = (await db.execute(
+                select(Transaction).where(Transaction.external_reference_id == ext_ref)
+            )).scalar_one_or_none()
+
+            if not existing_tx:
+                income_amount = round(
+                    parsed["last_month_return_pct"] * parsed["current_value"] / 100, 4
+                )
+                db.add(Transaction(
+                    portfolio_id=portfolio_id,
+                    asset_id=btb_asset_id,
+                    transaction_date=report_date,
+                    type="income",
+                    economic_type="INCOME",
+                    domain="alternatives",
+                    total_amount=income_amount,
+                    currency="ILS",
+                    source="btb_pdf",
+                    external_reference_id=ext_ref,
+                    status="confirmed",
+                ))
+                tx_action = "created"
+            else:
+                tx_action = "skipped"
+
+            await db.flush()
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            await db.rollback()
+            _log.error("BTB DB error: %s", exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"DB write failed: {exc}") from exc
+
+        finished_at = datetime.now(timezone.utc)
+        run = ConnectorRun(
+            id=uuid.uuid4(),
+            connector_id=connector.id,
+            portfolio_id=portfolio_id,
+            status="success",
+            triggered_by="manual",
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=int((finished_at - started_at).total_seconds() * 1000),
+            records_fetched=1,
+            valuations_created=1 if valuation_action == "created" else 0,
+        )
+        db.add(run)
+        connector.last_run_at = finished_at
+        connector.last_error = None
+        await db.commit()
+
+        _log.info("BTB upload done: valuation=%s tx=%s", valuation_action, tx_action)
+
+        return {
+            "connector_type": "btb_pdf",
+            "connector_name": connector.name,
+            "report_date": report_date.isoformat(),
+            "current_value": parsed["current_value"],
+            "net_invested": parsed["net_invested"],
+            "last_month_return_pct": parsed["last_month_return_pct"],
+            "net_return_pct": parsed["net_return_pct"],
+            "avg_interest_rate": parsed["avg_interest_rate"],
+            "gross_interest": parsed["gross_interest"],
+            "tax_withheld": parsed["tax_withheld"],
+            "mgmt_fee": parsed["mgmt_fee"],
+            "valuation": valuation_action,
+            "transaction": tx_action,
+        }
+
+    # ── Bank connectors — write to raw_transactions ───────────────────────────
     try:
-        if connector_type == "mizrachi_bank":
+        if connector.type == "mizrachi_bank":
             from app.connectors.parsers.mizrachi import parse_mizrachi_pdf
-            if ext not in ("pdf",):
-                raise HTTPException(status_code=400, detail="Mizrachi Bank accepts PDF files only")
             rows = parse_mizrachi_pdf(file_bytes)
 
         else:  # fibi_bank
@@ -827,36 +978,30 @@ async def upload_bank_statement(
                     tmp.write(file_bytes)
                     tmp_path = tmp.name
                 try:
-                    parsed = parse_fibi_xlsx(tmp_path, str(portfolio_id))
+                    parsed_fibi = parse_fibi_xlsx(tmp_path, str(portfolio_id))
                 finally:
                     _os.unlink(tmp_path)
-                rows = [_normalize_fibi_row(r) for r in parsed]
-            elif ext == "pdf":
+                rows = [_normalize_fibi_row(r) for r in parsed_fibi]
+            else:  # pdf
                 from app.connectors.parsers.fibi import parse_fibi_pdf
                 rows = parse_fibi_pdf(file_bytes)
-            else:
-                raise HTTPException(status_code=400, detail="FIBI Bank accepts PDF, XLS, or XLSX files only")
 
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Failed to parse file: {exc}") from exc
 
-    # Write rows to raw_transactions with same dedup logic as BaseConnector._run_raw
     from app.models.raw_layer import RawTransaction
     from app.utils.uuid7 import uuid7
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    source = connector_type
-    started_at = datetime.now(timezone.utc)
     created = 0
     skipped = 0
-
     for row in rows:
         stmt = pg_insert(RawTransaction).values(
             id=uuid7(),
             portfolio_id=portfolio_id,
-            source=source,
+            source=connector.type,
             raw_date=row["raw_date"],
             description=row["description"],
             amount=row["amount"],
@@ -873,7 +1018,6 @@ async def upload_bank_statement(
         else:
             skipped += 1
 
-    # Create connector_run audit record
     finished_at = datetime.now(timezone.utc)
     run = ConnectorRun(
         id=uuid.uuid4(),
@@ -889,19 +1033,16 @@ async def upload_bank_statement(
         transactions_skipped=skipped,
     )
     db.add(run)
-
-    # Update connector.last_run_at
     connector.last_run_at = finished_at
     connector.last_error = None
-
     await db.commit()
 
     return {
+        "connector_type": connector.type,
+        "connector_name": connector.name,
         "created": created,
         "skipped": skipped,
         "total": len(rows),
-        "connector_name": connector.name,
-        "source": source,
     }
 
 

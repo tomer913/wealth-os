@@ -73,7 +73,7 @@ interface ConnectorType {
 // ─── API functions ────────────────────────────────────────────────────────────
 
 import apiClient from '../api/client'
-import { DEFAULT_PORTFOLIO_ID, uploadBankStatement, uploadBTBReport, BTBUploadResult } from '../api/portfolio'
+import { DEFAULT_PORTFOLIO_ID, uploadConnectorFile, UploadResult } from '../api/portfolio'
 
 async function getConnectors(): Promise<ConnectorRead[]> {
   const { data } = await apiClient.get('/api/v1/connectors/', {
@@ -977,44 +977,28 @@ function RunHistoryDrawer({ connector, onClose }: { connector: ConnectorRead; on
 
 // ─── Upload Section ───────────────────────────────────────────────────────────
 
-const UPLOAD_TYPES = ['mizrachi_bank', 'fibi_bank']
+// Connector types that support manual file upload
+const UPLOAD_TYPES = ['mizrachi_bank', 'fibi_bank', 'btb_pdf']
 
-// BTB is a static upload option — it has no Connector DB record.
-// UploadOption is a minimal shape shared by DB connectors and the BTB entry.
-interface UploadOption {
-  id: string
-  name: string
-  type: string
-  portfolio_id: string
+// File extensions accepted per connector type
+const UPLOAD_ACCEPT: Record<string, string> = {
+  btb_pdf:       '.pdf',
+  mizrachi_bank: '.pdf',
+  fibi_bank:     '.pdf,.xls,.xlsx',
 }
-
-const BTB_STATIC: UploadOption = {
-  id: '__btb__',
-  name: 'BTB - Be The Bank',
-  type: 'btb',
-  portfolio_id: DEFAULT_PORTFOLIO_ID,
-}
-
-type BankResult = { kind: 'bank'; created: number; skipped: number; total: number }
-type BTBResult  = { kind: 'btb' } & BTBUploadResult
-type AnyResult  = BankResult | BTBResult
 
 function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]; onUploaded: () => void }) {
-  const bankOptions: UploadOption[] = connectors
-    .filter(c => UPLOAD_TYPES.includes(c.type) && c.is_active)
-    .map(c => ({ id: c.id, name: c.name, type: c.type, portfolio_id: c.portfolio_id }))
-  const allOptions: UploadOption[] = [...bankOptions, BTB_STATIC]
+  const uploadable = connectors.filter(c => UPLOAD_TYPES.includes(c.type) && c.is_active)
 
   const [selectedId, setSelectedId] = useState('')
   const [file, setFile]             = useState<File | null>(null)
-  const [result, setResult]         = useState<AnyResult | null>(null)
+  const [result, setResult]         = useState<UploadResult | null>(null)
   const [error, setError]           = useState<string | null>(null)
   const [uploading, setUploading]   = useState(false)
   const fileRef = useMemo(() => ({ current: null as HTMLInputElement | null }), [])
 
-  const selected   = allOptions.find(c => c.id === selectedId) ?? allOptions[0] ?? null
-  const isBTB      = selected?.type === 'btb'
-  const acceptAttr = isBTB ? '.pdf' : '.pdf,.xls,.xlsx'
+  const selected   = uploadable.find(c => c.id === selectedId) ?? uploadable[0] ?? null
+  const acceptAttr = UPLOAD_ACCEPT[selected?.type ?? ''] ?? '.pdf'
 
   async function handleUpload() {
     if (!file || !selected) return
@@ -1022,13 +1006,8 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
     setResult(null)
     setError(null)
     try {
-      if (isBTB) {
-        const res = await uploadBTBReport(selected.portfolio_id, file)
-        setResult({ kind: 'btb', ...res })
-      } else {
-        const res = await uploadBankStatement(selected.type, selected.portfolio_id, file)
-        setResult({ kind: 'bank', ...res })
-      }
+      const res = await uploadConnectorFile(selected.id, file)
+      setResult(res)
       setFile(null)
       if (fileRef.current) fileRef.current.value = ''
       onUploaded()
@@ -1040,29 +1019,29 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
     }
   }
 
-  if (allOptions.length === 0) return null
+  if (uploadable.length === 0) return null
 
   return (
     <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-      <h3 className="text-[14px] font-semibold text-gray-900 mb-1">Upload bank statement</h3>
-      <p className="text-[12px] text-gray-400 mb-4">Manually import a PDF or XLSX export from your bank</p>
+      <h3 className="text-[14px] font-semibold text-gray-900 mb-1">Upload statement</h3>
+      <p className="text-[12px] text-gray-400 mb-4">Manually import a PDF or XLSX export</p>
 
       <div className="flex flex-wrap items-end gap-3">
         {/* Connector picker */}
         <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-gray-500 font-medium">Bank</label>
+          <label className="text-[11px] text-gray-500 font-medium">Connector</label>
           <select
             value={selectedId || selected?.id || ''}
             onChange={e => setSelectedId(e.target.value)}
             className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"
           >
-            {allOptions.map(c => (
+            {uploadable.map(c => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
         </div>
 
-        {/* File picker — accept changes based on selected bank */}
+        {/* File picker — accept list comes from connector type */}
         <div className="flex flex-col gap-1">
           <label className="text-[11px] text-gray-500 font-medium">File</label>
           <input
@@ -1089,8 +1068,8 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
         </button>
       </div>
 
-      {/* Result — bank: transaction counts */}
-      {result?.kind === 'bank' && (
+      {/* Result — bank connectors: transaction counts */}
+      {result && result.connector_type !== 'btb_pdf' && 'created' in result && (
         <div className="mt-3 flex items-center gap-2 text-[12px] text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 6.5l3 3 6-6"/></svg>
           <span>
@@ -1102,7 +1081,7 @@ function UploadSection({ connectors, onUploaded }: { connectors: ConnectorRead[]
       )}
 
       {/* Result — BTB: valuation summary */}
-      {result?.kind === 'btb' && (
+      {result?.connector_type === 'btb_pdf' && 'report_date' in result && (
         <div className="mt-3 text-[12px] text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 space-y-1">
           <div className="flex items-center gap-2 font-medium">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 6.5l3 3 6-6"/></svg>
