@@ -1291,3 +1291,34 @@ async def ingest_raw_transactions(
 
     await db.commit()
     return {"status": "ok", "created": created, "skipped": skipped, "source": source}
+
+
+# ── Manual report trigger ──────────────────────────────────────────────────────
+
+@router.post("/send-daily-report/")
+async def send_daily_report(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Manually trigger the daily notification report for all portfolios.
+    Builds a ReportData snapshot from current DB state and delivers it
+    to all configured channels (Telegram, etc.).
+    """
+    from datetime import date
+    from app.models.portfolio import Portfolio
+    from app.utils.daily_report import build_daily_report
+    from app.utils.notification_router import deliver_report
+    from sqlalchemy import select
+
+    portfolios = (await db.execute(select(Portfolio))).scalars().all()
+    if not portfolios:
+        raise HTTPException(status_code=404, detail="No portfolios found")
+
+    delivered = 0
+    for portfolio in portfolios:
+        report = await build_daily_report(db, portfolio.id, as_of=date.today())
+        await deliver_report(report)
+        delivered += 1
+
+    return {"status": "ok", "portfolios": delivered}

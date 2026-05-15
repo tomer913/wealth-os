@@ -241,6 +241,20 @@ export default function ConnectorsPage() {
     },
   })
 
+  const [reportToast, setReportToast] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+
+  async function handleSendReport() {
+    setReportToast('sending')
+    try {
+      await apiClient.post('/api/v1/connectors/send-daily-report/')
+      setReportToast('sent')
+      setTimeout(() => setReportToast('idle'), 4000)
+    } catch {
+      setReportToast('error')
+      setTimeout(() => setReportToast('idle'), 4000)
+    }
+  }
+
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<ConnectorRead | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConnectorRead | null>(null)
@@ -438,12 +452,36 @@ export default function ConnectorsPage() {
             {connectors.length} connector{connectors.length !== 1 ? 's' : ''} configured
           </p>
         </div>
-        <button onClick={openAdd}
-          className="flex items-center gap-2 px-4 py-2 bg-[#0d9488] hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg transition-colors">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M6 1v10M1 6h10"/></svg>
-          Add connector
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSendReport}
+            disabled={reportToast === 'sending'}
+            title="Send daily report to Telegram"
+            className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
+            {reportToast === 'sending'
+              ? <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>
+              : <span>📱</span>}
+            {reportToast === 'sent' ? 'Sent!' : reportToast === 'error' ? 'Failed' : 'Test report'}
+          </button>
+          <button onClick={openAdd}
+            className="flex items-center gap-2 px-4 py-2 bg-[#0d9488] hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg transition-colors">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M6 1v10M1 6h10"/></svg>
+            Add connector
+          </button>
+        </div>
       </div>
+
+      {/* Report toast */}
+      {reportToast === 'sent' && (
+        <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-emerald-50 border border-emerald-100 rounded-xl text-[13px] text-emerald-700 font-medium">
+          📱 Report sent to Telegram!
+        </div>
+      )}
+      {reportToast === 'error' && (
+        <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-rose-50 border border-rose-100 rounded-xl text-[13px] text-rose-700 font-medium">
+          Failed to send report — check Railway logs
+        </div>
+      )}
 
       {/* Connector cards */}
       {isLoading ? <LoadingCards /> : connectors.length === 0 ? <EmptyState onAdd={openAdd} /> : (
