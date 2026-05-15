@@ -164,6 +164,42 @@ Key properties per type:
 - `requires_asset_selection_on_upload`: if true, frontend shows asset dropdown at upload time
 - `supported_file_types`: list of accepted extensions for manual_upload types
 
+### Notification System
+
+Channel-agnostic daily report — send to Telegram, email, Slack, or any future channel with zero changes to report logic.
+
+**Architecture:**
+```
+build_daily_report() → ReportData
+notification_router.deliver_report(ReportData)
+  → TelegramChannel (if TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID set)
+  → EmailChannel    (if RESEND_API_KEY set)      [stub — not yet implemented]
+  → SlackChannel    (if SLACK_WEBHOOK_URL set)   [stub — not yet implemented]
+```
+
+**File locations:**
+- `backend/app/utils/daily_report.py` — builds ReportData from DB (no formatting)
+- `backend/app/utils/notifications/base.py` — dataclasses + NotificationChannel ABC
+- `backend/app/utils/notifications/telegram.py` — Telegram implementation
+- `backend/app/utils/notifications/email.py` — Email stub (Resend)
+- `backend/app/utils/notifications/slack.py` — Slack stub
+- `backend/app/utils/notification_router.py` — delivers to all configured channels
+
+**To add a new channel:** create `notifications/yourchannel.py`, implement 3 methods, add to `CHANNELS` list in `notification_router.py`. Zero other changes needed.
+
+**Scheduler:** runs at **07:15 IL** after the 07:10 snapshot rebuild.
+
+**Environment variables (set in Railway):**
+```
+TELEGRAM_BOT_TOKEN = <from @BotFather>
+TELEGRAM_CHAT_ID   = <your personal chat ID — send /start to @userinfobot>
+# Future channels (uncomment when implementing):
+# RESEND_API_KEY    = for email reports via Resend
+# REPORT_EMAIL_TO   = recipient address
+# REPORT_EMAIL_FROM = verified sender address
+# SLACK_WEBHOOK_URL = Incoming Webhook URL from api.slack.com/apps
+```
+
 ### FIBI bank import
 - **Primary:** XLS export from FIBI online banking — parsed by `parse_fibi_xlsx()` in `backend/app/connectors/parsers/fibi.py`
 - Sheet: `"Activities"`, rows 7+ are transactions; columns 3/4 = credit/debit, col 5 = description, col 7 = op code, col 8 = date

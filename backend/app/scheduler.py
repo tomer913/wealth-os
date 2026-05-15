@@ -73,10 +73,20 @@ def start_scheduler():
         misfire_grace_time=3600,
     )
 
+    # 07:15 — Send daily notification report to configured channels
+    scheduler.add_job(
+        run_daily_report,
+        trigger=CronTrigger(hour=7, minute=15, timezone="Asia/Jerusalem"),
+        id="daily_report",
+        name="Daily report — notify all configured channels",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
     scheduler.start()
     log.info(
         "Scheduler started — 07:00 connectors, 07:05 bank processor, "
-        "07:10 snapshots (Asia/Jerusalem)"
+        "07:10 snapshots, 07:15 report (Asia/Jerusalem)"
     )
 
 
@@ -354,6 +364,33 @@ async def _rebuild_portfolio_snapshot(portfolio_id):
         result['summary']['asset_count'],
     )
     return result
+
+
+async def run_daily_report():
+    """
+    07:15 job — Build and deliver the daily report to all configured channels.
+    Runs after snapshots so all numbers are fresh.
+    """
+    log.info("=== Daily report started at %s ===", datetime.now(timezone.utc).isoformat())
+
+    from app.database import AsyncSessionLocal
+    from app.models.portfolio import Portfolio
+    from app.utils.daily_report import build_daily_report
+    from app.utils.notification_router import deliver_report
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        portfolios = (await db.execute(select(Portfolio))).scalars().all()
+
+    for portfolio in portfolios:
+        try:
+            async with AsyncSessionLocal() as db:
+                report = await build_daily_report(db, portfolio.id)
+            await deliver_report(report)
+        except Exception as e:
+            log.error("Daily report failed for portfolio %s: %s", portfolio.id, e)
+
+    log.info("=== Daily report complete ===")
 
 
 async def trigger_manual_etl(portfolio_id=None):
