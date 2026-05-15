@@ -123,6 +123,16 @@ CONNECTOR_REGISTRY: dict = {
         supported_file_types=["pdf"],
         asset_linking="user_selected",
     ),
+    "isracard_xlsx": ConnectorTypeDef(
+        type="isracard_xlsx",
+        display_name="ישראכרט - העלאת קובץ",
+        description="העלה קובץ Excel חודשי מאתר ישראכרט. מחליף את הסקרייפר האוטומטי שנשבר.",
+        category="manual_upload",
+        supports_multi_asset=False,
+        requires_asset_selection_on_upload=False,
+        supported_file_types=["xlsx", "xls"],
+        asset_linking="none",
+    ),
 }
 
 

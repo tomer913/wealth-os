@@ -33,10 +33,10 @@ Each connector type defines:
 
 ### Scraper Connectors
 
-| type | display_name | supports_multi_asset | asset_linking | schedule_default |
-|------|-------------|---------------------|---------------|-----------------|
-| isracard | Isracard | false | account_linked | daily |
-| cal_scraper | CAL Card | false | account_linked | daily |
+| type | display_name | supports_multi_asset | asset_linking | schedule_default | notes |
+|------|-------------|---------------------|---------------|-----------------|-------|
+| isracard | Isracard Scraper | false | account_linked | daily | ⚠️ BROKEN — Isracard added SMS 2FA. Use `isracard_xlsx` instead. Do not run automatically. |
+| cal_scraper | CAL Card | false | account_linked | daily | |
 
 ### Manual Upload Connectors
 
@@ -45,6 +45,11 @@ Each connector type defines:
 | fibi_bank | הבינלאומי FIBI | true | false | pdf, xls, xlsx | auto_by_description |
 | mizrachi_bank | מזרחי טפחות | true | false | pdf | auto_by_description |
 | btb_pdf | BTB - Be The Bank | false | true | pdf | user_selected |
+| isracard_xlsx | ישראכרט - העלאת קובץ | false | false | xlsx, xls | none |
+
+**`isracard_xlsx`** replaces the broken `isracard` scraper. After inserting raw_transactions it
+automatically runs `BudgetProcessor` to classify transactions into budget categories and returns
+`budget_classified` and `budget_needs_review` in the upload response.
 
 **`requires_asset_selection_on_upload = true`** means the user picks an asset from a dropdown
 in the upload modal each time they upload. The asset_id is sent as a form field with the file.

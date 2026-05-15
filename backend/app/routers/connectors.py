@@ -964,6 +964,139 @@ async def upload_bank_statement(
             "transaction": tx_action,
         }
 
+    # ── Isracard XLSX — parse, insert raw_transactions, run BudgetProcessor ──────
+    if connector.type == "isracard_xlsx":
+        try:
+            from app.connectors.parsers.isracard import parse_isracard_xlsx
+            config = decrypt_config(connector.config) if connector.config else {}
+            card_last4 = config.get("card_last4", "")
+            parsed_rows = parse_isracard_xlsx(file_bytes, card_last4=card_last4)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Failed to parse Isracard file: {exc}") from exc
+
+        from app.models.raw_layer import RawTransaction
+        from app.utils.uuid7 import uuid7
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        raw_created = 0
+        raw_skipped = 0
+        min_date = None
+        max_date = None
+        total_ils = 0.0
+        total_usd = 0.0
+
+        for row in parsed_rows:
+            stmt = pg_insert(RawTransaction).values(
+                id=uuid7(),
+                portfolio_id=portfolio_id,
+                source="isracard_xlsx",
+                raw_date=row["raw_date"],
+                description=row["description"],
+                amount=row["amount"],
+                currency=row.get("currency", "ILS"),
+                reference=row.get("reference"),
+                extra_raw=row.get("extra_raw"),
+                external_ref_id=row["external_ref_id"],
+                imported_at=datetime.now(timezone.utc),
+            ).on_conflict_do_nothing(constraint="uq_raw_transactions_source_ref")
+
+            result = await db.execute(stmt)
+            if result.rowcount:
+                raw_created += 1
+                # Track date range and totals from newly inserted rows only
+                row_date = row["raw_date"].date() if hasattr(row["raw_date"], "date") else row["raw_date"]
+                if min_date is None or row_date < min_date:
+                    min_date = row_date
+                if max_date is None or row_date > max_date:
+                    max_date = row_date
+                amt = abs(float(row["amount"]))
+                if row.get("currency") == "USD":
+                    total_usd += amt
+                else:
+                    total_ils += amt
+            else:
+                raw_skipped += 1
+
+        # Commit raw_transactions before running processors (they use a fresh session)
+        finished_at = datetime.now(timezone.utc)
+        run = ConnectorRun(
+            id=uuid.uuid4(),
+            connector_id=connector.id,
+            portfolio_id=portfolio_id,
+            status="success",
+            triggered_by="manual",
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=int((finished_at - started_at).total_seconds() * 1000),
+            records_fetched=len(parsed_rows),
+            transactions_created=raw_created,
+            transactions_skipped=raw_skipped,
+        )
+        db.add(run)
+        connector.last_run_at = finished_at
+        connector.last_error = None
+        await db.commit()
+
+        # Run BudgetProcessor on the newly inserted rows
+        budget_classified = 0
+        budget_needs_review = 0
+        if raw_created > 0:
+            try:
+                from app.processors.budget_processor import BudgetProcessor
+                budget_run = await BudgetProcessor().run(
+                    portfolio_id=portfolio_id,
+                    triggered_by="manual_upload",
+                )
+                budget_classified = budget_run.rows_written or 0
+
+                # Count needs_review from classification_log for today
+                from app.database import AsyncSessionLocal
+                from app.models.budget import ClassificationLog
+                from app.models.raw_layer import RawTransaction as RT
+                async with AsyncSessionLocal() as count_db:
+                    from sqlalchemy import and_, func, select
+                    today_start = started_at.replace(hour=0, minute=0, second=0, microsecond=0)
+                    nr_q = (
+                        select(func.count(ClassificationLog.id))
+                        .join(RT, RT.id == ClassificationLog.raw_transaction_id)
+                        .where(
+                            and_(
+                                RT.portfolio_id == portfolio_id,
+                                RT.source == "isracard_xlsx",
+                                ClassificationLog.needs_review == True,
+                                ClassificationLog.processed_at >= today_start,
+                            )
+                        )
+                    )
+                    budget_needs_review = (await count_db.execute(nr_q)).scalar_one() or 0
+            except Exception as exc:
+                _log.error("BudgetProcessor failed after Isracard upload: %s", exc)
+
+        _log.info(
+            "Isracard upload done: raw=%d/%d budget_classified=%d needs_review=%d",
+            raw_created, raw_skipped, budget_classified, budget_needs_review,
+        )
+
+        return {
+            "connector_type": "isracard_xlsx",
+            "connector_name": connector.name,
+            # Backward-compat fields (shown in existing upload result UI)
+            "created": raw_created,
+            "skipped": raw_skipped,
+            "total": len(parsed_rows),
+            # Enhanced fields
+            "raw_created": raw_created,
+            "raw_skipped": raw_skipped,
+            "budget_classified": budget_classified,
+            "budget_needs_review": budget_needs_review,
+            "date_range": (
+                f"{min_date} to {max_date}"
+                if min_date and max_date else "—"
+            ),
+            "total_ils": round(total_ils, 2),
+            "total_usd": round(total_usd, 2),
+        }
+
     # ── Bank connectors (fibi_bank, mizrachi_bank) — write to raw_transactions ─
     try:
         if connector.type == "mizrachi_bank":

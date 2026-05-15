@@ -69,7 +69,8 @@ class BudgetProcessor(BaseProcessor):
     processor_name = "budget_processor"
     sources = [
         "mizrachi_bank", "fibi_bank", "leumi_bank",
-        "isracard", "cal", "max", "leumi_card", "amex",
+        "isracard", "isracard_xlsx",
+        "cal", "max", "leumi_card", "amex",
     ]
 
     async def process_batch(

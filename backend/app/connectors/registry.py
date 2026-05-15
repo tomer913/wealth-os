@@ -86,8 +86,9 @@ from app.connectors.sources import mizrachi_bank  # noqa: E402, F401
 from app.connectors.sources import fibi_bank  # noqa: E402, F401
 from app.connectors.sources import kraken  # noqa: E402, F401
 from app.connectors.sources import cexio  # noqa: E402, F401
-from app.connectors.sources import scraper   # noqa: E402, F401
-from app.connectors.sources import btb_pdf  # noqa: E402, F401
+from app.connectors.sources import scraper         # noqa: E402, F401
+from app.connectors.sources import btb_pdf         # noqa: E402, F401
+from app.connectors.sources import isracard_xlsx   # noqa: E402, F401
 
 # Backward-compat aliases for any DB records written before the per-company types existed
 _REGISTRY["scraper"] = scraper.IsracardScraperConnector
