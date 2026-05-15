@@ -237,9 +237,10 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
     quantity = extra.get("quantity") or extra.get("units")
 
     if not quantity:
-        # Compute net quantity from transactions (sum of buys - sells)
-        buy_types = ("buy", "vest", "allocation", "swap_in", "external_deposit")
-        sell_types = ("sell", "swap_out", "external_withdrawal")
+        # Compute net quantity from transactions (sum of buys - sells).
+        # Use uppercase sets so DB values like "VEST", "vest", "BUY", "buy" all match.
+        _BUY_TYPES  = frozenset({"BUY", "VEST", "ALLOCATION", "BONUS", "SWAP_IN", "EXTERNAL_DEPOSIT"})
+        _SELL_TYPES = frozenset({"SELL", "SWAP_OUT", "EXTERNAL_WITHDRAWAL"})
         txns = get_asset_transactions(db, asset.id, as_of)
         net = ZERO
         for tx in txns:
@@ -247,9 +248,10 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
             if not qty:
                 continue
             qty = Decimal(str(qty))
-            if tx.type in buy_types:
+            tx_type_upper = (tx.type or "").upper()
+            if tx_type_upper in _BUY_TYPES:
                 net += qty
-            elif tx.type in sell_types:
+            elif tx_type_upper in _SELL_TYPES:
                 net -= qty
         if net > ZERO:
             quantity = net

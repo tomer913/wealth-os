@@ -164,7 +164,14 @@ def classify_transaction(tx) -> TxFlags:
 
     economic_type  = (get("economic_type") or "").upper()
     tx_type        = (get("type") or "").lower()
+    tx_type_upper  = tx_type.upper()
     is_transfer    = bool(get("is_internal_transfer", False))
+
+    # tx.type values that are definitively income — never cost basis regardless of economic_type
+    _INCOME_ONLY_TYPES = frozenset({"DIVIDEND", "INCOME", "INTEREST", "DISTRIBUTION", "WITHHOLDING"})
+    # tx.type values that create cost basis when economic_type is missing
+    _BUY_FALLBACK_TYPES  = frozenset({"BUY", "VEST", "ALLOCATION", "BONUS", "SWAP_IN", "EXTERNAL_DEPOSIT"})
+    _SELL_FALLBACK_TYPES = frozenset({"SELL", "EXTERNAL_WITHDRAWAL"})
 
     flags = TxFlags()
 
@@ -174,6 +181,18 @@ def classify_transaction(tx) -> TxFlags:
 
     # ── BUY / Investment outflow ───────────────────────────────────────────
     if economic_type in ("BUY", "INVESTMENT_OUTFLOW"):
+        # Guard: if tx.type is clearly an income type (e.g. dividend mistakenly
+        # tagged BUY), reclassify as income rather than invested capital.
+        if tx_type_upper in _INCOME_ONLY_TYPES:
+            flags.affects_cashflow = True
+            flags.cashflow_sign = +1
+            flags.affects_income = True
+            flags.include_in_xirr = True
+            flags.xirr_sign = +1
+            flags.warning = (
+                f"economic_type='BUY' overridden: tx.type='{tx_type_upper}' indicates income"
+            )
+            return flags
         flags.affects_invested_capital = True
         flags.include_in_xirr = True
         flags.xirr_sign = -1  # money leaving investor's pocket
@@ -235,7 +254,7 @@ def classify_transaction(tx) -> TxFlags:
     # - principal_payment: reduces debt, NOT expense, NOT in XIRR
     # - interest_payment / early_repayment_fee: IS financing cost, IS in XIRR
     if economic_type == "FINANCING_OUTFLOW":
-        if tx_type in ("principal_payment", "loan_payment"):
+        if tx_type in ("principal_payment", "loan_payment", "principal payment", "loan payment"):
             # Pure debt reduction — no P&L impact
             flags.affects_debt = True
             flags.debt_sign = -1
@@ -253,8 +272,26 @@ def classify_transaction(tx) -> TxFlags:
         flags.affects_current_value = True
         return flags
 
-    # ── Unknown / unmapped ─────────────────────────────────────────────────
-    flags.warning = f"unrecognized economic_type='{get('economic_type')}' type='{tx_type}'"
+    # ── Unknown / empty economic_type — fall back to tx.type ─────────────
+    # This handles transactions where economic_type was not set at import time.
+    if tx_type_upper in _BUY_FALLBACK_TYPES:
+        flags.affects_invested_capital = True
+        flags.include_in_xirr = True
+        flags.xirr_sign = -1
+    elif tx_type_upper in _SELL_FALLBACK_TYPES:
+        flags.reduces_invested_capital = True
+        flags.affects_cashflow = True
+        flags.cashflow_sign = +1
+        flags.include_in_xirr = True
+        flags.xirr_sign = +1
+    elif tx_type_upper in _INCOME_ONLY_TYPES:
+        flags.affects_cashflow = True
+        flags.cashflow_sign = +1
+        flags.affects_income = True
+        flags.include_in_xirr = True
+        flags.xirr_sign = +1
+    else:
+        flags.warning = f"unrecognized economic_type='{get('economic_type')}' type='{tx_type}'"
     return flags
 
 
