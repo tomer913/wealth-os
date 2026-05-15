@@ -1090,7 +1090,26 @@ function UploadSection({
     }
   }
 
-  if (uploadable.length === 0) return null
+  if (uploadable.length === 0) {
+    // Only show the hint when there are manual_upload types available but none created yet
+    if (uploadTypeKeys.size === 0) return null
+    const typeNames = connectorTypes
+      .filter(t => uploadTypeKeys.has(t.type))
+      .map(t => t.display_name)
+      .join(', ')
+    return (
+      <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+        <h3 className="text-[14px] font-semibold text-gray-900 mb-1">Upload statement</h3>
+        <p className="text-[12px] text-gray-500">
+          To upload a bank or credit card file, first create a connector via{' '}
+          <strong>Add connector</strong>.
+        </p>
+        <p className="text-[12px] text-gray-400 mt-1">
+          Supported: {typeNames}
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
