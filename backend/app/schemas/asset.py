@@ -61,12 +61,28 @@ class AssetRead(AssetBase):
     category: Optional[str] = None
     lifecycle_stage: Optional[str] = None
     pricing_mode: Optional[str] = None
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+
+class AssetReadEnriched(AssetRead):
+    """AssetRead extended with latest snapshot values and computed net_quantity."""
+    snapshot_current_value: Optional[float] = None     # latest snapshot current_value (ILS)
+    snapshot_invested_capital: Optional[float] = None  # latest snapshot invested_capital (ILS)
+    snapshot_total_return_pct: Optional[float] = None  # latest snapshot total_return_pct (0–1 scale)
+    net_quantity: Optional[float] = None               # sum(buys) - sum(sells) from transactions
 
 
 # Paginated response wrapper
 class AssetListResponse(BaseModel):
     items: List[AssetRead]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
+
+class AssetListResponseEnriched(BaseModel):
+    items: List[AssetReadEnriched]
     total: int
     page: int
     limit: int

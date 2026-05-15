@@ -9,13 +9,17 @@ from app.auth import get_current_user, verify_portfolio_access
 from app.database import get_db
 from app.models.asset import Asset
 from app.models.transaction import Transaction
-from app.schemas.asset import AssetCreate, AssetListResponse, AssetRead, AssetUpdate
+from sqlalchemy import text
+from app.schemas.asset import (
+    AssetCreate, AssetListResponse, AssetListResponseEnriched,
+    AssetRead, AssetReadEnriched, AssetUpdate,
+)
 from app.utils.enums import AssetBehavior, AssetCategory, AssetStatus
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 
-@router.get("/", response_model=AssetListResponse)
+@router.get("/", response_model=AssetListResponseEnriched)
 async def list_assets(
     portfolio_id: Optional[UUID] = Query(None),
     account_id: Optional[UUID] = Query(None),
@@ -58,12 +62,70 @@ async def list_assets(
     result = await db.execute(q)
     items = result.scalars().all()
 
-    return AssetListResponse(
-        items=items,
+    # ── Enrich with latest snapshot values and computed net_quantity ──────────
+    snap_lookup: dict = {}
+    qty_lookup: dict = {}
+
+    if portfolio_id and items:
+        # Latest snapshot per asset (DISTINCT ON is PostgreSQL-specific)
+        snap_rows = await db.execute(
+            text("""
+                SELECT DISTINCT ON (asset_id)
+                    asset_id::text,
+                    current_value,
+                    invested_capital,
+                    total_return_pct
+                FROM performance_snapshots
+                WHERE portfolio_id = :pid
+                ORDER BY asset_id, snapshot_date DESC
+            """),
+            {"pid": str(portfolio_id)},
+        )
+        snap_lookup = {row.asset_id: row for row in snap_rows}
+
+        # Net quantity per asset from transaction history
+        qty_rows = await db.execute(
+            text("""
+                SELECT
+                    asset_id::text,
+                    SUM(CASE WHEN UPPER(type) IN
+                            ('BUY','VEST','ALLOCATION','BONUS','SWAP_IN','EXTERNAL_DEPOSIT')
+                        THEN COALESCE(quantity, 0) ELSE 0 END) -
+                    SUM(CASE WHEN UPPER(type) IN
+                            ('SELL','EXTERNAL_WITHDRAWAL','WITHDRAWAL')
+                        THEN COALESCE(quantity, 0) ELSE 0 END) AS net_quantity
+                FROM transactions
+                WHERE portfolio_id = :pid
+                AND quantity IS NOT NULL
+                GROUP BY asset_id
+            """),
+            {"pid": str(portfolio_id)},
+        )
+        qty_lookup = {
+            row.asset_id: float(row.net_quantity)
+            for row in qty_rows
+            if row.net_quantity is not None
+        }
+
+    enriched_items = []
+    for asset in items:
+        base = AssetRead.model_validate(asset)
+        asset_id_str = str(asset.id)
+        snap = snap_lookup.get(asset_id_str)
+        enriched_items.append(AssetReadEnriched(
+            **base.model_dump(),
+            snapshot_current_value=float(snap.current_value) if snap and snap.current_value else None,
+            snapshot_invested_capital=float(snap.invested_capital) if snap and snap.invested_capital else None,
+            snapshot_total_return_pct=float(snap.total_return_pct) if snap and snap.total_return_pct else None,
+            net_quantity=qty_lookup.get(asset_id_str),
+        ))
+
+    return AssetListResponseEnriched(
+        items=enriched_items,
         total=total,
         page=page,
         limit=limit,
-        pages=max(1, -(-total // limit)),  # ceiling division
+        pages=max(1, -(-total // limit)),
     )
 
 

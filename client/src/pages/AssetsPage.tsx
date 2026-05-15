@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { getAssets, createAsset, updateAsset, deleteAsset } from '../api/portfolio'
-import { useAppStore } from '../store'
 import { useCategoryFilter } from '../hooks/usePortfolio'
 import type { Asset } from '../types'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
@@ -49,16 +48,18 @@ function emptyForm(): AssetForm {
   }
 }
 
+function formatQty(n: number | null | undefined): string {
+  if (n == null) return '—'
+  const isWhole = Math.abs(n - Math.round(n)) < 0.0001
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: isWhole ? 0 : 4,
+  }).format(n)
+}
+
 export default function AssetsPage() {
   const qc = useQueryClient()
-  const snapshot = useAppStore((s) => s.snapshot)
   const categoryFilter = useCategoryFilter()
-
-  // Build a lookup map from snapshot for live values
-  const snapshotMap = useMemo(() => {
-    if (!snapshot) return {}
-    return Object.fromEntries(snapshot.assets.map((a) => [a.symbol, a]))
-  }, [snapshot])
 
   const [searchParams] = useSearchParams()
   const [search, setSearch] = useState('')
@@ -250,24 +251,35 @@ export default function AssetsPage() {
           {/* Mobile card view */}
           <div className="md:hidden space-y-2">
             {filtered.map((asset) => {
-              const snap = snapshotMap[asset.symbol]
-              const ret = snap?.total_return_pct != null ? snap.total_return_pct * 100 : null
+              const isMarket = asset.asset_behavior === 'MARKET'
+              const retPct = asset.snapshot_total_return_pct != null
+                ? asset.snapshot_total_return_pct * 100
+                : null
               return (
                 <div key={asset.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0 pr-3">
                       <div className="font-semibold text-gray-900 truncate">{asset.name}</div>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <span className="text-[11px] font-mono text-gray-400" dir="ltr">{asset.symbol}</span>
-                        <CategoryBadge cat={asset.category ?? ''} />
-                      </div>
+                      {isMarket ? (
+                        <div className="text-[11px] font-mono text-gray-400 mt-1" dir="ltr">
+                          {formatQty(asset.net_quantity)} shares
+                          {asset.current_price != null && (
+                            <> · ${asset.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className="text-[11px] font-mono text-gray-400" dir="ltr">{asset.symbol}</span>
+                          <CategoryBadge cat={asset.category ?? ''} />
+                        </div>
+                      )}
                     </div>
                     <div className="text-right flex-shrink-0">
                       <div className="font-mono font-semibold text-gray-800 text-[14px]" dir="ltr">
-                        {snap ? formatILSShort(snap.current_value_ils) : '—'}
+                        {asset.snapshot_current_value != null ? formatILSShort(asset.snapshot_current_value) : '—'}
                       </div>
-                      <div className={clsx('font-mono text-[12px] mt-0.5 font-semibold', gainClass(ret))} dir="ltr">
-                        {ret != null ? formatPct(ret) : '—'}
+                      <div className={clsx('font-mono text-[12px] mt-0.5 font-semibold', gainClass(retPct))} dir="ltr">
+                        {retPct != null ? formatPct(retPct) : '—'}
                       </div>
                     </div>
                   </div>
@@ -291,30 +303,43 @@ export default function AssetsPage() {
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    {[t('col_asset'),t('col_category'),t('col_behavior'),t('col_currency'),t('col_current_value'),t('col_return'),t('col_status'),''].map((h) => (
+                    {[t('col_asset'), 'Qty', 'Price', t('col_current_value'), 'Invested', t('col_return'), t('col_behavior'), ''].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((asset) => {
-                    const snap = snapshotMap[asset.symbol]
+                    const isMarket = asset.asset_behavior === 'MARKET'
+                    const retPct = asset.snapshot_total_return_pct != null
+                      ? asset.snapshot_total_return_pct * 100
+                      : null
                     return (
                       <tr key={asset.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
                         <td className="px-4 py-3">
                           <div className="font-semibold text-gray-900">{asset.name}</div>
                           <div className="text-[11px] text-gray-400 font-mono mt-0.5" dir="ltr">{asset.symbol}</div>
                         </td>
-                        <td className="px-4 py-3"><CategoryBadge cat={asset.category ?? ''} /></td>
-                        <td className="px-4 py-3"><BehaviorBadge behavior={asset.asset_behavior} /></td>
-                        <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">{asset.currency}</td>
+                        <td className="px-4 py-3 font-mono text-gray-700" dir="ltr">
+                          {isMarket ? formatQty(asset.net_quantity) : '—'}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-gray-700">
+                          {isMarket && asset.current_price != null ? (
+                            <span dir="ltr">
+                              ${asset.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          ) : '—'}
+                        </td>
                         <td className="px-4 py-3 font-mono font-semibold text-gray-800" dir="ltr">
-                          {snap ? formatILSShort(snap.current_value_ils) : '—'}
+                          {asset.snapshot_current_value != null ? formatILS(asset.snapshot_current_value) : '—'}
                         </td>
-                        <td className={clsx('px-4 py-3 font-mono font-semibold', gainClass(snap?.total_return_pct ?? null))} dir="ltr">
-                          {snap?.total_return_pct != null ? formatPct(snap.total_return_pct * 100) : '—'}
+                        <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">
+                          {asset.snapshot_invested_capital != null ? formatILS(asset.snapshot_invested_capital) : '—'}
                         </td>
-                        <td className="px-4 py-3"><StatusBadge status={asset.status} /></td>
+                        <td className={clsx('px-4 py-3 font-mono font-semibold', gainClass(retPct))} dir="ltr">
+                          {retPct != null ? formatPct(retPct) : '—'}
+                        </td>
+                        <td className="px-4 py-3"><BehaviorBadge behavior={asset.asset_behavior} /></td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 justify-end">
                             <ActionBtn onClick={() => openEdit(asset)} icon="edit" title="Edit" />

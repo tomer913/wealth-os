@@ -68,6 +68,11 @@ export interface Asset {
   account_id: string | null
   created_at: string
   updated_at: string
+  // Enriched fields from latest performance_snapshots + transaction history
+  snapshot_current_value: number | null
+  snapshot_invested_capital: number | null
+  snapshot_total_return_pct: number | null  // 0–1 scale (e.g. 0.134 = 13.4%)
+  net_quantity: number | null               // sum(buys) – sum(sells) from transactions
 }
 
 export interface AssetListResponse {
