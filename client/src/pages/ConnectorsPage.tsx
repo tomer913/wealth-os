@@ -1,11 +1,10 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAppStore } from '../store'
+import { useTranslation } from 'react-i18next'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
-import { Field, Input, Select, FormGrid, FormSection, Divider } from '../components/shared/Form'
 import clsx from 'clsx'
 import type { Account } from '../types'
-import { getAccounts } from '../api/portfolio'
+import { getAccounts, getAssets, uploadConnectorFile, UploadResult } from '../api/portfolio'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,16 +33,6 @@ interface ConnectorRead {
   created_at: string
 }
 
-// Sensitive field keys — left blank on edit = keep existing value
-const SENSITIVE_KEYS = new Set(['api_key', 'api_secret', 'password', 'token', 'secret'])
-
-interface ScraperCard {
-  id: string
-  name: string
-  card6?: string
-  enabled: boolean
-}
-
 interface ConnectorRun {
   id: string
   connector_id: string
@@ -67,18 +56,22 @@ interface ConnectorType {
   type: string
   display_name: string
   description: string
-  category: string                            // 'automatic' | 'manual_upload' | 'scraper'
+  category: 'automatic' | 'manual_upload' | 'scraper'
+  flow_type: 'investment' | 'budget' | 'both'
   supports_multi_asset: boolean
-  requires_asset_selection_on_upload: boolean // show asset dropdown in upload modal
-  supported_file_types: string[]              // e.g. ['pdf', 'xls', 'xlsx']
+  requires_asset_selection_on_upload: boolean
+  supported_file_types: string[]
   asset_linking: string
+  supports_auto_scrape: boolean
+  supports_manual_upload: boolean
+  schedule_default: string
   config_fields: { key: string; label: string; type: string; default: string; hint: string }[]
 }
 
 // ─── API functions ────────────────────────────────────────────────────────────
 
 import apiClient from '../api/client'
-import { DEFAULT_PORTFOLIO_ID, uploadConnectorFile, UploadResult, getAssets } from '../api/portfolio'
+import { DEFAULT_PORTFOLIO_ID } from '../api/portfolio'
 
 async function getConnectors(): Promise<ConnectorRead[]> {
   const { data } = await apiClient.get('/api/v1/connectors/', {
@@ -119,58 +112,7 @@ async function getConnectorRuns(id: string, page = 1): Promise<{ items: Connecto
   return data
 }
 
-async function pushSecrets(id: string, secrets: Record<string, string>): Promise<{ saved: string[]; failed: string[] }> {
-  const { data } = await apiClient.post(`/api/v1/connectors/${id}/secrets`, secrets)
-  return data
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-// Legacy types (backward compat) + new per-company types
-const SCRAPER_TYPES = new Set(['scraper', 'isracard', 'isracard_scraper', 'cal_scraper', 'max_scraper', 'leumi_card_scraper', 'amex_scraper'])
-function isScraperType(type: string) { return SCRAPER_TYPES.has(type) }
-
-interface CompanyInfo { name: string; prefix: string; hasCard6: boolean; hasNationalId: boolean }
-const COMPANY_INFO: Record<string, CompanyInfo> = {
-  isracard:   { name: 'Isracard',    prefix: 'ISRACARD',   hasCard6: true,  hasNationalId: false },
-  cal:        { name: 'Cal',         prefix: 'CAL',        hasCard6: false, hasNationalId: false },
-  max:        { name: 'Max',         prefix: 'MAX',        hasCard6: false, hasNationalId: false },
-  leumi_card: { name: 'Leumi Card',  prefix: 'LEUMI_CARD', hasCard6: false, hasNationalId: true  },
-  amex:       { name: 'Amex Israel', prefix: 'AMEX',       hasCard6: false, hasNationalId: false },
-}
-
-function getCompany(c: ConnectorRead): string {
-  return (c.config_display?.company as string) ?? c.type.replace('_scraper', '')
-}
-
-function buildSecretsPayload(
-  company: string,
-  creds: { username: string; password: string; national_id: string },
-  cards: ScraperCard[],
-): Record<string, string> {
-  const info = COMPANY_INFO[company]
-  if (!info) return {}
-  const p = info.prefix
-  const out: Record<string, string> = {}
-  if (creds.username)   out[`${p}_USERNAME`] = creds.username
-  if (creds.password)   out[`${p}_PASSWORD`] = creds.password
-  if (creds.national_id && info.hasNationalId) out[`${p}_NATIONAL_ID`] = creds.national_id
-  if (info.hasCard6) {
-    const card6s = cards.filter(c => c.card6).map(c => c.card6!)
-    card6s.forEach((c6, i) => {
-      out[i === 0 ? `${p}_CARD6` : `${p}_CARD6_${i + 1}`] = c6
-    })
-  }
-  return out
-}
-
-function formatElapsed(startedAt: string | null): string {
-  if (!startedAt) return ''
-  const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
-  if (secs < 60) return `${secs}s`
-  const mins = Math.floor(secs / 60)
-  return `${mins}m ${secs % 60}s`
-}
 
 function formatDuration(ms: number | null) {
   if (!ms) return '—'
@@ -189,32 +131,761 @@ function formatRelative(dt: string | null) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+// ─── Section grouping ──────────────────────────────────────────────────────────
+
+const FEED_TYPES = new Set(['ecb_fx', 'yahoo_prices'])
+
+function getSectionKey(type: string, typeDef: ConnectorType | undefined): 'investment' | 'budget' | 'feeds' {
+  if (FEED_TYPES.has(type)) return 'feeds'
+  const ft = typeDef?.flow_type
+  if (ft === 'budget' || ft === 'both') return 'budget'
+  return 'investment'
+}
+
+function getStatusBadge(c: ConnectorRead, typeDef: ConnectorType | undefined): {
+  label: string
+  color: 'green' | 'red' | 'yellow' | 'orange' | 'gray'
+} {
+  if (!c.is_active) return { label: 'notConfigured', color: 'gray' }
+  const s = c.last_run_status
+  if (!s && !c.last_run_at) {
+    return typeDef?.supports_manual_upload
+      ? { label: 'uploadPending', color: 'orange' }
+      : { label: 'notConfigured', color: 'gray' }
+  }
+  if (s === 'success') return {
+    label: typeDef?.supports_manual_upload ? 'uploaded' : 'active',
+    color: 'green',
+  }
+  if (s === 'failed') return { label: 'failed', color: 'red' }
+  if (s === 'skipped') return { label: 'invalidCredentials', color: 'yellow' }
+  return { label: 'notConfigured', color: 'gray' }
+}
+
+const BADGE_COLORS: Record<string, string> = {
+  green:  'bg-emerald-50 text-emerald-700',
+  red:    'bg-rose-50 text-rose-700',
+  yellow: 'bg-amber-50 text-amber-700',
+  orange: 'bg-orange-50 text-orange-700',
+  gray:   'bg-gray-100 text-gray-500',
+}
+
+// Credential fields shown per connector type in the wizard
+const CREDENTIAL_FIELDS: Record<string, { key: string; label: string; sensitive: boolean }[]> = {
+  ib_flex: [
+    { key: 'query_id',   label: 'Flex Query ID',           sensitive: false },
+    { key: 'token',      label: 'Flex Web Service Token',  sensitive: true  },
+    { key: 'account_id', label: 'IB Account ID',           sensitive: false },
+  ],
+  kraken: [
+    { key: 'api_key',    label: 'API Key',    sensitive: false },
+    { key: 'api_secret', label: 'API Secret', sensitive: true  },
+  ],
+  cexio: [
+    { key: 'api_key',    label: 'API Key',    sensitive: false },
+    { key: 'api_secret', label: 'API Secret', sensitive: true  },
+    { key: 'username',   label: 'Username',   sensitive: false },
+  ],
+  isracard: [
+    { key: 'username', label: 'ID number (username)', sensitive: false },
+    { key: 'password', label: 'Password',              sensitive: true  },
+  ],
+  cal_scraper: [
+    { key: 'username', label: 'Username', sensitive: false },
+    { key: 'password', label: 'Password', sensitive: true  },
+  ],
+}
+
+// ─── SourceSection ─────────────────────────────────────────────────────────────
+
+function SourceSection({
+  title, emoji, badge, sources, connectorTypes, onAdd,
+  onEdit, onDelete, onRun, onUpload, onHistory, runningIds,
+}: {
+  title: string
+  emoji: string
+  badge?: string
+  sources: ConnectorRead[]
+  connectorTypes: ConnectorType[]
+  onAdd: (() => void) | null
+  onEdit: (c: ConnectorRead) => void
+  onDelete: (c: ConnectorRead) => void
+  onRun: (c: ConnectorRead) => void
+  onUpload: (c: ConnectorRead) => void
+  onHistory: (c: ConnectorRead) => void
+  runningIds: Set<string>
+}) {
+  const { t: tc } = useTranslation('common')
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[18px]">{emoji}</span>
+          <h3 className="text-[14px] font-semibold text-gray-800">{title}</h3>
+          {badge && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium uppercase tracking-wide">
+              {badge}
+            </span>
+          )}
+        </div>
+        {onAdd && (
+          <button type="button" onClick={onAdd}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-teal-600 hover:text-teal-700 transition-colors">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5.5 1v9M1 5.5h9"/></svg>
+            {tc('dataSources.addSource')}
+          </button>
+        )}
+      </div>
+      {sources.length === 0 ? (
+        <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center">
+          <p className="text-[13px] text-gray-400">
+            {onAdd ? (
+              <>No sources yet.{' '}
+                <button type="button" onClick={onAdd} className="text-teal-600 hover:underline">
+                  {tc('dataSources.addSource')}
+                </button>
+              </>
+            ) : 'No feeds configured.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {sources.map(c => {
+            const td = connectorTypes.find(t => t.type === c.type)
+            return (
+              <DataSourceCard
+                key={c.id}
+                connector={c}
+                typeDef={td}
+                isRunning={runningIds.has(c.id) || c.last_run_status === 'running'}
+                onEdit={() => onEdit(c)}
+                onDelete={() => onDelete(c)}
+                onRun={() => onRun(c)}
+                onUpload={() => onUpload(c)}
+                onHistory={() => onHistory(c)}
+              />
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── DataSourceCard ────────────────────────────────────────────────────────────
+
+function DataSourceCard({
+  connector: c, typeDef, isRunning, onEdit, onDelete, onRun, onUpload, onHistory,
+}: {
+  connector: ConnectorRead
+  typeDef: ConnectorType | undefined
+  isRunning: boolean
+  onEdit: () => void
+  onDelete: () => void
+  onRun: () => void
+  onUpload: () => void
+  onHistory: () => void
+}) {
+  const { t: tc } = useTranslation('common')
+  const { label, color } = getStatusBadge(c, typeDef)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 flex items-center gap-3">
+      {/* Status dot */}
+      <div className={clsx('w-2 h-2 rounded-full flex-shrink-0', {
+        'bg-emerald-400': color === 'green',
+        'bg-rose-400':    color === 'red',
+        'bg-amber-400':   color === 'yellow',
+        'bg-orange-400':  color === 'orange',
+        'bg-gray-300':    color === 'gray',
+      })} />
+
+      {/* Name + details */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[13px] font-semibold text-gray-900 truncate">{c.name}</span>
+          <span className={clsx('text-[10px] px-1.5 py-0.5 rounded font-medium', BADGE_COLORS[color])}>
+            {tc(`dataSources.badges.${label}`)}
+          </span>
+          {!c.is_active && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-gray-100 text-gray-400">disabled</span>
+          )}
+        </div>
+        <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
+          <span className="font-mono" dir="ltr">{c.type}</span>
+          {c.last_run_at && (
+            <><span>·</span><span dir="ltr">{formatRelative(c.last_run_at)}</span></>
+          )}
+          {c.last_error && !isRunning && (
+            <><span>·</span><span className="text-rose-500 truncate max-w-[200px]">{c.last_error}</span></>
+          )}
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {isRunning ? (
+          <span className="text-[11px] text-gray-400 px-2 flex items-center gap-1">
+            <svg className="animate-spin" width="11" height="11" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>
+            Running…
+          </span>
+        ) : (
+          <>
+            {typeDef?.supports_manual_upload && (
+              <button type="button" onClick={onUpload}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium text-teal-600 border border-teal-200 rounded-lg hover:bg-teal-50 transition-colors">
+                <svg width="11" height="11" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6.5 9V2M3 5l3.5-3.5L10 5"/><path d="M1 11h11"/></svg>
+                {tc('dataSources.actions.uploadStatement')}
+              </button>
+            )}
+            {typeDef?.supports_auto_scrape && (
+              <button type="button" onClick={onRun} title={tc('dataSources.actions.run')}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M2 2l9 4.5-9 4.5V2z"/></svg>
+              </button>
+            )}
+          </>
+        )}
+        <button type="button" onClick={onHistory} title="Run history"
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="6.5" cy="6.5" r="5"/><path d="M6.5 3.5v3l2 1.5"/></svg>
+        </button>
+        <button type="button" onClick={onEdit} title={tc('dataSources.actions.edit')}
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-teal-600 hover:bg-teal-50 transition-colors">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2l2 2-6 6H3V8l6-6z"/></svg>
+        </button>
+        <button type="button" onClick={onDelete} title={tc('dataSources.actions.delete')}
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-rose-500 hover:bg-rose-50 transition-colors">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4h9M5 4V3h3v1M4 4l.5 6h4l.5-6"/></svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── AddWizardModal ────────────────────────────────────────────────────────────
+
+function AddWizardModal({
+  open, mode, editTarget, connectorTypes, onClose, onSave, isSaving,
+}: {
+  open: boolean
+  mode: 'investment' | 'budget'
+  editTarget: ConnectorRead | null
+  connectorTypes: ConnectorType[]
+  onClose: () => void
+  onSave: (payload: Record<string, unknown>) => void
+  isSaving: boolean
+}) {
+  const { t: tc } = useTranslation('common')
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [selectedType, setSelectedType] = useState(editTarget?.type ?? '')
+  const [connMethod, setConnMethod] = useState<'auto' | 'manual'>('auto')
+  const [name, setName] = useState(editTarget?.name ?? '')
+  const [config, setConfig] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!open) return
+    setStep(1)
+    setSelectedType(editTarget?.type ?? '')
+    setName(editTarget?.name ?? '')
+    setConfig({})
+    setConnMethod('auto')
+  }, [open, editTarget])
+
+  const typeDef = connectorTypes.find(t => t.type === selectedType)
+  const isEditing = !!editTarget
+  const isManualOnly = typeDef?.supports_manual_upload && !typeDef?.supports_auto_scrape
+
+  const providers = connectorTypes.filter(t => {
+    if (mode === 'investment') return t.flow_type === 'investment' && !FEED_TYPES.has(t.type)
+    return t.flow_type === 'budget' || t.flow_type === 'both'
+  })
+
+  // Step 2 is shown: investment → only if single-asset; budget → if auto_scrape available
+  const needsStep2 = mode === 'investment'
+    ? !!(typeDef && !typeDef.supports_multi_asset)
+    : !!(typeDef && typeDef.supports_auto_scrape && !isManualOnly)
+
+  const credFields = CREDENTIAL_FIELDS[selectedType] ?? []
+
+  function handleNext() {
+    if (step === 1) {
+      if (!name) setName(typeDef?.display_name ?? selectedType)
+      setStep(needsStep2 ? 2 : 3)
+    } else {
+      setStep(3)
+    }
+  }
+
+  function handleBack() {
+    if (step === 3) setStep(needsStep2 ? 2 : 1)
+    else setStep(1)
+  }
+
+  function handleSave() {
+    const effectiveType = selectedType
+    const payload: Record<string, unknown> = {
+      name,
+      type: effectiveType,
+      schedule: 'daily',
+      is_active: true,
+      config: Object.fromEntries(Object.entries(config).filter(([, v]) => v !== '')),
+    }
+    onSave(payload)
+  }
+
+  if (!open) return null
+
+  const wizKey = mode === 'investment' ? 'investment' : 'budget'
+  const title = isEditing
+    ? tc('dataSources.wizard.edit.title')
+    : tc(`dataSources.wizard.${wizKey}.title`)
+
+  const stepLabel = step === 1
+    ? tc(`dataSources.wizard.${wizKey}.step1`)
+    : step === 2
+      ? tc(`dataSources.wizard.${wizKey}.step2`)
+      : tc(`dataSources.wizard.${wizKey}.step3`)
+
+  return (
+    <Modal open={open} onClose={onClose} title={title} width="max-w-lg">
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 mb-5">
+        {([1, 2, 3] as const).map(n => {
+          const active = n === step
+          const done = n < step
+          if (n === 2 && !needsStep2) return null
+          return (
+            <div key={n} className="flex items-center gap-2">
+              {n > 1 && <div className="h-px w-5 bg-gray-200" />}
+              <div className={clsx(
+                'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold',
+                active ? 'bg-teal-600 text-white' : done ? 'bg-teal-100 text-teal-600' : 'bg-gray-100 text-gray-400',
+              )}>
+                <span dir="ltr">{n}</span>
+              </div>
+              {active && <span className="text-[12px] text-gray-600 font-medium">{stepLabel}</span>}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Type-locked warning when editing */}
+      {isEditing && step === 1 && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-lg text-[12px] text-amber-700">
+          {tc('dataSources.wizard.edit.typeLockedWarning')}
+        </div>
+      )}
+
+      {/* Step 1 — Provider grid */}
+      {step === 1 && (
+        <div className="grid grid-cols-2 gap-2">
+          {providers.map(t => (
+            <button
+              key={t.type}
+              type="button"
+              disabled={isEditing}
+              onClick={() => { setSelectedType(t.type); if (!name) setName(t.display_name) }}
+              className={clsx(
+                'text-start p-3 rounded-xl border-2 transition-colors',
+                isEditing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-teal-300',
+                selectedType === t.type ? 'border-teal-500 bg-teal-50' : 'border-gray-200 bg-white',
+              )}>
+              <div className="text-[13px] font-semibold text-gray-900">
+                {t.display_name}
+              </div>
+              <div className="text-[11px] text-gray-400 mt-0.5 line-clamp-2">{t.description}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Step 2 — Investment: multi-asset info / Budget: connection method */}
+      {step === 2 && mode === 'investment' && typeDef && (
+        <div className="p-3 bg-blue-50 rounded-lg text-[13px] text-gray-700">
+          {typeDef.supports_multi_asset
+            ? tc('dataSources.wizard.investment.step2MultiAsset')
+            : 'This source is linked to a single asset.'}
+        </div>
+      )}
+      {step === 2 && mode === 'budget' && (
+        <div className="space-y-3">
+          <label className={clsx(
+            'flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors',
+            connMethod === 'auto' ? 'border-teal-500 bg-teal-50' : 'border-gray-200',
+          )}>
+            <input type="radio" name="connMethod" value="auto" checked={connMethod === 'auto'}
+              onChange={() => setConnMethod('auto')} className="mt-0.5" />
+            <div>
+              <div className="text-[13px] font-semibold text-gray-900">{tc('dataSources.wizard.budget.step2Auto')}</div>
+              <div className="text-[12px] text-gray-500 mt-0.5">{tc('dataSources.wizard.budget.step2AutoDesc')}</div>
+            </div>
+          </label>
+          <label className={clsx(
+            'flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors',
+            connMethod === 'manual' ? 'border-teal-500 bg-teal-50' : 'border-gray-200',
+          )}>
+            <input type="radio" name="connMethod" value="manual" checked={connMethod === 'manual'}
+              onChange={() => setConnMethod('manual')} className="mt-0.5" />
+            <div>
+              <div className="text-[13px] font-semibold text-gray-900">{tc('dataSources.wizard.budget.step2Manual')}</div>
+              <div className="text-[12px] text-gray-500 mt-0.5">{tc('dataSources.wizard.budget.step2ManualDesc')}</div>
+            </div>
+          </label>
+        </div>
+      )}
+
+      {/* Step 3 — Name + credentials */}
+      {step === 3 && (
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-[12px] font-medium text-gray-700">{tc('dataSources.wizard.common.name')}</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder={tc('dataSources.wizard.common.namePlaceholder')}
+              className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400" />
+          </div>
+
+          {/* Credential fields — auto sync only */}
+          {(connMethod === 'auto' || mode === 'investment') && !isManualOnly &&
+            credFields.map(f => (
+              <div key={f.key} className="space-y-1">
+                <label className="text-[12px] font-medium text-gray-700">{f.label}</label>
+                <input
+                  type={f.sensitive ? 'password' : 'text'}
+                  value={config[f.key] ?? ''}
+                  onChange={e => setConfig(c => ({ ...c, [f.key]: e.target.value }))}
+                  placeholder={isEditing ? tc('dataSources.wizard.edit.credentialsPlaceholder') : ''}
+                  className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 font-mono" />
+              </div>
+            ))}
+
+          {/* Info note */}
+          {(connMethod === 'manual' || isManualOnly) ? (
+            <p className="text-[12px] text-gray-500 bg-blue-50 rounded-lg p-3">
+              {tc('dataSources.wizard.budget.manualNote')}
+            </p>
+          ) : credFields.length > 0 ? (
+            <p className="text-[11px] text-gray-400">
+              🔒 {tc('dataSources.wizard.investment.credentialsEncrypted')}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+        <button type="button" onClick={step === 1 ? onClose : handleBack}
+          className="px-4 py-2 text-[13px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+          {step === 1 ? tc('dataSources.wizard.common.cancel') : tc('dataSources.wizard.common.back')}
+        </button>
+        {step < 3 ? (
+          <button type="button" onClick={handleNext} disabled={step === 1 && !selectedType}
+            className="px-4 py-2 text-[13px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
+            {tc('dataSources.wizard.common.next')}
+          </button>
+        ) : (
+          <button type="button" onClick={handleSave} disabled={isSaving || !name}
+            className="px-4 py-2 text-[13px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-60">
+            {isSaving ? 'Saving…' : tc('dataSources.wizard.common.save')}
+          </button>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+// ─── UploadModal ───────────────────────────────────────────────────────────────
+
+function UploadModal({
+  connector, connectorTypes, onClose, onSuccess,
+}: {
+  connector: ConnectorRead
+  connectorTypes: ConnectorType[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const { t: tc } = useTranslation('common')
+  const typeDef = connectorTypes.find(t => t.type === connector.type)
+  const needsAsset = typeDef?.requires_asset_selection_on_upload ?? false
+  const acceptAttr = typeDef?.supported_file_types.map(e => `.${e}`).join(',') ?? '.pdf'
+
+  const [file, setFile] = useState<File | null>(null)
+  const [assetId, setAssetId] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [result, setResult] = useState<UploadResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const { data: assetList } = useQuery({
+    queryKey: ['assets'],
+    queryFn: () => getAssets({ limit: 500 }),
+    enabled: needsAsset,
+  })
+  const assets = assetList?.items ?? []
+  const canUpload = !!file && (!needsAsset || !!assetId)
+
+  async function handleUpload() {
+    if (!file || !canUpload) return
+    setUploading(true)
+    setError(null)
+    try {
+      const res = await uploadConnectorFile(connector.id, file, needsAsset ? assetId : undefined)
+      setResult(res)
+      onSuccess()
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(e)
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const title = `${tc('dataSources.upload.title')} — ${connector.name}`
+
+  return (
+    <Modal open onClose={onClose} title={title} width="max-w-md">
+      {result ? (
+        <div className="space-y-4">
+          <div className="text-center py-4">
+            <div className="text-[32px] mb-2">✅</div>
+            {'raw_created' in result ? (
+              <>
+                <div className="text-[16px] font-bold text-gray-900">
+                  <span dir="ltr">{(result as Record<string, unknown>).raw_created as number}</span>{' '}
+                  {tc('dataSources.upload.success.transactions')}
+                </div>
+                {'budget_classified' in result && (
+                  <div className="text-[13px] text-gray-500 mt-1">
+                    {tc('dataSources.upload.success.autoClassified')}:{' '}
+                    <span dir="ltr">{(result as Record<string, unknown>).budget_classified as number}</span>
+                    {' · '}
+                    {tc('dataSources.upload.success.needsReview')}:{' '}
+                    <span dir="ltr">{(result as Record<string, unknown>).budget_needs_review as number}</span>
+                  </div>
+                )}
+                {'date_range' in result && (result as Record<string, unknown>).date_range !== '—' && (
+                  <div className="text-[12px] text-gray-400 mt-1" dir="ltr">
+                    {(result as Record<string, unknown>).date_range as string}
+                  </div>
+                )}
+              </>
+            ) : 'report_date' in result ? (
+              <>
+                <div className="text-[14px] font-semibold text-gray-900">
+                  BTB report — <span dir="ltr">{result.report_date}</span>
+                </div>
+                <div className="text-[13px] text-gray-600 mt-1" dir="ltr">
+                  ₪{result.current_value.toLocaleString('en-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </>
+            ) : 'created' in result ? (
+              <div className="text-[16px] font-bold text-gray-900">
+                <span dir="ltr">{result.created}</span> {tc('dataSources.upload.success.transactions')}
+              </div>
+            ) : null}
+          </div>
+          <button type="button" onClick={onClose}
+            className="w-full px-4 py-2 text-[13px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
+            {tc('dataSources.wizard.common.cancel')}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-[12px] text-gray-500">
+            {tc('dataSources.upload.accepts')}:{' '}
+            <span dir="ltr" className="font-mono">{acceptAttr}</span>
+          </p>
+
+          {needsAsset && (
+            <div className="space-y-1">
+              <label className="text-[12px] font-medium text-gray-700">{tc('dataSources.upload.asset')}</label>
+              <select value={assetId} onChange={e => setAssetId(e.target.value)}
+                className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400">
+                <option value="">— select asset —</option>
+                {assets.map(a => (
+                  <option key={a.id} value={a.id}>{a.name} ({a.symbol})</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-teal-300 transition-colors">
+            {file ? (
+              <div className="space-y-2">
+                <div className="text-[13px] font-medium text-gray-700" dir="ltr">{file.name}</div>
+                <div className="text-[11px] text-gray-400">{(file.size / 1024).toFixed(0)} KB</div>
+                <button type="button" onClick={() => setFile(null)} className="text-[11px] text-rose-500 hover:underline">
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <label className="cursor-pointer block">
+                <div className="text-[13px] text-gray-500">{tc('dataSources.upload.dragDrop')}</div>
+                <input type="file" accept={acceptAttr} className="hidden"
+                  onChange={e => setFile(e.target.files?.[0] ?? null)} />
+                <div className="mt-2 inline-flex px-3 py-1.5 text-[12px] font-medium text-teal-600 border border-teal-200 rounded-lg hover:bg-teal-50">
+                  {tc('dataSources.upload.chooseFile')}
+                </div>
+              </label>
+            )}
+          </div>
+
+          {error && (
+            <div className="text-[12px] text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{error}</div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2 text-[13px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
+              Cancel
+            </button>
+            <button type="button" onClick={handleUpload} disabled={!canUpload || uploading}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-[13px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
+              {uploading ? (
+                <><svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>{tc('dataSources.upload.uploading')}</>
+              ) : (
+                <><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M6.5 9V2M3 5l3.5-3.5L10 5"/><path d="M1 11h11"/></svg>Upload</>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ─── RunHistoryDrawer ──────────────────────────────────────────────────────────
+
+function RunHistoryDrawer({ connector, onClose }: { connector: ConnectorRead; onClose: () => void }) {
+  const { data } = useQuery({
+    queryKey: ['runs', connector.id],
+    queryFn: () => getConnectorRuns(connector.id),
+    refetchInterval: 5000,
+  })
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const runs = data?.items ?? []
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-lg shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-[14px] font-semibold text-gray-900">Run History</h3>
+            <p className="text-[12px] text-gray-400 mt-0.5">{connector.name}</p>
+          </div>
+          <button type="button" onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {runs.length === 0 ? (
+            <div className="p-8 text-center text-[13px] text-gray-400">No runs yet</div>
+          ) : runs.map(run => (
+            <div key={run.id} className="border-b border-gray-50 last:border-0">
+              <button type="button"
+                onClick={() => setExpandedId(expandedId === run.id ? null : run.id)}
+                className="w-full flex items-start gap-3 px-5 py-3.5 hover:bg-gray-50 text-left transition-colors">
+                <div className="mt-0.5 flex-shrink-0">
+                  {run.status === 'success' && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round"><path d="M2 7l3.5 3.5L12 3"/></svg>
+                  )}
+                  {run.status === 'failed' && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg>
+                  )}
+                  {(run.status === 'running' || run.status === 'pending') && (
+                    <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#f59e0b" strokeWidth="2"><path d="M7 1v2M7 11v2M1 7h2M11 7h2" strokeLinecap="round"/></svg>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className={clsx('text-[13px] font-medium',
+                      run.status === 'success' ? 'text-gray-900' :
+                      run.status === 'failed' ? 'text-rose-600' : 'text-amber-600')}>
+                      {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
+                    </span>
+                    <span className="text-[11px] text-gray-400">{formatRelative(run.started_at)}</span>
+                  </div>
+                  <div className="text-[11px] text-gray-400 mt-0.5 flex gap-3 flex-wrap">
+                    {run.duration_ms && <span>{formatDuration(run.duration_ms)}</span>}
+                    {run.transactions_created != null && run.transactions_created > 0 && (
+                      <span className="text-emerald-600">+{run.transactions_created} txns</span>
+                    )}
+                    {run.assets_created != null && run.assets_created > 0 && (
+                      <span className="text-blue-600">+{run.assets_created} assets</span>
+                    )}
+                    {run.prices_updated != null && run.prices_updated > 0 && (
+                      <span>{run.prices_updated} prices</span>
+                    )}
+                    <span className="text-gray-300">{run.triggered_by}</span>
+                  </div>
+                  {run.status === 'failed' && run.error_message && (
+                    <p className="text-[11px] text-rose-500 mt-1 truncate">{run.error_message}</p>
+                  )}
+                  {run.checkpoint?.github_run_url && (
+                    <a href={run.checkpoint.github_run_url} target="_blank" rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="text-[11px] text-teal-600 hover:underline mt-0.5 block">
+                      View on GitHub →
+                    </a>
+                  )}
+                </div>
+              </button>
+              {expandedId === run.id && run.error_message && (
+                <div className="mx-5 mb-3 p-3 bg-rose-50 rounded-lg space-y-2">
+                  <p className="text-[12px] font-medium text-rose-700">Error</p>
+                  <pre className="text-[11px] text-rose-600 whitespace-pre-wrap font-sans leading-relaxed">{run.error_message}</pre>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── LoadingCards ──────────────────────────────────────────────────────────────
+
+function LoadingCards() {
+  return (
+    <div className="space-y-2">
+      {[1, 2, 3, 4].map(i => (
+        <div key={i} className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center gap-3 animate-pulse">
+          <div className="w-2 h-2 rounded-full bg-gray-200 flex-shrink-0" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3.5 bg-gray-200 rounded w-1/3" />
+            <div className="h-3 bg-gray-100 rounded w-1/4" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ConnectorsPage() {
   const qc = useQueryClient()
+  const { t: tc } = useTranslation('common')
 
   const { data: connectors = [], isLoading } = useQuery({
     queryKey: ['connectors'],
     queryFn: getConnectors,
-    // Poll every 5 s while any connector is running so the UI updates automatically
     refetchInterval: (query) => {
       const data = query.state.data as ConnectorRead[] | undefined
-      const anyRunning = data?.some(
-        c => c.last_run_status === 'running' || c.last_run_status === 'pending'
-      )
-      return anyRunning ? 5000 : false
+      return data?.some(c => c.last_run_status === 'running' || c.last_run_status === 'pending')
+        ? 5000
+        : false
     },
   })
 
   const { data: connectorTypes = [] } = useQuery({
     queryKey: ['connector-types'],
     queryFn: getConnectorTypes,
-  })
-
-  const { data: accounts = [] } = useQuery<Account[]>({
-    queryKey: ['accounts'],
-    queryFn: getAccounts,
   })
 
   const createMut = useMutation({
@@ -235,14 +906,11 @@ export default function ConnectorsPage() {
 
   const runMut = useMutation({
     mutationFn: triggerRun,
-    onSuccess: () => {
-      // Refetch immediately so last_run_status = 'running' shows up
-      qc.invalidateQueries({ queryKey: ['connectors'] })
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['connectors'] }),
   })
 
+  // Report toast
   const [reportToast, setReportToast] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
-
   async function handleSendReport() {
     setReportToast('sending')
     try {
@@ -255,24 +923,19 @@ export default function ConnectorsPage() {
     }
   }
 
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<ConnectorRead | null>(null)
+  // Modal / drawer state
+  const [wizardOpen, setWizardOpen]     = useState(false)
+  const [wizardMode, setWizardMode]     = useState<'investment' | 'budget'>('investment')
+  const [editTarget, setEditTarget]     = useState<ConnectorRead | null>(null)
+  const [uploadTarget, setUploadTarget] = useState<ConnectorRead | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConnectorRead | null>(null)
+  const [deleteError, setDeleteError]   = useState('')
   const [historyTarget, setHistoryTarget] = useState<ConnectorRead | null>(null)
-  const [selectedType, setSelectedType] = useState('')
-  const [form, setForm] = useState<Record<string, string>>({})
-  const [configForm, setConfigForm] = useState<Record<string, string>>({})
-  const [runningIds, setRunningIds] = useState<Set<string>>(new Set())
+  const [runningIds] = useState<Set<string>>(new Set())
 
-  // Scraper-specific state
-  const [scraperCards, setScraperCards] = useState<ScraperCard[]>([])
-  const [scraperCreds, setScraperCreds] = useState({ username: '', password: '', national_id: '' })
-  const [newCard, setNewCard] = useState({ name: '', card6: '' })
-  const [showAddCard, setShowAddCard] = useState(false)
-  const [secretsPending, setSecretsPending] = useState(false)
+  const isSaving = createMut.isPending || updateMut.isPending
 
-  // On mount: hit the status endpoint for any connector that appears running so
-  // the backend can auto-fail stuck runs and the UI gets fresh data.
+  // Auto-fail stuck runs on mount
   const checkedRef = useRef(false)
   useEffect(() => {
     if (checkedRef.current || connectors.length === 0) return
@@ -281,165 +944,47 @@ export default function ConnectorsPage() {
     )
     if (running.length === 0) return
     checkedRef.current = true
-    running.forEach(c =>
-      apiClient.get(`/api/v1/connectors/${c.id}/status/`).catch(() => {})
-    )
+    running.forEach(c => apiClient.get(`/api/v1/connectors/${c.id}/status/`).catch(() => {}))
     qc.invalidateQueries({ queryKey: ['connectors'] })
-  }, [connectors.length])
-
-  const selectedTypeDef = connectorTypes.find(t => t.type === selectedType)
-
-  // Accounts filtered for crypto/brokerage connectors
-  const cryptoAccounts = accounts.filter(
-    a => a.category === 'crypto' || a.account_type === 'brokerage'
-  )
-  const otherAccounts = accounts.filter(
-    a => a.category !== 'crypto' && a.account_type !== 'brokerage'
-  )
-
-  function openAdd() {
-    setEditTarget(null)
-    setSelectedType(connectorTypes[0]?.type ?? '')
-    setForm({ name: '', schedule: 'daily', is_active: 'true', asset_filter: '' })
-    setConfigForm({})
-    // Reset scraper state so stale values from a previous edit don't bleed in
-    setScraperCards([])
-    setScraperCreds({ username: '', password: '', national_id: '' })
-    setNewCard({ name: '', card6: '' })
-    setShowAddCard(false)
-    setModalOpen(true)
-  }
+  }, [connectors.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function openEdit(c: ConnectorRead) {
     setEditTarget(c)
-    setSelectedType(c.type)
-    setForm({
-      name: c.name,
-      schedule: c.schedule,
-      is_active: String(c.is_active),
-      asset_filter: c.asset_filter?.join(',') ?? '',
-    })
-    // Pre-populate non-sensitive fields from config_display; leave sensitive blank
-    const prefilled: Record<string, string> = {}
-    if (c.config_display) {
-      for (const [k, v] of Object.entries(c.config_display)) {
-        if (k === 'cards') continue  // handled by scraper state
-        prefilled[k] = SENSITIVE_KEYS.has(k) ? '' : String(v ?? '')
-      }
-    }
-    setConfigForm(prefilled)
-
-    // Scraper-specific state
-    if (isScraperType(c.type)) {
-      const display = c.config_display ?? {}
-      setScraperCards(Array.isArray(display.cards) ? (display.cards as ScraperCard[]) : [])
-      setScraperCreds({
-        username: (display.username as string) ?? '',
-        password: '',
-        national_id: (display.national_id as string) ?? '',
-      })
-      setShowAddCard(false)
-      setNewCard({ name: '', card6: '' })
-    }
-
-    setModalOpen(true)
+    const td = connectorTypes.find(t => t.type === c.type)
+    const section = getSectionKey(c.type, td)
+    setWizardMode(section === 'budget' ? 'budget' : 'investment')
+    setWizardOpen(true)
   }
 
   function closeModal() {
-    setModalOpen(false)
+    setWizardOpen(false)
     setEditTarget(null)
-    setShowAddCard(false)
-    setNewCard({ name: '', card6: '' })
   }
 
-  function handleSubmit() {
-    if (isScraperType(selectedType)) {
-      handleScraperSubmit()
-      return
-    }
-    // Generic connector — existing logic
-    const configPayload: Record<string, string> = {}
-    for (const [k, v] of Object.entries(configForm)) {
-      if (editTarget && SENSITIVE_KEYS.has(k) && !v) continue  // keep existing
-      configPayload[k] = v
-    }
-    const payload: Record<string, unknown> = {
-      name: form.name,
-      type: selectedType,
-      schedule: form.schedule,
-      is_active: form.is_active === 'true',
-      auto_create_assets: true,
-      asset_filter: form.asset_filter ? form.asset_filter.split(',').map(s => s.trim()) : null,
-      config: configPayload,
-    }
-    if (editTarget) updateMut.mutate({ id: editTarget.id, payload })
-    else createMut.mutate(payload)
-  }
-
-  async function handleScraperSubmit() {
-    const company = editTarget
-      ? getCompany(editTarget)
-      : selectedType.replace('_scraper', '')
-
-    const configPayload: Record<string, unknown> = {
-      company,
-      username: scraperCreds.username,
-      cards: scraperCards,
-    }
-    if (scraperCreds.password)    configPayload.password    = scraperCreds.password
-    if (scraperCreds.national_id) configPayload.national_id = scraperCreds.national_id
-
+  function handleSubmit(payload: Record<string, unknown>) {
     if (editTarget) {
-      // ── Edit existing connector ──────────────────────────────────────────────
-      updateMut.mutate({ id: editTarget.id, payload: { config: configPayload, is_active: scraperCards.length > 0 } }, {
-        onSuccess: async () => {
-          const secrets = buildSecretsPayload(company, scraperCreds, scraperCards)
-          if (Object.keys(secrets).length > 0) {
-            setSecretsPending(true)
-            try { await pushSecrets(editTarget.id, secrets) }
-            catch (e) { console.error('Failed to push secrets:', e) }
-            finally { setSecretsPending(false) }
-          }
-          qc.invalidateQueries({ queryKey: ['connectors'] })
-          closeModal()
-        },
-      })
+      updateMut.mutate({ id: editTarget.id, payload })
     } else {
-      // ── Create new connector ─────────────────────────────────────────────────
-      const createPayload: Record<string, unknown> = {
-        name: form.name || COMPANY_INFO[company]?.name || company,
-        type: selectedType,
-        schedule: form.schedule || 'daily',
-        is_active: scraperCards.length > 0,
-        auto_create_assets: true,
-        asset_filter: null,
-        config: configPayload,
-      }
-      createMut.mutate(createPayload, {
-        onSuccess: async (created) => {
-          // Push secrets in background; global onSuccess already invalidates + closes modal
-          const secrets = buildSecretsPayload(company, scraperCreds, scraperCards)
-          if (Object.keys(secrets).length > 0) {
-            pushSecrets((created as ConnectorRead).id, secrets).catch(console.error)
-          }
-        },
-      })
+      createMut.mutate(payload)
     }
   }
 
-  function handleRun(c: ConnectorRead) {
-    setRunningIds(prev => new Set(prev).add(c.id))
-    runMut.mutate(c.id, {
-      // Keep runningIds until the DB echoes back status='running' in the next poll
-      onSettled: () => {
-        // Remove from local set after a short delay — DB status takes over from here
-        setTimeout(
-          () => setRunningIds(prev => { const s = new Set(prev); s.delete(c.id); return s }),
-          3000,
-        )
-      },
-    })
-  }
+  // Group connectors into sections
+  const investSources = connectors.filter(c => {
+    const td = connectorTypes.find(t => t.type === c.type)
+    return getSectionKey(c.type, td) === 'investment'
+  })
+  const budgetSources = connectors.filter(c => {
+    const td = connectorTypes.find(t => t.type === c.type)
+    return getSectionKey(c.type, td) === 'budget'
+  })
+  const feedSources = connectors.filter(c => FEED_TYPES.has(c.type))
+
+  const activeSources = connectors.filter(
+    c => c.is_active && c.last_run_status === 'success'
+  ).length
+  const lastSyncDates = connectors.map(c => c.last_run_at).filter(Boolean).sort() as string[]
+  const lastSyncAt: string | null = lastSyncDates.length > 0 ? lastSyncDates[lastSyncDates.length - 1] : null
 
   return (
     <div className="p-6 pb-20 md:pb-6">
@@ -447,28 +992,18 @@ export default function ConnectorsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-[16px] font-semibold text-gray-900">Connectors</h2>
+          <h2 className="text-[16px] font-semibold text-gray-900">{tc('dataSources.title')}</h2>
           <p className="text-[12px] text-gray-400 mt-0.5">
-            {connectors.length} connector{connectors.length !== 1 ? 's' : ''} configured
+            {connectors.length} source{connectors.length !== 1 ? 's' : ''} configured
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSendReport}
-            disabled={reportToast === 'sending'}
-            title="Send daily report to Telegram"
-            className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
-            {reportToast === 'sending'
-              ? <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>
-              : <span>📱</span>}
-            {reportToast === 'sent' ? 'Sent!' : reportToast === 'error' ? 'Failed' : 'Test report'}
-          </button>
-          <button onClick={openAdd}
-            className="flex items-center gap-2 px-4 py-2 bg-[#0d9488] hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg transition-colors">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M6 1v10M1 6h10"/></svg>
-            Add connector
-          </button>
-        </div>
+        <button type="button" onClick={handleSendReport} disabled={reportToast === 'sending'}
+          className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
+          {reportToast === 'sending'
+            ? <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>
+            : <span>📱</span>}
+          {reportToast === 'sent' ? 'Sent!' : reportToast === 'error' ? 'Failed' : tc('dataSources.sendReport')}
+        </button>
       </div>
 
       {/* Report toast */}
@@ -483,774 +1018,119 @@ export default function ConnectorsPage() {
         </div>
       )}
 
-      {/* Connector cards */}
-      {isLoading ? <LoadingCards /> : connectors.length === 0 ? <EmptyState onAdd={openAdd} /> : (
-        <div className="space-y-3">
-          {connectors.map((c) => (
-            <ConnectorCard
-              key={c.id}
-              connector={c}
-              isRunning={
-                runningIds.has(c.id) ||
-                c.last_run_status === 'running' ||
-                c.last_run_status === 'pending'
-              }
-              onRun={() => handleRun(c)}
-              onEdit={() => openEdit(c)}
-              onDelete={() => setDeleteTarget(c)}
-              onHistory={() => setHistoryTarget(c)}
+      {/* Stats bar */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
+          <div className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">{tc('dataSources.activeSources')}</div>
+          <div className="text-[22px] font-bold text-gray-900 mt-0.5">
+            {activeSources}{' '}
+            <span className="text-[14px] font-normal text-gray-400">/ {connectors.length}</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
+          <div className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">{tc('dataSources.lastSync')}</div>
+          <div className="text-[14px] font-semibold text-gray-900 mt-0.5" dir="ltr">
+            {lastSyncAt ? formatRelative(lastSyncAt) : tc('dataSources.neverSynced')}
+          </div>
+        </div>
+      </div>
+
+      {/* Sections */}
+      {isLoading ? <LoadingCards /> : (
+        <div className="space-y-8">
+          <SourceSection
+            title={tc('dataSources.sections.investment')}
+            emoji="📈"
+            badge={tc('dataSources.badges.autoSync')}
+            sources={investSources}
+            connectorTypes={connectorTypes}
+            onAdd={() => { setWizardMode('investment'); setWizardOpen(true) }}
+            onEdit={openEdit}
+            onDelete={c => { setDeleteTarget(c); setDeleteError('') }}
+            onRun={c => runMut.mutate(c.id)}
+            onUpload={c => setUploadTarget(c)}
+            onHistory={c => setHistoryTarget(c)}
+            runningIds={runningIds}
+          />
+          <SourceSection
+            title={tc('dataSources.sections.budget')}
+            emoji="💳"
+            badge={tc('dataSources.badges.manualUpload')}
+            sources={budgetSources}
+            connectorTypes={connectorTypes}
+            onAdd={() => { setWizardMode('budget'); setWizardOpen(true) }}
+            onEdit={openEdit}
+            onDelete={c => { setDeleteTarget(c); setDeleteError('') }}
+            onRun={c => runMut.mutate(c.id)}
+            onUpload={c => setUploadTarget(c)}
+            onHistory={c => setHistoryTarget(c)}
+            runningIds={runningIds}
+          />
+          {feedSources.length > 0 && (
+            <SourceSection
+              title={tc('dataSources.sections.feeds')}
+              emoji="🌍"
+              sources={feedSources}
+              connectorTypes={connectorTypes}
+              onAdd={null}
+              onEdit={openEdit}
+              onDelete={c => { setDeleteTarget(c); setDeleteError('') }}
+              onRun={c => runMut.mutate(c.id)}
+              onUpload={c => setUploadTarget(c)}
+              onHistory={c => setHistoryTarget(c)}
+              runningIds={runningIds}
             />
-          ))}
+          )}
         </div>
       )}
 
-      {/* Upload bank statement */}
-      <UploadSection connectors={connectors} connectorTypes={connectorTypes} onUploaded={() => qc.invalidateQueries({ queryKey: ['connectors'] })} />
+      {/* Wizard modal */}
+      <AddWizardModal
+        open={wizardOpen}
+        mode={wizardMode}
+        editTarget={editTarget}
+        connectorTypes={connectorTypes}
+        onClose={closeModal}
+        onSave={handleSubmit}
+        isSaving={isSaving}
+      />
 
-      {/* Add/Edit Modal */}
-      <Modal open={modalOpen} onClose={closeModal}
-        title={editTarget ? `Edit — ${editTarget.name}` : 'Add connector'}
-        width="max-w-xl">
-        <div className="space-y-5">
-          <FormSection title="Connector">
-            <FormGrid>
-              <Field label="Name" required>
-                <Input value={form.name ?? ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. My Kraken Account" />
-              </Field>
-              <Field label="Type">
-                <Select value={selectedType}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                    setSelectedType(e.target.value)
-                    setConfigForm({})
-                  }}
-                  disabled={!!editTarget}>
-                  {connectorTypes.map(t => (
-                    <option key={t.type} value={t.type}>{t.display_name}</option>
-                  ))}
-                </Select>
-              </Field>
-            </FormGrid>
-            {selectedTypeDef?.description && (
-              <p className="text-[12px] text-gray-400">{selectedTypeDef.description}</p>
-            )}
-            <FormGrid>
-              <Field label="Schedule">
-                <Select value={form.schedule ?? 'daily'}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, schedule: e.target.value })}>
-                  <option value="daily">Daily</option>
-                  <option value="hourly">Hourly</option>
-                  <option value="manual">Manual only</option>
-                </Select>
-              </Field>
-              <Field label="Status">
-                <Select value={form.is_active ?? 'true'}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, is_active: e.target.value })}>
-                  <option value="true">Active</option>
-                  <option value="false">Disabled</option>
-                </Select>
-              </Field>
-            </FormGrid>
-            <Field label="Asset filter" hint="Comma-separated symbols. Leave empty for all assets.">
-              <Input value={form.asset_filter ?? ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, asset_filter: e.target.value })}
-                placeholder="e.g. BTC,ETH or leave empty" />
-            </Field>
-          </FormSection>
+      {/* Upload modal */}
+      {uploadTarget && (
+        <UploadModal
+          connector={uploadTarget}
+          connectorTypes={connectorTypes}
+          onClose={() => setUploadTarget(null)}
+          onSuccess={() => {
+            setUploadTarget(null)
+            qc.invalidateQueries({ queryKey: ['connectors'] })
+          }}
+        />
+      )}
 
-          {/* Scraper-specific config form */}
-          {isScraperType(selectedType) ? (() => {
-            // Derive company key for both create (editTarget=null) and edit paths
-            const co = editTarget ? getCompany(editTarget) : selectedType.replace('_scraper', '')
-            const info = COMPANY_INFO[co]
-            return (
-              <>
-                <Divider />
-                <FormSection title="Company credentials">
-                  <p className="text-[12px] text-gray-400 -mt-1 mb-2">
-                    Saved encrypted in the database and pushed to GitHub Secrets for the Actions runner.
-                  </p>
-                  <Field label="Username / ID">
-                    <Input value={scraperCreds.username}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setScraperCreds({ ...scraperCreds, username: e.target.value })}
-                      placeholder="e.g. 0512345678" />
-                  </Field>
-                  <Field label="Password" hint={editTarget ? 'Leave blank to keep existing password' : undefined}>
-                    <Input type="password" value={scraperCreds.password}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setScraperCreds({ ...scraperCreds, password: e.target.value })}
-                      placeholder={editTarget ? '••••••••' : 'Password'} />
-                  </Field>
-                  {info?.hasNationalId && (
-                    <Field label="National ID (Teudat Zehut)">
-                      <Input value={scraperCreds.national_id}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                          setScraperCreds({ ...scraperCreds, national_id: e.target.value })}
-                        placeholder="9-digit ID" />
-                    </Field>
-                  )}
-                </FormSection>
-
-                <Divider />
-                <FormSection title="Cards">
-                  {scraperCards.length === 0 && (
-                    <p className="text-[12px] text-gray-400">No cards configured yet.</p>
-                  )}
-                  {scraperCards.map((card, i) => (
-                    <div key={card.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                      <div className="text-[13px] text-gray-800">
-                        {card.name}
-                        {card.card6 && <span className="ml-2 text-[12px] text-gray-400">••• {card.card6.slice(-4)}</span>}
-                      </div>
-                      <button type="button" onClick={() => setScraperCards(scraperCards.filter((_, j) => j !== i))}
-                        className="text-[11px] text-rose-400 hover:text-rose-600 px-2 py-1">
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-
-                  {showAddCard ? (
-                    <div className="mt-3 p-3 bg-gray-50 rounded-lg space-y-3">
-                      <Field label="Card nickname">
-                        <Input value={newCard.name}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCard({ ...newCard, name: e.target.value })}
-                          placeholder="e.g. My Isracard" />
-                      </Field>
-                      {info?.hasCard6 && (
-                        <Field label="Last 6 digits" hint="Printed on the front of the card">
-                          <Input value={newCard.card6}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                              setNewCard({ ...newCard, card6: e.target.value.replace(/\D/g, '').slice(0, 6) })}
-                            placeholder="e.g. 105177"
-                            inputMode="numeric"
-                            maxLength={6} />
-                        </Field>
-                      )}
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!newCard.name) return
-                            setScraperCards([...scraperCards, {
-                              id: `card_${Date.now()}`,
-                              name: newCard.name,
-                              card6: newCard.card6 || undefined,
-                              enabled: true,
-                            }])
-                            setNewCard({ name: '', card6: '' })
-                            setShowAddCard(false)
-                          }}
-                          className="px-3 py-1.5 text-[12px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700">
-                          Add card
-                        </button>
-                        <button type="button" onClick={() => setShowAddCard(false)}
-                          className="px-3 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => setShowAddCard(true)}
-                      className="mt-2 flex items-center gap-1.5 text-[12px] text-teal-600 hover:text-teal-700 font-medium">
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5.5 1v9M1 5.5h9"/></svg>
-                      Add another card
-                    </button>
-                  )}
-                </FormSection>
-              </>
-            )
-          })() : (
-            /* Generic config fields */
-            selectedTypeDef && selectedTypeDef.config_fields.length > 0 && (
-              <>
-                <Divider />
-                <FormSection title="Configuration">
-                  {selectedTypeDef.config_fields.map(field => {
-                    if (field.key === 'account_id') {
-                      return (
-                        <Field key={field.key} label={field.label}
-                          hint="Select which account these trades belong to. Add accounts in the Accounts page first.">
-                          <select
-                            value={configForm[field.key] ?? ''}
-                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                              setConfigForm({ ...configForm, [field.key]: e.target.value })}
-                            className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400">
-                            <option value="">— Select account —</option>
-                            {cryptoAccounts.length > 0 && (
-                              <optgroup label="Crypto / Brokerage">
-                                {cryptoAccounts.map(a => (
-                                  <option key={a.id} value={a.id}>{a.name}</option>
-                                ))}
-                              </optgroup>
-                            )}
-                            {otherAccounts.length > 0 && (
-                              <optgroup label="Other">
-                                {otherAccounts.map(a => (
-                                  <option key={a.id} value={a.id}>{a.name}</option>
-                                ))}
-                              </optgroup>
-                            )}
-                          </select>
-                        </Field>
-                      )
-                    }
-
-                    const isSensitive = SENSITIVE_KEYS.has(field.key)
-                    const maskedPlaceholder = editTarget && isSensitive && editTarget.config_display?.[field.key]
-                      ? String(editTarget.config_display[field.key])
-                      : field.default
-                    const fieldHint = editTarget && isSensitive ? 'Leave blank to keep existing value' : field.hint
-
-                    return (
-                      <Field key={field.key} label={field.label} hint={fieldHint}>
-                        <Input
-                          type={field.key.includes('secret') || field.key.includes('password') ? 'password' : 'text'}
-                          value={configForm[field.key] ?? ''}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                            setConfigForm({ ...configForm, [field.key]: e.target.value })}
-                          placeholder={maskedPlaceholder} />
-                      </Field>
-                    )
-                  })}
-                </FormSection>
-              </>
-            )
-          )}
-
-          <Divider />
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={closeModal}
-              className="px-4 py-2 text-[13px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
-              Cancel
-            </button>
-            <button type="button" onClick={handleSubmit}
-              disabled={createMut.isPending || updateMut.isPending || secretsPending}
-              className="px-4 py-2 text-[13px] font-medium bg-[#0d9488] hover:bg-teal-700 text-white rounded-lg disabled:opacity-60">
-              {secretsPending ? 'Pushing secrets…' : createMut.isPending || updateMut.isPending ? 'Saving…' : editTarget ? 'Save changes' : 'Add connector'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {/* Run history drawer */}
+      {historyTarget && (
+        <RunHistoryDrawer connector={historyTarget} onClose={() => setHistoryTarget(null)} />
+      )}
 
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title={`Delete "${deleteTarget?.name}"?`}
-        message="This will also delete all run history for this connector."
+        title={deleteTarget ? `Delete "${deleteTarget.name}"?` : ''}
+        message={deleteError || 'This will also delete all run history for this connector.'}
         confirmLabel="Delete" danger
-        onConfirm={() => { if (deleteTarget) deleteMut.mutate(deleteTarget.id) }}
-        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (!deleteTarget) return
+          setDeleteError('')
+          deleteMut.mutate(deleteTarget.id, {
+            onError: (err: unknown) => {
+              const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+              setDeleteError(detail ?? 'Cannot delete connector')
+            },
+          })
+        }}
+        onCancel={() => { setDeleteTarget(null); setDeleteError('') }}
       />
-
-      {/* Run history drawer */}
-      {historyTarget && (
-        <RunHistoryDrawer
-          connector={historyTarget}
-          onClose={() => setHistoryTarget(null)}
-        />
-      )}
-    </div>
-  )
-}
-
-// ─── Connector Card ───────────────────────────────────────────────────────────
-
-function ConnectorCard({
-  connector: c, isRunning, onRun, onEdit, onDelete, onHistory
-}: {
-  connector: ConnectorRead
-  isRunning: boolean
-  onRun: () => void
-  onEdit: () => void
-  onDelete: () => void
-  onHistory: () => void
-}) {
-  const status = c.last_run_status
-  const summary = c.last_run_summary
-
-  const cards = isScraperType(c.type) && Array.isArray(c.config_display?.cards)
-    ? (c.config_display!.cards as ScraperCard[])
-    : []
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          {/* Status dot */}
-          <div className={clsx('w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0',
-            !c.is_active ? 'bg-gray-300' :
-            status === 'success' ? 'bg-emerald-500' :
-            status === 'failed' ? 'bg-rose-500' :
-            status === 'running' ? 'bg-amber-400 animate-pulse' :
-            'bg-gray-300')} />
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[14px] font-semibold text-gray-900">{c.name}</span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-mono">
-                {c.type}
-              </span>
-              {!c.is_active && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">
-                  disabled
-                </span>
-              )}
-            </div>
-
-            <div className="mt-1 flex items-center gap-3 flex-wrap text-[12px] text-gray-400">
-              <span>{c.schedule}</span>
-              {c.last_run_at && (
-                <>
-                  <span>·</span>
-                  <span>Last run {formatRelative(c.last_run_at)}</span>
-                </>
-              )}
-              {isRunning && isScraperType(c.type) && (
-                <span className="text-amber-600">
-                  Scraping credit cards…
-                  {c.last_run_started_at && ` (${formatElapsed(c.last_run_started_at)} elapsed)`}
-                </span>
-              )}
-              {isRunning && !isScraperType(c.type) && (
-                <span className="text-amber-600">
-                  Running…
-                  {c.last_run_started_at && ` (${formatElapsed(c.last_run_started_at)})`}
-                </span>
-              )}
-              {status === 'success' && summary && (
-                <>
-                  <span>·</span>
-                  <span className="text-emerald-600">
-                    {[
-                      summary.transactions_created ? `${summary.transactions_created} txns` : null,
-                      summary.assets_created ? `${summary.assets_created} assets` : null,
-                      summary.fx_rates_updated ? `${summary.fx_rates_updated} FX rates` : null,
-                      summary.prices_updated ? `${summary.prices_updated} prices` : null,
-                    ].filter(Boolean).join(' · ') || '✓ no changes'}
-                  </span>
-                  {summary.duration_ms && (
-                    <>
-                      <span>·</span>
-                      <span>{formatDuration(summary.duration_ms)}</span>
-                    </>
-                  )}
-                </>
-              )}
-              {status === 'failed' && c.last_error && (
-                <>
-                  <span>·</span>
-                  <span className="text-rose-500 truncate max-w-[300px]">{c.last_error}</span>
-                </>
-              )}
-            </div>
-
-            {/* Scraper: card list */}
-            {isScraperType(c.type) && (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {cards.length === 0 ? (
-                  <span className="text-[11px] text-gray-400 italic">No cards configured — click edit to set up</span>
-                ) : cards.map(card => (
-                  <span key={card.id} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                    {card.name}
-                    {card.card6 && <span className="text-gray-400">••• {card.card6.slice(-4)}</span>}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button onClick={onHistory} title="Run history"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-50 transition-colors">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="7" cy="7" r="5"/><path d="M7 4v3l2 1"/></svg>
-          </button>
-          <button onClick={onEdit} title="Edit"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-300 hover:text-teal-600 hover:bg-teal-50 transition-colors">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2l2 2-6 6H3V8l6-6z"/></svg>
-          </button>
-          <button onClick={onDelete} title="Delete"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-300 hover:text-rose-500 hover:bg-rose-50 transition-colors">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4h9M5 4V3h3v1M4 4l.5 6h4l.5-6"/></svg>
-          </button>
-          <button onClick={onRun} disabled={isRunning || !c.is_active} title="Run now"
-            className={clsx(
-              'flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg transition-colors ml-1',
-              c.is_active
-                ? 'bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-60'
-                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            )}>
-            {isRunning ? (
-              <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2"><path d="M6 1v2M6 9v2M1 6h2M9 6h2" strokeLinecap="round"/></svg>
-            ) : (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 2l7 4-7 4V2z" fill="currentColor"/></svg>
-            )}
-            {isRunning ? 'Running…' : 'Run'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Run History Drawer ───────────────────────────────────────────────────────
-
-function RunHistoryDrawer({ connector, onClose }: { connector: ConnectorRead; onClose: () => void }) {
-  const { data } = useQuery({
-    queryKey: ['runs', connector.id],
-    queryFn: () => getConnectorRuns(connector.id),
-    refetchInterval: 5000, // poll while runs might be in progress
-  })
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const runs = data?.items ?? []
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative bg-white w-full max-w-lg shadow-2xl flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div>
-            <h3 className="text-[14px] font-semibold text-gray-900">Run History</h3>
-            <p className="text-[12px] text-gray-400 mt-0.5">{connector.name}</p>
-          </div>
-          <button onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg>
-          </button>
-        </div>
-
-        {/* Runs list */}
-        <div className="flex-1 overflow-y-auto">
-          {runs.length === 0 ? (
-            <div className="p-8 text-center text-[13px] text-gray-400">No runs yet</div>
-          ) : runs.map((run) => (
-            <div key={run.id} className="border-b border-gray-50 last:border-0">
-              <button
-                onClick={() => setExpandedId(expandedId === run.id ? null : run.id)}
-                className="w-full flex items-start gap-3 px-5 py-3.5 hover:bg-gray-50 text-left transition-colors">
-                {/* Status icon */}
-                <div className="mt-0.5 flex-shrink-0">
-                  {run.status === 'success' && (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round"><path d="M2 7l3.5 3.5L12 3"/></svg>
-                  )}
-                  {run.status === 'failed' && (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg>
-                  )}
-                  {(run.status === 'running' || run.status === 'pending') && (
-                    <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#f59e0b" strokeWidth="2"><path d="M7 1v2M7 11v2M1 7h2M11 7h2" strokeLinecap="round"/></svg>
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className={clsx('text-[13px] font-medium',
-                      run.status === 'success' ? 'text-gray-900' :
-                      run.status === 'failed' ? 'text-rose-600' : 'text-amber-600')}>
-                      {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
-                    </span>
-                    <span className="text-[11px] text-gray-400">
-                      {formatRelative(run.started_at)}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-gray-400 mt-0.5 flex gap-3 flex-wrap">
-                    {run.duration_ms && <span>{formatDuration(run.duration_ms)}</span>}
-                    {run.transactions_created != null && run.transactions_created > 0 && (
-                      <span className="text-emerald-600">+{run.transactions_created} txns</span>
-                    )}
-                    {run.assets_created != null && run.assets_created > 0 && (
-                      <span className="text-blue-600">+{run.assets_created} assets</span>
-                    )}
-                    {run.fx_rates_updated != null && run.fx_rates_updated > 0 && (
-                      <span>{run.fx_rates_updated} FX rates</span>
-                    )}
-                    {run.prices_updated != null && run.prices_updated > 0 && (
-                      <span>{run.prices_updated} prices</span>
-                    )}
-                    {run.transactions_skipped != null && run.transactions_skipped > 0 && (
-                      <span className="text-gray-400">{run.transactions_skipped} skipped</span>
-                    )}
-                    <span className="text-gray-300">{run.triggered_by}</span>
-                  </div>
-                  {run.status === 'failed' && run.error_message && (
-                    <p className="text-[11px] text-rose-500 mt-1 truncate">{run.error_message}</p>
-                  )}
-                  {run.checkpoint?.github_run_url && (
-                    <a
-                      href={run.checkpoint.github_run_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      className="text-[11px] text-teal-600 hover:underline mt-0.5 block">
-                      View on GitHub →
-                    </a>
-                  )}
-                </div>
-              </button>
-
-              {/* Expanded error details */}
-              {expandedId === run.id && run.error_message && (
-                <div className="mx-5 mb-3 p-3 bg-rose-50 rounded-lg space-y-2">
-                  <p className="text-[12px] font-medium text-rose-700">Error</p>
-                  <pre className="text-[11px] text-rose-600 whitespace-pre-wrap font-sans leading-relaxed">
-                    {run.error_message}
-                  </pre>
-                  {run.checkpoint?.github_run_url && (
-                    <a
-                      href={run.checkpoint.github_run_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 text-[11px] text-teal-600 hover:underline font-medium">
-                      View full logs on GitHub →
-                    </a>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Upload Section ───────────────────────────────────────────────────────────
-
-function UploadSection({
-  connectors,
-  connectorTypes,
-  onUploaded,
-}: {
-  connectors: ConnectorRead[]
-  connectorTypes: ConnectorType[]
-  onUploaded: () => void
-}) {
-  // Use registry data to determine which connectors support upload — no hardcoded list
-  const uploadTypeKeys = new Set(
-    connectorTypes.filter(t => t.category === 'manual_upload').map(t => t.type)
-  )
-  const uploadable = connectors.filter(c => uploadTypeKeys.has(c.type) && c.is_active)
-
-  const [selectedId, setSelectedId]   = useState('')
-  const [file, setFile]               = useState<File | null>(null)
-  const [selectedAssetId, setSelectedAssetId] = useState('')
-  const [result, setResult]           = useState<UploadResult | null>(null)
-  const [error, setError]             = useState<string | null>(null)
-  const [uploading, setUploading]     = useState(false)
-  const fileRef = useMemo(() => ({ current: null as HTMLInputElement | null }), [])
-
-  const selected   = uploadable.find(c => c.id === selectedId) ?? uploadable[0] ?? null
-  const typeDef    = connectorTypes.find(t => t.type === selected?.type) ?? null
-  const needsAsset = typeDef?.requires_asset_selection_on_upload ?? false
-
-  // Accept string from registry, e.g. ['pdf','xls','xlsx'] → '.pdf,.xls,.xlsx'
-  const acceptAttr = typeDef
-    ? typeDef.supported_file_types.map(e => `.${e}`).join(',')
-    : '.pdf'
-
-  // Fetch assets only when the selected connector requires asset selection
-  const { data: assetList } = useQuery({
-    queryKey: ['assets'],
-    queryFn: () => getAssets({ limit: 500 }),
-    enabled: needsAsset,
-  })
-  const assets = assetList?.items ?? []
-
-  // Reset asset selection when connector changes
-  const prevType = useMemo(() => selected?.type, [selected?.id])  // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setSelectedAssetId('') }, [selected?.id])
-
-  const canSubmit = !!file && (!needsAsset || !!selectedAssetId)
-
-  async function handleUpload() {
-    if (!file || !selected) return
-    setUploading(true)
-    setResult(null)
-    setError(null)
-    try {
-      const res = await uploadConnectorFile(
-        selected.id,
-        file,
-        needsAsset ? selectedAssetId : undefined,
-      )
-      setResult(res)
-      setFile(null)
-      setSelectedAssetId('')
-      if (fileRef.current) fileRef.current.value = ''
-      onUploaded()
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(e)
-      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  if (uploadable.length === 0) {
-    // Only show the hint when there are manual_upload types available but none created yet
-    if (uploadTypeKeys.size === 0) return null
-    const typeNames = connectorTypes
-      .filter(t => uploadTypeKeys.has(t.type))
-      .map(t => t.display_name)
-      .join(', ')
-    return (
-      <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <h3 className="text-[14px] font-semibold text-gray-900 mb-1">Upload statement</h3>
-        <p className="text-[12px] text-gray-500">
-          To upload a bank or credit card file, first create a connector via{' '}
-          <strong>Add connector</strong>.
-        </p>
-        <p className="text-[12px] text-gray-400 mt-1">
-          Supported: {typeNames}
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-      <h3 className="text-[14px] font-semibold text-gray-900 mb-1">Upload statement</h3>
-      <p className="text-[12px] text-gray-400 mb-4">Manually import a PDF or XLSX export</p>
-
-      <div className="flex flex-wrap items-end gap-3">
-        {/* Connector picker */}
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-gray-500 font-medium">Connector</label>
-          <select
-            value={selectedId || selected?.id || ''}
-            onChange={e => { setSelectedId(e.target.value); setResult(null); setError(null) }}
-            className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"
-          >
-            {uploadable.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Asset picker — only shown when connector requires it (e.g. BTB) */}
-        {needsAsset && (
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-gray-500 font-medium">Asset</label>
-            <select
-              value={selectedAssetId}
-              onChange={e => setSelectedAssetId(e.target.value)}
-              className="px-3 py-2 text-[13px] border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"
-            >
-              <option value="">— select asset —</option>
-              {assets.map(a => (
-                <option key={a.id} value={a.id}>{a.name} ({a.symbol})</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* File picker — accept list comes from registry */}
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-gray-500 font-medium">File</label>
-          <input
-            type="file"
-            accept={acceptAttr}
-            ref={el => { fileRef.current = el }}
-            onChange={e => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(null) }}
-            className="text-[13px] text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-[12px] file:bg-white file:text-gray-600 hover:file:bg-gray-50 cursor-pointer"
-          />
-        </div>
-
-        {/* Upload button */}
-        <button
-          onClick={handleUpload}
-          disabled={!canSubmit || uploading}
-          className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-medium rounded-lg disabled:opacity-50 transition-colors"
-        >
-          {uploading ? (
-            <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>
-          ) : (
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M6.5 9V2M3 5l3.5-3.5L10 5"/><path d="M1 11h11"/></svg>
-          )}
-          {uploading ? 'Uploading…' : 'Upload'}
-        </button>
-      </div>
-
-      {/* Result — bank connectors: transaction counts */}
-      {result && result.connector_type !== 'btb_pdf' && 'created' in result && (
-        <div className="mt-3 flex items-center gap-2 text-[12px] text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 6.5l3 3 6-6"/></svg>
-          <span>
-            <strong>{result.created}</strong> new transactions imported,{' '}
-            <strong>{result.skipped}</strong> already existed
-            {result.total > 0 && ` (${result.total} total in file)`}
-          </span>
-        </div>
-      )}
-
-      {/* Result — BTB: valuation summary */}
-      {result?.connector_type === 'btb_pdf' && 'report_date' in result && (
-        <div className="mt-3 text-[12px] text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 space-y-1">
-          <div className="flex items-center gap-2 font-medium">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 6.5l3 3 6-6"/></svg>
-            BTB report uploaded — {result.report_date}
-          </div>
-          <div className="ml-5 grid grid-cols-2 gap-x-6 gap-y-0.5 text-gray-700">
-            <span>Current value</span>
-            <span className="font-medium">
-              ₪{result.current_value.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <span>Net invested</span>
-            <span className="font-medium">
-              ₪{result.net_invested.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <span>Last month return</span>
-            <span className="font-medium">{result.last_month_return_pct}%</span>
-            <span>Net return to date</span>
-            <span className="font-medium">{result.net_return_pct}%</span>
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-3 text-[12px] text-rose-600 bg-rose-50 rounded-lg px-3 py-2">
-          {error}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function LoadingCards() {
-  return (
-    <div className="space-y-3">
-      {[1, 2, 3].map(i => (
-        <div key={i} className="bg-white rounded-xl border border-gray-200 p-4 animate-pulse">
-          <div className="flex items-center gap-3">
-            <div className="w-2.5 h-2.5 rounded-full bg-gray-100" />
-            <div className="h-4 bg-gray-100 rounded w-48" />
-            <div className="h-4 bg-gray-100 rounded w-20" />
-          </div>
-          <div className="h-3 bg-gray-100 rounded w-64 mt-2 ml-6" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function EmptyState({ onAdd }: { onAdd: () => void }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
-      <div className="w-12 h-12 bg-teal-50 rounded-full flex items-center justify-center mx-auto mb-4">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#0d9488" strokeWidth="1.5" strokeLinecap="round"><path d="M10 2v4M10 14v4M2 10h4M14 10h4M4.9 4.9l2.8 2.8M12.3 12.3l2.8 2.8M4.9 15.1l2.8-2.8M12.3 7.7l2.8-2.8"/></svg>
-      </div>
-      <p className="text-[14px] font-medium text-gray-700 mb-1">No connectors yet</p>
-      <p className="text-[12px] text-gray-400 mb-5">Add your first connector to start fetching data automatically</p>
-      <button onClick={onAdd}
-        className="px-4 py-2 bg-[#0d9488] text-white text-[13px] font-medium rounded-lg hover:bg-teal-700">
-        Add connector
-      </button>
     </div>
   )
 }
