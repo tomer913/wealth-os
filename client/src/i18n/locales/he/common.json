@@ -5,7 +5,7 @@
     "accounts": "חשבונות",
     "transactions": "תנועות",
     "valuations": "הערכות שווי",
-    "connectors": "מחברים",
+    "connectors": "מקורות נתונים",
     "budget": "תקציב",
     "budget_dashboard": "לוח תקציב",
     "budget_manage": "ניהול תקציב",
@@ -122,6 +122,90 @@
   "optional_notes": "הערות אופציונליות…",
   "none": "— ללא —",
   "cannot_be_undone": "פעולה זו אינה הפיכה.",
+  "dataSources": {
+    "title": "מקורות נתונים",
+    "activeSources": "מקורות פעילים",
+    "lastSync": "סנכרון אחרון",
+    "addSource": "הוסף מקור",
+    "sendReport": "שלח דוח",
+    "sections": {
+      "investment": "מקורות השקעה",
+      "budget": "מקורות תקציב",
+      "feeds": "עדכוני מחירים ומט\"ח"
+    },
+    "badges": {
+      "autoSync": "סנכרון אוטומטי",
+      "manualUpload": "העלאה ידנית",
+      "active": "פעיל",
+      "uploaded": "הועלה",
+      "failed": "נכשל",
+      "invalidCredentials": "פרטי גישה שגויים",
+      "notConfigured": "לא מוגדר",
+      "uploadPending": "ממתין להעלאה"
+    },
+    "actions": {
+      "run": "הפעל",
+      "edit": "ערוך",
+      "delete": "מחק",
+      "uploadStatement": "העלה דף חשבון"
+    },
+    "wizard": {
+      "investment": {
+        "title": "הוסף מקור השקעה",
+        "step1": "בחר ספק",
+        "step2": "קשר נכס",
+        "step2MultiAsset": "מקור זה מנהל מספר נכסים באופן אוטומטי.",
+        "step3": "התחבר",
+        "credentialsEncrypted": "פרטי הגישה מאוחסנים מוצפנים"
+      },
+      "budget": {
+        "title": "הוסף מקור תקציב",
+        "step1": "בחר ספק",
+        "step2": "שיטת חיבור",
+        "step2Auto": "סנכרון אוטומטי (מומלץ)",
+        "step2AutoDesc": "הזן פרטי גישה — מסתנכרן יומית באופן אוטומטי",
+        "step2Manual": "העלאה ידנית",
+        "step2ManualDesc": "העלה קבצי דפי חשבון בעצמך בכל תקופה. אין צורך בפרטי גישה.",
+        "step3": "תן שם ושמור",
+        "manualNote": "אין צורך בפרטי גישה. העלה קבצים מדף מקורות הנתונים לאחר השמירה.",
+        "autoNote": "פרטי הגישה מאוחסנים מוצפנים. מסתנכרן יומית ב-07:00."
+      },
+      "edit": {
+        "title": "ערוך מקור נתונים",
+        "typeLockedWarning": "לא ניתן לשנות את סוג המחבר. צור מקור נתונים חדש אם אתה צריך ספק אחר.",
+        "credentialsPlaceholder": "השאר ריק כדי לשמור על פרטי הגישה הקיימים"
+      },
+      "common": {
+        "name": "שם",
+        "namePlaceholder": "לדוגמה: ישראכרט 5177",
+        "back": "חזור",
+        "next": "הבא",
+        "save": "שמור",
+        "cancel": "ביטול"
+      }
+    },
+    "upload": {
+      "title": "העלה דף חשבון",
+      "accepts": "מקבל",
+      "periodFrom": "מתאריך",
+      "periodTo": "עד תאריך",
+      "periodOptional": "התקופה המכוסה בקובץ (אופציונלי — יזוהה אוטומטית אם אפשרי)",
+      "chooseFile": "בחר קובץ",
+      "dragDrop": "גרור ושחרר או עיין",
+      "asset": "נכס",
+      "uploading": "מעלה...",
+      "success": {
+        "transactions": "עסקאות יובאו",
+        "autoClassified": "סווגו אוטומטית",
+        "needsReview": "ממתינות לבדיקה",
+        "viewRules": "צפה בכללי תקציב"
+      }
+    },
+    "lastSyncTime": "סנכרון אחרון: {{time}}",
+    "lastUploadTime": "העלאה אחרונה: {{time}}",
+    "neverSynced": "מעולם לא סונכרן",
+    "neverUploaded": "מעולם לא הועלה"
+  },
   "categories": {
     "real_estate": "נדל\"ן",
     "pension": "פנסיה",

@@ -5,7 +5,7 @@
     "accounts": "Accounts",
     "transactions": "Transactions",
     "valuations": "Valuations",
-    "connectors": "Connectors",
+    "connectors": "Data sources",
     "budget": "Budget",
     "budget_dashboard": "Budget Dashboard",
     "budget_manage": "Manage Budget",
@@ -122,6 +122,90 @@
   "optional_notes": "Optional notes…",
   "none": "— None —",
   "cannot_be_undone": "This cannot be undone.",
+  "dataSources": {
+    "title": "Data sources",
+    "activeSources": "Active sources",
+    "lastSync": "Last sync",
+    "addSource": "Add source",
+    "sendReport": "Send report",
+    "sections": {
+      "investment": "Investment sources",
+      "budget": "Budget sources",
+      "feeds": "Price & FX feeds"
+    },
+    "badges": {
+      "autoSync": "auto sync",
+      "manualUpload": "manual upload",
+      "active": "active",
+      "uploaded": "uploaded",
+      "failed": "failed",
+      "invalidCredentials": "invalid credentials",
+      "notConfigured": "not configured",
+      "uploadPending": "upload pending"
+    },
+    "actions": {
+      "run": "Run",
+      "edit": "Edit",
+      "delete": "Delete",
+      "uploadStatement": "Upload statement"
+    },
+    "wizard": {
+      "investment": {
+        "title": "Add investment source",
+        "step1": "Choose provider",
+        "step2": "Link asset",
+        "step2MultiAsset": "This source manages multiple assets automatically.",
+        "step3": "Connect",
+        "credentialsEncrypted": "Credentials stored encrypted"
+      },
+      "budget": {
+        "title": "Add budget source",
+        "step1": "Choose provider",
+        "step2": "Connection method",
+        "step2Auto": "Auto sync (recommended)",
+        "step2AutoDesc": "Enter credentials — synced daily automatically",
+        "step2Manual": "Manual upload",
+        "step2ManualDesc": "Upload statement files yourself each period. No credentials needed.",
+        "step3": "Name it & save",
+        "manualNote": "No credentials needed. Upload statement files from the data sources page after saving.",
+        "autoNote": "Credentials stored encrypted. Syncs daily at 07:00."
+      },
+      "edit": {
+        "title": "Edit data source",
+        "typeLockedWarning": "Connector type cannot be changed. Create a new data source if you need a different provider.",
+        "credentialsPlaceholder": "Leave blank to keep existing credentials"
+      },
+      "common": {
+        "name": "Name",
+        "namePlaceholder": "e.g. ישראכרט 5177",
+        "back": "Back",
+        "next": "Next",
+        "save": "Save",
+        "cancel": "Cancel"
+      }
+    },
+    "upload": {
+      "title": "Upload statement",
+      "accepts": "Accepts",
+      "periodFrom": "From",
+      "periodTo": "To",
+      "periodOptional": "Period covered by this file (optional — auto-detected if possible)",
+      "chooseFile": "Choose file",
+      "dragDrop": "Drag & drop or browse",
+      "asset": "Asset",
+      "uploading": "Uploading...",
+      "success": {
+        "transactions": "transactions imported",
+        "autoClassified": "Auto-classified",
+        "needsReview": "Needs review",
+        "viewRules": "View in Budget Rules"
+      }
+    },
+    "lastSyncTime": "Last sync: {{time}}",
+    "lastUploadTime": "Last upload: {{time}}",
+    "neverSynced": "Never synced",
+    "neverUploaded": "Never uploaded"
+  },
   "categories": {
     "real_estate": "Real Estate",
     "pension": "Pension",
