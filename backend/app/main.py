@@ -91,10 +91,14 @@ async def list_connector_types():
             "display_name": type_def.display_name,
             "description": type_def.description,
             "category": type_def.category,
+            "flow_type": type_def.flow_type,
             "supports_multi_asset": type_def.supports_multi_asset,
             "requires_asset_selection_on_upload": type_def.requires_asset_selection_on_upload,
             "supported_file_types": type_def.supported_file_types,
             "asset_linking": type_def.asset_linking,
+            "supports_auto_scrape": type_def.supports_auto_scrape,
+            "supports_manual_upload": type_def.supports_manual_upload,
+            "schedule_default": type_def.schedule_default,
             "config_fields": config_fields,
         })
     return result
