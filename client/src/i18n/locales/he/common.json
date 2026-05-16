@@ -135,7 +135,12 @@
     "uploading": "מעלה...",
     "filesProcessed": "{{count}} קבצים עובדו",
     "combinedTotal": "{{count}} עסקאות יובאו",
-    "viewBudgetRules": "צפה בכללי תקציב"
+    "viewBudgetRules": "צפה בכללי תקציב",
+    "classifying": "מסווג עסקאות...",
+    "classifyingProgress": "{{done}} / {{total}} הושלמו",
+    "stillRunning": "עדיין רץ ברקע...",
+    "checkLater": "בדוק כללי תקציב בעוד כמה דקות.",
+    "uploadComplete": "העלאה הושלמה"
   },
   "dataSources": {
     "title": "מקורות נתונים",

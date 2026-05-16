@@ -763,8 +763,80 @@ async def get_run(
 
 # ── File upload endpoint ──────────────────────────────────────────────────────
 
+# In-memory job status store — good enough for single-worker Railway deployment
+_processing_status: dict = {}
+
+
+async def _run_budget_processor_background(
+    portfolio_id: UUID,
+    job_id: str,
+    date_from,
+    date_to,
+) -> None:
+    """Background task: run BudgetProcessor after raw_transactions are committed."""
+    import traceback as _tb
+    from app.processors.budget_processor import BudgetProcessor
+    from app.database import AsyncSessionLocal
+    from app.models.budget import ClassificationLog
+    from app.models.raw_layer import RawTransaction as _RT
+    from sqlalchemy import and_, func, select
+
+    print(f"=== BG PROC START job_id={job_id} date_range={date_from}..{date_to}", flush=True)
+    try:
+        budget_run = await BudgetProcessor().run(
+            portfolio_id=portfolio_id,
+            triggered_by="manual_upload",
+            date_from=date_from,
+            date_to=date_to,
+        )
+        classified = budget_run.rows_written or 0
+
+        # Count needs_review in this date range
+        needs_review = 0
+        if date_from and date_to:
+            async with AsyncSessionLocal() as count_db:
+                from datetime import timezone as _tz
+                nr_q = (
+                    select(func.count(ClassificationLog.id))
+                    .join(_RT, _RT.id == ClassificationLog.raw_transaction_id)
+                    .where(
+                        and_(
+                            _RT.portfolio_id == portfolio_id,
+                            _RT.source == "isracard_xlsx",
+                            ClassificationLog.needs_review == True,
+                        )
+                    )
+                )
+                needs_review = (await count_db.execute(nr_q)).scalar_one() or 0
+
+        _processing_status[job_id] = {
+            "status": "done",
+            "classified": classified,
+            "needs_review": needs_review,
+        }
+        print(f"=== BG PROC DONE job_id={job_id} classified={classified} needs_review={needs_review}", flush=True)
+
+    except Exception as exc:
+        _processing_status[job_id] = {"status": "failed", "error": str(exc)}
+        print(f"=== BG PROC FAILED job_id={job_id}: {exc}", flush=True)
+        _tb.print_exc()
+
+
+@router.get("/processing-status/{job_id}/")
+async def get_processing_status(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Poll background budget-processor job status after upload."""
+    status = _processing_status.get(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return status
+
+
 @router.post("/upload/")
 async def upload_bank_statement(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     connector_id: UUID = Form(...),
     asset_id: Optional[str] = Form(None),  # required when requires_asset_selection_on_upload
@@ -1055,74 +1127,33 @@ async def upload_bank_statement(
         connector.last_error = None
         await db.commit()
 
-        # Run BudgetProcessor only (credit card — no asset linking, no bank processor needed).
-        # BudgetProcessor reads raw_transactions directly and classifies into budget_actuals.
-        budget_classified = 0
-        budget_needs_review = 0
-        print(f"=== UPLOAD raw_created={raw_created} raw_skipped={raw_skipped} run_processors={run_processors}", flush=True)
-        if run_processors:
-            try:
-                from app.processors.budget_processor import BudgetProcessor
+        # Dispatch BudgetProcessor as a background task so the upload response
+        # returns immediately. Frontend polls /processing-status/{job_id}/.
+        job_id = None
+        if run_processors and file_min_date is not None:
+            import uuid as _uuid_mod
+            job_id = str(_uuid_mod.uuid4())
+            _processing_status[job_id] = {"status": "running", "classified": 0, "needs_review": 0}
+            background_tasks.add_task(
+                _run_budget_processor_background,
+                portfolio_id=portfolio_id,
+                job_id=job_id,
+                date_from=file_min_date,
+                date_to=file_max_date,
+            )
+            print(f"=== UPLOAD dispatched BG processor job_id={job_id} date_range={file_min_date}..{file_max_date}", flush=True)
 
-                print(f"=== UPLOAD About to run BudgetProcessor date_range={file_min_date}..{file_max_date}", flush=True)
-                # Pass date_from/date_to to bypass the checkpoint — processes all raw_transactions
-                # in the uploaded file's date range regardless of when the processor last ran.
-                budget_run = await BudgetProcessor().run(
-                    portfolio_id=portfolio_id,
-                    triggered_by="manual_upload",
-                    date_from=file_min_date,
-                    date_to=file_max_date,
-                )
-                print(f"=== UPLOAD BudgetProcessor done: status={budget_run.status} rows_written={budget_run.rows_written} rows_skipped={budget_run.rows_skipped}", flush=True)
-                budget_classified = budget_run.rows_written or 0
-
-                # Count needs_review from classification_log for today
-                from app.database import AsyncSessionLocal
-                from app.models.budget import ClassificationLog
-                from app.models.raw_layer import RawTransaction as RT
-                async with AsyncSessionLocal() as count_db:
-                    from sqlalchemy import and_, func, select
-                    today_start = started_at.replace(hour=0, minute=0, second=0, microsecond=0)
-                    nr_q = (
-                        select(func.count(ClassificationLog.id))
-                        .join(RT, RT.id == ClassificationLog.raw_transaction_id)
-                        .where(
-                            and_(
-                                RT.portfolio_id == portfolio_id,
-                                RT.source == "isracard_xlsx",
-                                ClassificationLog.needs_review == True,
-                                ClassificationLog.processed_at >= today_start,
-                            )
-                        )
-                    )
-                    budget_needs_review = (await count_db.execute(nr_q)).scalar_one() or 0
-                _log.info(
-                    "Isracard budget processor: classified=%d needs_review=%d",
-                    budget_classified, budget_needs_review,
-                )
-            except Exception as exc:
-                import traceback as _tb
-                print(f"=== UPLOAD BudgetProcessor FAILED: {exc}", flush=True)
-                _tb.print_exc()
-                _log.error("BudgetProcessor failed after Isracard upload: %s", exc, exc_info=True)
-
-        _log.info(
-            "Isracard upload done: raw=%d/%d budget_classified=%d needs_review=%d",
-            raw_created, raw_skipped, budget_classified, budget_needs_review,
-        )
+        _log.info("Isracard upload done: raw=%d/%d job_id=%s", raw_created, raw_skipped, job_id)
 
         return {
             "connector_type": "isracard_xlsx",
             "connector_name": connector.name,
-            # Backward-compat fields (shown in existing upload result UI)
             "created": raw_created,
             "skipped": raw_skipped,
             "total": len(parsed_rows),
-            # Enhanced fields
             "raw_created": raw_created,
             "raw_skipped": raw_skipped,
-            "budget_classified": budget_classified,
-            "budget_needs_review": budget_needs_review,
+            "job_id": job_id,
             "date_range": (
                 f"{min_date} to {max_date}"
                 if min_date and max_date else "—"

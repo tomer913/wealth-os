@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Modal, ConfirmDialog } from '../components/shared/Modal'
 import clsx from 'clsx'
 import type { Account } from '../types'
-import { getAccounts, getAssets, uploadConnectorFile, UploadResult } from '../api/portfolio'
+import { getAccounts, getAssets, uploadConnectorFile, UploadResult, getProcessingStatus, ProcessingStatus } from '../api/portfolio'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -645,6 +645,8 @@ interface PendingFile {
   error: string | null
 }
 
+type UploadState = 'form' | 'uploading' | 'processing' | 'done' | 'timeout'
+
 function UploadModal({
   connector, connectorTypes, onClose, onSuccess,
 }: {
@@ -660,8 +662,8 @@ function UploadModal({
 
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [assetId, setAssetId] = useState('')
-  const [isUploading, setIsUploading] = useState(false)
-  const [allDone, setAllDone] = useState(false)
+  const [uploadState, setUploadState] = useState<UploadState>('form')
+  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null)
 
   const { data: assetList } = useQuery({
     queryKey: ['assets'],
@@ -670,100 +672,134 @@ function UploadModal({
   })
   const assets = assetList?.items ?? []
 
-  const canUpload = pendingFiles.length > 0 && (!needsAsset || !!assetId) && !isUploading
+  const canUpload = pendingFiles.length > 0 && (!needsAsset || !!assetId) && uploadState === 'form'
 
   function addFiles(fileList: FileList | null) {
     if (!fileList) return
-    const newFiles: PendingFile[] = Array.from(fileList).map(f => ({
-      file: f,
-      status: 'pending',
-      transactionCount: null,
-      needsReview: null,
-      error: null,
-    }))
-    setPendingFiles(prev => [...prev, ...newFiles])
+    setPendingFiles(prev => [
+      ...prev,
+      ...Array.from(fileList).map(f => ({
+        file: f, status: 'pending' as const,
+        transactionCount: null, needsReview: null, error: null,
+      })),
+    ])
   }
 
-  function removeFile(idx: number) {
-    setPendingFiles(prev => prev.filter((_, i) => i !== idx))
+  async function pollStatus(jobId: string) {
+    const MAX_POLLS = 40  // 40 × 3s = 2 min max
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await new Promise(r => setTimeout(r, 3000))
+      try {
+        const s = await getProcessingStatus(jobId)
+        setProcessingStatus(s)
+        if (s.status === 'done' || s.status === 'failed') return
+      } catch {
+        // transient network error — keep polling
+      }
+    }
+    setUploadState('timeout')
   }
 
   async function handleUploadAll() {
     if (!canUpload) return
-    setIsUploading(true)
+    setUploadState('uploading')
+    let lastJobId: string | null = null
 
     for (let i = 0; i < pendingFiles.length; i++) {
       const isLast = i === pendingFiles.length - 1
-      const currentFile = pendingFiles[i]  // capture before any async re-render
-      console.log(`[UPLOAD LOOP] file ${i + 1}/${pendingFiles.length}: ${currentFile.file.name} isLast=${isLast}`)
+      const currentFile = pendingFiles[i]
       setPendingFiles(prev => prev.map((f, j) => j === i ? { ...f, status: 'uploading' } : f))
       try {
         const res = await uploadConnectorFile(
-          connector.id,
-          currentFile.file,
+          connector.id, currentFile.file,
           needsAsset ? assetId : undefined,
-          isLast,  // run_processors only on last file
+          isLast,
         )
-        // Extract counts from either raw or bank response shape
         const raw = res as Record<string, unknown>
         const txCount = (raw.raw_created ?? raw.created ?? null) as number | null
-        const review  = (raw.budget_needs_review ?? null) as number | null
-        console.log(`[UPLOAD LOOP] file ${i + 1} done: raw_created=${txCount} budget_needs_review=${review}`)
+        if (isLast && raw.job_id) lastJobId = raw.job_id as string
         setPendingFiles(prev => prev.map((f, j) =>
-          j === i ? { ...f, status: 'done', transactionCount: txCount, needsReview: review } : f,
+          j === i ? { ...f, status: 'done', transactionCount: txCount, needsReview: null } : f,
         ))
       } catch (e: unknown) {
         const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(e)
-        console.error(`[UPLOAD LOOP] file ${i + 1} FAILED:`, msg)
-        // Mark as error but always continue to next file — 0 created is not a failure
         setPendingFiles(prev => prev.map((f, j) =>
           j === i ? { ...f, status: 'error', error: typeof msg === 'string' ? msg : 'Upload failed' } : f,
         ))
       }
     }
 
-    setIsUploading(false)
-    setAllDone(true)
+    if (lastJobId) {
+      setUploadState('processing')
+      await pollStatus(lastJobId)
+      setUploadState('done')
+    } else {
+      setUploadState('done')
+    }
     onSuccess()
   }
 
-  // Summary totals for final screen
-  const totalTx      = pendingFiles.reduce((s, f) => s + (f.transactionCount ?? 0), 0)
-  const totalReview  = pendingFiles.reduce((s, f) => s + (f.needsReview ?? 0), 0)
-  const doneCount    = pendingFiles.filter(f => f.status === 'done').length
-  const errorCount   = pendingFiles.filter(f => f.status === 'error').length
-
+  const totalInserted = pendingFiles.reduce((s, f) => s + (f.transactionCount ?? 0), 0)
+  const doneCount     = pendingFiles.filter(f => f.status === 'done').length
+  const errorCount    = pendingFiles.filter(f => f.status === 'error').length
   const title = `${tc('dataSources.upload.title')} — ${connector.name}`
 
-  // File status icon
-  function StatusIcon({ f }: { f: PendingFile }) {
-    if (f.status === 'done')     return <span className="text-emerald-500 text-[14px]">✅</span>
-    if (f.status === 'error')    return <span className="text-rose-500 text-[14px]">❌</span>
+  function FileStatusIcon({ f }: { f: PendingFile }) {
+    if (f.status === 'done')     return <span className="text-[14px]">✅</span>
+    if (f.status === 'error')    return <span className="text-[14px]">❌</span>
     if (f.status === 'uploading')
-      return <svg className="animate-spin text-teal-500" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 1v2M7 11v2M1 7h2M11 7h2" strokeLinecap="round"/></svg>
+      return <svg className="animate-spin text-teal-500" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>
     return <span className="text-gray-300 text-[14px]">📄</span>
   }
 
   return (
     <Modal open onClose={onClose} title={title} width="max-w-md">
-      {allDone ? (
-        /* ── Final summary ─────────────────────────────────────────────────── */
-        <div className="space-y-4">
-          <div className="text-center py-3">
-            <div className="text-[28px] mb-2">{errorCount === 0 ? '✅' : '⚠️'}</div>
-            <div className="text-[15px] font-bold text-gray-900">
-              {tc('dataSources.upload.title')} complete
-            </div>
-          </div>
 
-          {/* Per-file results */}
+      {/* ── Processing state ────────────────────────────────────────────────── */}
+      {uploadState === 'processing' && (
+        <div className="space-y-4 py-4 text-center">
+          <div className="text-[28px]">⏳</div>
+          <div className="text-[14px] font-semibold text-gray-800">{tc('upload.classifying')}</div>
+          {processingStatus && (
+            <div className="text-[13px] text-gray-500">
+              {tc('upload.classifyingProgress', {
+                done: processingStatus.classified,
+                total: totalInserted,
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Timeout state ───────────────────────────────────────────────────── */}
+      {uploadState === 'timeout' && (
+        <div className="space-y-4 py-4 text-center">
+          <div className="text-[28px]">⏳</div>
+          <div className="text-[14px] font-semibold text-gray-800">{tc('upload.stillRunning')}</div>
+          <div className="text-[12px] text-gray-500">{tc('upload.checkLater')}</div>
+          <button type="button" onClick={onClose}
+            className="w-full px-4 py-2 text-[13px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
+            Close
+          </button>
+        </div>
+      )}
+
+      {/* ── Done state ──────────────────────────────────────────────────────── */}
+      {uploadState === 'done' && (
+        <div className="space-y-4">
+          <div className="text-center py-2">
+            <div className="text-[28px] mb-1">{errorCount === 0 ? '✅' : '⚠️'}</div>
+            <div className="text-[15px] font-bold text-gray-900">{tc('upload.uploadComplete')}</div>
+          </div>
           <div className="space-y-1.5">
             {pendingFiles.map((f, i) => (
               <div key={i} className="flex items-center gap-2 text-[12px]">
-                <StatusIcon f={f} />
-                <span dir="ltr" className="flex-1 font-mono text-gray-700 truncate">{f.file.name}</span>
-                {f.status === 'done' && f.transactionCount != null && (
-                  <span dir="ltr" className="text-emerald-600 font-medium">{f.transactionCount} imported</span>
+                <FileStatusIcon f={f} />
+                <span dir="ltr" className="flex-1 font-mono text-gray-600 truncate">{f.file.name}</span>
+                {f.status === 'done' && (
+                  <span dir="ltr" className="text-emerald-600 font-medium">
+                    {f.transactionCount ?? 0} imported
+                  </span>
                 )}
                 {f.status === 'error' && (
                   <span className="text-rose-500 truncate max-w-[120px]">{f.error}</span>
@@ -771,31 +807,27 @@ function UploadModal({
               </div>
             ))}
           </div>
-
-          {/* Totals */}
-          {doneCount > 0 && (
+          {processingStatus && (
             <div className="bg-gray-50 rounded-lg p-3 text-[12px] space-y-1">
-              <div className="flex justify-between">
-                <span className="text-gray-500">{tc('upload.filesProcessed', { count: doneCount })}</span>
+              <div className="text-gray-700">
+                {tc('upload.combinedTotal', { count: processingStatus.classified })}
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">{tc('upload.combinedTotal', { count: totalTx })}</span>
-              </div>
-              {totalReview > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-amber-600">{tc('dataSources.upload.success.needsReview')}: {totalReview}</span>
+              {processingStatus.needs_review > 0 && (
+                <div className="text-amber-600">
+                  {tc('dataSources.upload.success.needsReview')}: {processingStatus.needs_review}
                 </div>
               )}
             </div>
           )}
-
           <button type="button" onClick={onClose}
             className="w-full px-4 py-2 text-[13px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
             Close
           </button>
         </div>
-      ) : (
-        /* ── Upload form ───────────────────────────────────────────────────── */
+      )}
+
+      {/* ── Form + uploading states ─────────────────────────────────────────── */}
+      {(uploadState === 'form' || uploadState === 'uploading') && (
         <div className="space-y-4">
           <p className="text-[12px] text-gray-500">
             {tc('dataSources.upload.accepts')}:{' '}
@@ -813,24 +845,23 @@ function UploadModal({
             </div>
           )}
 
-          {/* File list */}
           {pendingFiles.length > 0 && (
             <div className="space-y-1.5">
               {pendingFiles.map((f, i) => (
                 <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-[12px]">
-                  <StatusIcon f={f} />
+                  <FileStatusIcon f={f} />
                   <span dir="ltr" className="flex-1 font-mono text-gray-700 truncate">{f.file.name}</span>
-                  {f.status === 'done' && f.transactionCount != null && (
-                    <span dir="ltr" className="text-emerald-600 font-medium whitespace-nowrap">
-                      {f.transactionCount} imported{f.needsReview ? ` · ${f.needsReview} review` : ''}
+                  {f.status === 'done' && (
+                    <span dir="ltr" className="text-emerald-600 font-medium">
+                      {f.transactionCount ?? 0} imported
                     </span>
                   )}
                   {f.status === 'uploading' && (
-                    <span className="text-gray-400 whitespace-nowrap">{tc('upload.uploading')}</span>
+                    <span className="text-gray-400">{tc('upload.uploading')}</span>
                   )}
-                  {f.status === 'pending' && !isUploading && (
-                    <button type="button" onClick={() => removeFile(i)}
-                      className="text-gray-300 hover:text-rose-400 transition-colors flex-shrink-0">
+                  {f.status === 'pending' && uploadState === 'form' && (
+                    <button type="button" onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="text-gray-300 hover:text-rose-400 flex-shrink-0">
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 1l10 10M11 1L1 11"/></svg>
                     </button>
                   )}
@@ -842,10 +873,9 @@ function UploadModal({
             </div>
           )}
 
-          {/* Drop zone / add more files */}
           <label className={clsx(
             'block border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors',
-            isUploading ? 'border-gray-100 opacity-50 pointer-events-none' : 'border-gray-200 hover:border-teal-300',
+            uploadState === 'uploading' ? 'border-gray-100 opacity-50 pointer-events-none' : 'border-gray-200 hover:border-teal-300',
           )}>
             <div className="text-[13px] text-gray-500">
               {pendingFiles.length === 0 ? tc('dataSources.upload.dragDrop') : tc('upload.addFiles')}
@@ -857,21 +887,18 @@ function UploadModal({
             </div>
           </label>
 
-          {/* Actions */}
           <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onClose} disabled={isUploading}
+            <button type="button" onClick={onClose} disabled={uploadState === 'uploading'}
               className="flex-1 px-4 py-2 text-[13px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
               Cancel
             </button>
             <button type="button" onClick={handleUploadAll} disabled={!canUpload}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-[13px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
-              {isUploading ? (
+              {uploadState === 'uploading' ? (
                 <><svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>{tc('upload.uploading')}</>
               ) : (
                 <><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M6.5 9V2M3 5l3.5-3.5L10 5"/><path d="M1 11h11"/></svg>
-                  {pendingFiles.length > 1
-                    ? tc('upload.uploadAll', { count: pendingFiles.length })
-                    : 'Upload'}</>
+                  {pendingFiles.length > 1 ? tc('upload.uploadAll', { count: pendingFiles.length }) : 'Upload'}</>
               )}
             </button>
           </div>

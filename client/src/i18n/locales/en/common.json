@@ -135,7 +135,12 @@
     "uploading": "uploading...",
     "filesProcessed": "{{count}} files processed",
     "combinedTotal": "{{count}} transactions imported",
-    "viewBudgetRules": "View in Budget Rules"
+    "viewBudgetRules": "View in Budget Rules",
+    "classifying": "Classifying transactions...",
+    "classifyingProgress": "{{done}} / {{total}} done",
+    "stillRunning": "Still running in background...",
+    "checkLater": "Check Budget Rules in a few minutes.",
+    "uploadComplete": "Upload complete"
   },
   "dataSources": {
     "title": "Data sources",

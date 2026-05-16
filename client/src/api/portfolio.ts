@@ -450,7 +450,20 @@ export type UploadResult =
       created: number
       skipped: number
       total: number
+      job_id?: string | null   // set when background processor was dispatched
     }
+
+export interface ProcessingStatus {
+  status: 'running' | 'done' | 'failed'
+  classified: number
+  needs_review: number
+  error?: string
+}
+
+export async function getProcessingStatus(jobId: string): Promise<ProcessingStatus> {
+  const { data } = await apiClient.get(`/api/v1/connectors/processing-status/${jobId}/`)
+  return data
+}
 
 export async function uploadConnectorFile(
   connectorId: string,
