@@ -1038,12 +1038,21 @@ async def upload_bank_statement(
         connector.last_error = None
         await db.commit()
 
-        # Run BudgetProcessor on the newly inserted rows (only on last file in multi-upload)
+        # Run processors (only on last file in multi-upload)
         budget_classified = 0
         budget_needs_review = 0
-        if raw_created > 0 and run_processors:
+        if run_processors:
             try:
+                from app.processors.bank_processor import BankProcessor
                 from app.processors.budget_processor import BudgetProcessor
+
+                # Step 1 — BankProcessor: raw_transactions → domain transactions
+                await BankProcessor().run(
+                    portfolio_id=portfolio_id,
+                    triggered_by="manual_upload",
+                )
+
+                # Step 2 — BudgetProcessor: raw_transactions → classification_log/budget_actuals
                 budget_run = await BudgetProcessor().run(
                     portfolio_id=portfolio_id,
                     triggered_by="manual_upload",
@@ -1071,7 +1080,7 @@ async def upload_bank_statement(
                     )
                     budget_needs_review = (await count_db.execute(nr_q)).scalar_one() or 0
             except Exception as exc:
-                _log.error("BudgetProcessor failed after Isracard upload: %s", exc)
+                _log.error("Processors failed after Isracard upload: %s", exc)
 
         _log.info(
             "Isracard upload done: raw=%d/%d budget_classified=%d needs_review=%d",
@@ -1176,13 +1185,20 @@ async def upload_bank_statement(
     # in a multi-file upload to avoid running the pipeline multiple times).
     if run_processors:
         try:
+            from app.processors.bank_processor import BankProcessor
             from app.processors.budget_processor import BudgetProcessor
+            # Step 1 — BankProcessor: raw_transactions → domain transactions
+            await BankProcessor().run(
+                portfolio_id=portfolio_id,
+                triggered_by="manual_upload",
+            )
+            # Step 2 — BudgetProcessor: raw_transactions → budget_actuals
             await BudgetProcessor().run(
                 portfolio_id=portfolio_id,
                 triggered_by="manual_upload",
             )
         except Exception as exc:
-            _log.warning("Post-upload BudgetProcessor failed: %s", exc)
+            _log.warning("Post-upload processors failed: %s", exc)
 
     return {
         "connector_type": connector.type,
