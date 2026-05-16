@@ -170,6 +170,11 @@ const BADGE_COLORS: Record<string, string> = {
   gray:   'bg-gray-100 text-gray-500',
 }
 
+// When the user picks "Manual upload" in step 2, remap to the file-upload type
+const MANUAL_UPLOAD_TYPE_MAP: Record<string, string> = {
+  isracard: 'isracard_xlsx', // isracard scraper → Excel upload
+}
+
 // Credential fields shown per connector type in the wizard
 const CREDENTIAL_FIELDS: Record<string, { key: string; label: string; sensitive: boolean }[]> = {
   ib_flex: [
@@ -395,6 +400,8 @@ function AddWizardModal({
   const typeDef = connectorTypes.find(t => t.type === selectedType)
   const isEditing = !!editTarget
   const isManualOnly = typeDef?.supports_manual_upload && !typeDef?.supports_auto_scrape
+  // True when auto scrape exists but is known-broken (a manual upload alternative exists)
+  const hasBrokenScraper = !!MANUAL_UPLOAD_TYPE_MAP[selectedType]
 
   const providers = connectorTypes.filter(t => {
     if (mode === 'investment') return t.flow_type === 'investment' && !FEED_TYPES.has(t.type)
@@ -423,10 +430,13 @@ function AddWizardModal({
   }
 
   function handleSave() {
-    const effectiveType = selectedType
+    // Remap to manual-upload type when user chose "Manual upload" in step 2
+    const finalType = connMethod === 'manual' && MANUAL_UPLOAD_TYPE_MAP[selectedType]
+      ? MANUAL_UPLOAD_TYPE_MAP[selectedType]
+      : selectedType
     const payload: Record<string, unknown> = {
       name,
-      type: effectiveType,
+      type: finalType,
       schedule: 'daily',
       is_active: true,
       config: Object.fromEntries(Object.entries(config).filter(([, v]) => v !== '')),
@@ -485,7 +495,12 @@ function AddWizardModal({
               key={t.type}
               type="button"
               disabled={isEditing}
-              onClick={() => { setSelectedType(t.type); if (!name) setName(t.display_name) }}
+              onClick={() => {
+                setSelectedType(t.type)
+                if (!name) setName(t.display_name)
+                // Pre-select manual when provider has a known-broken scraper
+                setConnMethod(MANUAL_UPLOAD_TYPE_MAP[t.type] ? 'manual' : 'auto')
+              }}
               className={clsx(
                 'text-start p-3 rounded-xl border-2 transition-colors',
                 isEditing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-teal-300',
@@ -510,26 +525,49 @@ function AddWizardModal({
       )}
       {step === 2 && mode === 'budget' && (
         <div className="space-y-3">
+          {/* Auto sync option */}
           <label className={clsx(
-            'flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors',
-            connMethod === 'auto' ? 'border-teal-500 bg-teal-50' : 'border-gray-200',
+            'flex items-start gap-3 p-3 rounded-xl border-2 transition-colors',
+            hasBrokenScraper ? 'border-gray-200 bg-gray-50 cursor-not-allowed' :
+              connMethod === 'auto' ? 'border-teal-500 bg-teal-50 cursor-pointer' : 'border-gray-200 cursor-pointer',
           )}>
-            <input type="radio" name="connMethod" value="auto" checked={connMethod === 'auto'}
-              onChange={() => setConnMethod('auto')} className="mt-0.5" />
-            <div>
-              <div className="text-[13px] font-semibold text-gray-900">{tc('dataSources.wizard.budget.step2Auto')}</div>
-              <div className="text-[12px] text-gray-500 mt-0.5">{tc('dataSources.wizard.budget.step2AutoDesc')}</div>
+            <input type="radio" name="connMethod" value="auto"
+              checked={connMethod === 'auto'}
+              disabled={hasBrokenScraper}
+              onChange={() => setConnMethod('auto')}
+              className="mt-0.5" />
+            <div className="flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={clsx('text-[13px] font-semibold', hasBrokenScraper ? 'text-gray-400' : 'text-gray-900')}>
+                  {tc('dataSources.wizard.budget.step2Auto')}
+                </span>
+                {hasBrokenScraper && (
+                  <span className="text-[11px] text-amber-600 font-medium">
+                    ⚠️ Currently unavailable (SMS 2FA required)
+                  </span>
+                )}
+              </div>
+              <div className={clsx('text-[12px] mt-0.5', hasBrokenScraper ? 'text-gray-400' : 'text-gray-500')}>
+                {tc('dataSources.wizard.budget.step2AutoDesc')}
+              </div>
             </div>
           </label>
+          {/* Manual upload option */}
           <label className={clsx(
             'flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors',
             connMethod === 'manual' ? 'border-teal-500 bg-teal-50' : 'border-gray-200',
           )}>
-            <input type="radio" name="connMethod" value="manual" checked={connMethod === 'manual'}
-              onChange={() => setConnMethod('manual')} className="mt-0.5" />
+            <input type="radio" name="connMethod" value="manual"
+              checked={connMethod === 'manual'}
+              onChange={() => setConnMethod('manual')}
+              className="mt-0.5" />
             <div>
               <div className="text-[13px] font-semibold text-gray-900">{tc('dataSources.wizard.budget.step2Manual')}</div>
-              <div className="text-[12px] text-gray-500 mt-0.5">{tc('dataSources.wizard.budget.step2ManualDesc')}</div>
+              <div className="text-[12px] text-gray-500 mt-0.5">
+                {hasBrokenScraper
+                  ? 'Upload Excel files from the Isracard website (btbisrael.co.il)'
+                  : tc('dataSources.wizard.budget.step2ManualDesc')}
+              </div>
             </div>
           </label>
         </div>
