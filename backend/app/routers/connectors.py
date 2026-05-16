@@ -1038,21 +1038,14 @@ async def upload_bank_statement(
         connector.last_error = None
         await db.commit()
 
-        # Run processors (only on last file in multi-upload)
+        # Run BudgetProcessor only (credit card — no asset linking, no bank processor needed).
+        # BudgetProcessor reads raw_transactions directly and classifies into budget_actuals.
         budget_classified = 0
         budget_needs_review = 0
         if run_processors:
             try:
-                from app.processors.bank_processor import BankProcessor
                 from app.processors.budget_processor import BudgetProcessor
 
-                # Step 1 — BankProcessor: raw_transactions → domain transactions
-                await BankProcessor().run(
-                    portfolio_id=portfolio_id,
-                    triggered_by="manual_upload",
-                )
-
-                # Step 2 — BudgetProcessor: raw_transactions → classification_log/budget_actuals
                 budget_run = await BudgetProcessor().run(
                     portfolio_id=portfolio_id,
                     triggered_by="manual_upload",

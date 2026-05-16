@@ -208,13 +208,9 @@ def _find_asset_id(description: str) -> Optional[UUID]:
 
 # ─── Processor ────────────────────────────────────────────────────────────────
 
-# Credit card sources — classification is purely amount-sign-based (no keyword rules)
-_CREDIT_CARD_SOURCES = frozenset({"isracard_xlsx", "isracard", "cal", "max", "leumi_card", "amex"})
-
-
 class BankProcessor(BaseProcessor):
     processor_name = "bank_processor"
-    sources = ["mizrachi_bank", "fibi_bank", "leumi_bank", "isracard_xlsx", "isracard"]
+    sources = ["mizrachi_bank", "fibi_bank", "leumi_bank"]
 
     async def process_batch(
         self,
@@ -239,19 +235,7 @@ class BankProcessor(BaseProcessor):
                 continue
 
             dedup_key = f"PROC-{row.external_ref_id}"
-
-            # Credit card sources: classify by amount sign only — no keyword rules
-            if row.source in _CREDIT_CARD_SOURCES:
-                tx_type = "EXPENSE" if row.amount >= 0 else "INCOME"
-                clf = {
-                    "type": tx_type,
-                    "domain": "credit_card",
-                    "economic_type": tx_type,
-                    "is_internal_transfer": False,
-                    "app_context": "budget",
-                }
-            else:
-                clf = _classify(desc, row.amount, row.extra_raw)
+            clf = _classify(desc, row.amount, row.extra_raw)
 
             # Set account_id for known sources; BUY/SELL also get asset_id
             account_id = SOURCE_ACCOUNT_MAP.get(row.source)
