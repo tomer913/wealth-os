@@ -773,48 +773,50 @@ async def _run_budget_processor_background(
     date_from,
     date_to,
 ) -> None:
-    """Background task: run BudgetProcessor after raw_transactions are committed."""
+    """Background task: classify unprocessed isracard raw_transactions.
+    Bypasses the checkpoint system entirely — queries for rows not yet in
+    classification_log and processes them in batches of 50.
+    """
     import traceback as _tb
-    from app.processors.budget_processor import BudgetProcessor
     from app.database import AsyncSessionLocal
-    from app.models.budget import ClassificationLog
-    from app.models.raw_layer import RawTransaction as _RT
-    from sqlalchemy import and_, func, select
+    from app.processors.budget_processor import BudgetProcessor
+    from sqlalchemy import text
 
-    print(f"=== BG PROC START job_id={job_id} date_range={date_from}..{date_to}", flush=True)
+    print(f"=== BG PROC START job_id={job_id}", flush=True)
     try:
-        budget_run = await BudgetProcessor().run(
-            portfolio_id=portfolio_id,
-            triggered_by="manual_upload",
-            date_from=date_from,
-            date_to=date_to,
-        )
-        classified = budget_run.rows_written or 0
-
-        # Count needs_review in this date range
-        needs_review = 0
-        if date_from and date_to:
-            async with AsyncSessionLocal() as count_db:
-                from datetime import timezone as _tz
-                nr_q = (
-                    select(func.count(ClassificationLog.id))
-                    .join(_RT, _RT.id == ClassificationLog.raw_transaction_id)
-                    .where(
-                        and_(
-                            _RT.portfolio_id == portfolio_id,
-                            _RT.source == "isracard_xlsx",
-                            ClassificationLog.needs_review == True,
-                        )
+        # Find unprocessed isracard rows (not yet in classification_log)
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                text("""
+                    SELECT id FROM raw_transactions
+                    WHERE portfolio_id = :pid
+                    AND source IN ('isracard', 'isracard_xlsx')
+                    AND id NOT IN (
+                        SELECT raw_transaction_id
+                        FROM classification_log
+                        WHERE raw_transaction_id IS NOT NULL
                     )
-                )
-                needs_review = (await count_db.execute(nr_q)).scalar_one() or 0
+                    ORDER BY id
+                    LIMIT 300
+                """),
+                {"pid": str(portfolio_id)},
+            )
+            unprocessed_ids = [str(r[0]) for r in result.fetchall()]
 
+        print(f"=== BG PROC isracard unprocessed={len(unprocessed_ids)}", flush=True)
+
+        if not unprocessed_ids:
+            print("=== BG PROC nothing to do", flush=True)
+            _processing_status[job_id] = {"status": "done", "classified": 0, "needs_review": 0}
+            return
+
+        proc_result = await BudgetProcessor().run_for_ids(unprocessed_ids, portfolio_id)
+        print(f"=== BG PROC done classified={proc_result['rows_written']} needs_review={proc_result['needs_review']}", flush=True)
         _processing_status[job_id] = {
             "status": "done",
-            "classified": classified,
-            "needs_review": needs_review,
+            "classified": proc_result["rows_written"],
+            "needs_review": proc_result["needs_review"],
         }
-        print(f"=== BG PROC DONE job_id={job_id} classified={classified} needs_review={needs_review}", flush=True)
 
     except Exception as exc:
         _processing_status[job_id] = {"status": "failed", "error": str(exc)}

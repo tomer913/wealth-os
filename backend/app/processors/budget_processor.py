@@ -380,3 +380,55 @@ class BudgetProcessor(BaseProcessor):
             ai_classified=ai_count,
             rules_suggested=rules_suggested,
         )
+
+    async def run_for_ids(self, raw_ids: list, portfolio_id) -> dict:
+        """
+        Process a specific list of raw_transaction IDs, bypassing the checkpoint.
+        Fetches the rows, calls process_batch() in batches of 50, commits after each.
+        Returns {'rows_written': N, 'needs_review': N}.
+        """
+        from uuid import UUID as _UUID
+        from app.database import AsyncSessionLocal
+        from app.models.raw_layer import RawTransaction
+        from app.models.budget import ClassificationLog
+        from sqlalchemy import and_, func, select as sa_select
+
+        print(f"=== BUDGET run_for_ids count={len(raw_ids)}", flush=True)
+        total_written = 0
+        BATCH = 50
+
+        async with AsyncSessionLocal() as db:
+            for i in range(0, len(raw_ids), BATCH):
+                batch_ids = raw_ids[i:i + BATCH]
+                print(f"=== BUDGET batch {i // BATCH + 1}: fetching {len(batch_ids)} rows", flush=True)
+
+                uuid_ids = [_UUID(rid) for rid in batch_ids]
+                rows = (await db.execute(
+                    sa_select(RawTransaction).where(RawTransaction.id.in_(uuid_ids))
+                    .order_by(RawTransaction.id)
+                )).scalars().all()
+
+                if not rows:
+                    continue
+
+                result = await self.process_batch(rows, db, _UUID(str(portfolio_id)))
+                total_written += result.rows_written
+                await db.commit()
+                print(f"=== BUDGET batch done written={result.rows_written}", flush=True)
+
+            # Count needs_review for this portfolio's isracard rows
+            nr_q = (
+                sa_select(func.count(ClassificationLog.id))
+                .join(RawTransaction, RawTransaction.id == ClassificationLog.raw_transaction_id)
+                .where(
+                    and_(
+                        RawTransaction.portfolio_id == _UUID(str(portfolio_id)),
+                        RawTransaction.source.in_(["isracard", "isracard_xlsx"]),
+                        ClassificationLog.needs_review == True,
+                    )
+                )
+            )
+            needs_review = (await db.execute(nr_q)).scalar_one() or 0
+
+        print(f"=== BUDGET run_for_ids complete written={total_written} needs_review={needs_review}", flush=True)
+        return {"rows_written": total_written, "needs_review": needs_review}
