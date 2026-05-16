@@ -694,11 +694,13 @@ function UploadModal({
 
     for (let i = 0; i < pendingFiles.length; i++) {
       const isLast = i === pendingFiles.length - 1
+      const currentFile = pendingFiles[i]  // capture before any async re-render
+      console.log(`[UPLOAD LOOP] file ${i + 1}/${pendingFiles.length}: ${currentFile.file.name} isLast=${isLast}`)
       setPendingFiles(prev => prev.map((f, j) => j === i ? { ...f, status: 'uploading' } : f))
       try {
         const res = await uploadConnectorFile(
           connector.id,
-          pendingFiles[i].file,
+          currentFile.file,
           needsAsset ? assetId : undefined,
           isLast,  // run_processors only on last file
         )
@@ -706,11 +708,14 @@ function UploadModal({
         const raw = res as Record<string, unknown>
         const txCount = (raw.raw_created ?? raw.created ?? null) as number | null
         const review  = (raw.budget_needs_review ?? null) as number | null
+        console.log(`[UPLOAD LOOP] file ${i + 1} done: raw_created=${txCount} budget_needs_review=${review}`)
         setPendingFiles(prev => prev.map((f, j) =>
           j === i ? { ...f, status: 'done', transactionCount: txCount, needsReview: review } : f,
         ))
       } catch (e: unknown) {
         const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(e)
+        console.error(`[UPLOAD LOOP] file ${i + 1} FAILED:`, msg)
+        // Mark as error but always continue to next file — 0 created is not a failure
         setPendingFiles(prev => prev.map((f, j) =>
           j === i ? { ...f, status: 'error', error: typeof msg === 'string' ? msg : 'Upload failed' } : f,
         ))

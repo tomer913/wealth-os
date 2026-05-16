@@ -980,6 +980,22 @@ async def upload_bank_statement(
         from app.utils.uuid7 import uuid7
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+        # Compute the date range from ALL parsed rows (including duplicates).
+        # Used to run BudgetProcessor in date-range mode, bypassing the checkpoint.
+        file_min_date = None
+        file_max_date = None
+        if parsed_rows:
+            _row_dates = []
+            for _r in parsed_rows:
+                _d = _r["raw_date"]
+                _row_dates.append(_d.date() if hasattr(_d, "date") else _d)
+            file_min_date = min(_row_dates)
+            file_max_date = max(_row_dates)
+
+        print(f"=== UPLOAD PARSER: {len(parsed_rows)} rows parsed, date_range={file_min_date}..{file_max_date}", flush=True)
+        if parsed_rows:
+            print(f"=== UPLOAD PARSER sample row: {parsed_rows[0]}", flush=True)
+
         raw_created = 0
         raw_skipped = 0
         min_date = None
@@ -1048,11 +1064,14 @@ async def upload_bank_statement(
             try:
                 from app.processors.budget_processor import BudgetProcessor
 
-                print("=== UPLOAD About to run BudgetProcessor", flush=True)
-                # .run() returns a ProcessorRun ORM object — use .rows_written (not .ai_classified)
+                print(f"=== UPLOAD About to run BudgetProcessor date_range={file_min_date}..{file_max_date}", flush=True)
+                # Pass date_from/date_to to bypass the checkpoint — processes all raw_transactions
+                # in the uploaded file's date range regardless of when the processor last ran.
                 budget_run = await BudgetProcessor().run(
                     portfolio_id=portfolio_id,
                     triggered_by="manual_upload",
+                    date_from=file_min_date,
+                    date_to=file_max_date,
                 )
                 print(f"=== UPLOAD BudgetProcessor done: status={budget_run.status} rows_written={budget_run.rows_written} rows_skipped={budget_run.rows_skipped}", flush=True)
                 budget_classified = budget_run.rows_written or 0
