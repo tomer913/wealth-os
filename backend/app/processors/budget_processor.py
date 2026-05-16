@@ -172,25 +172,24 @@ class BudgetProcessor(BaseProcessor):
 
         # ── Phase 2: batch AI classify all unmatched rows ──────────────────────
         unmatched = [s for s in row_states if s["method"] == "unclassified"]
+        print(f"=== BUDGET phase1 done: rule_matched={rule_count} unmatched={len(unmatched)} skipped={skipped}", flush=True)
 
         if unmatched:
             if os.environ.get("ANTHROPIC_API_KEY"):
-                log.info(
-                    "Calling AI classifier for %d unmatched transactions (%d batches of %d)...",
-                    len(unmatched),
-                    (len(unmatched) + AI_BATCH_SIZE - 1) // AI_BATCH_SIZE,
-                    AI_BATCH_SIZE,
-                )
+                print(f"=== BUDGET phase2 AI: {len(unmatched)} rows in {(len(unmatched) + AI_BATCH_SIZE - 1) // AI_BATCH_SIZE} batches", flush=True)
                 from app.processors.ai_classifier import AIClassifier
                 classifier = AIClassifier()
 
                 for batch_start in range(0, len(unmatched), AI_BATCH_SIZE):
                     chunk = unmatched[batch_start:batch_start + AI_BATCH_SIZE]
                     tx_dicts = [s["tx_dict"] for s in chunk]
+                    print(f"=== BUDGET AI batch offset={batch_start} size={len(chunk)}", flush=True)
 
                     try:
                         ai_results = await classifier.classify_batch(tx_dicts, categories)
+                        print(f"=== BUDGET AI batch offset={batch_start} done results={len(ai_results)}", flush=True)
                     except Exception as e:
+                        print(f"=== BUDGET AI batch offset={batch_start} FAILED: {e}", flush=True)
                         log.warning(
                             "AI batch failed (offset %d): %s", batch_start, e, exc_info=True
                         )
@@ -226,7 +225,10 @@ class BudgetProcessor(BaseProcessor):
                     # Rate-limit buffer between batches (not after the last one)
                     if batch_start + AI_BATCH_SIZE < len(unmatched):
                         await asyncio.sleep(1)
+
+                print(f"=== BUDGET phase2 AI done: ai_classified={ai_count} review_queue={review_count}", flush=True)
             else:
+                print(f"=== BUDGET phase2: no ANTHROPIC_API_KEY — {len(unmatched)} rows → review queue", flush=True)
                 log.warning(
                     "AI classifier skipped — ANTHROPIC_API_KEY not set; "
                     "%d transactions sent to review queue",
@@ -235,6 +237,7 @@ class BudgetProcessor(BaseProcessor):
                 review_count += len(unmatched)
 
         # ── Phase 3: write classification_log + budget_actuals ─────────────────
+        print(f"=== BUDGET phase3 DB writes: {len(row_states)} states to write", flush=True)
         for state in row_states:
             try:
                 row = state["row"]
