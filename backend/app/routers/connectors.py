@@ -825,6 +825,7 @@ async def upload_bank_statement(
                    "Select the linked asset in the upload form.",
         )
 
+    print(f"=== UPLOAD HIT === connector_id={connector_id} type={connector.type} filename={filename} run_processors={run_processors}", flush=True)
     _log.info(
         "upload: connector_id=%s type=%s filename=%s asset_id=%s",
         connector_id, connector.type, filename, resolved_asset_id,
@@ -1042,19 +1043,17 @@ async def upload_bank_statement(
         # BudgetProcessor reads raw_transactions directly and classifies into budget_actuals.
         budget_classified = 0
         budget_needs_review = 0
-        _log.info("[UPLOAD DEBUG] connector.type=%s run_processors=%s raw_created=%d raw_skipped=%d",
-                  connector.type, run_processors, raw_created, raw_skipped)
+        print(f"=== UPLOAD DEBUG === type={connector.type} run_processors={run_processors} raw_created={raw_created} raw_skipped={raw_skipped}", flush=True)
         if run_processors:
             try:
                 from app.processors.budget_processor import BudgetProcessor
 
-                _log.info("[UPLOAD DEBUG] About to run BudgetProcessor for portfolio=%s", portfolio_id)
+                print(f"=== UPLOAD DEBUG === About to run BudgetProcessor portfolio={portfolio_id}", flush=True)
                 budget_run = await BudgetProcessor().run(
                     portfolio_id=portfolio_id,
                     triggered_by="manual_upload",
                 )
-                _log.info("[UPLOAD DEBUG] BudgetProcessor done: rows_written=%s rows_skipped=%s ai_classified=%s",
-                          budget_run.rows_written, budget_run.rows_skipped, budget_run.ai_classified)
+                print(f"=== UPLOAD DEBUG === BudgetProcessor done rows_written={budget_run.rows_written} rows_skipped={budget_run.rows_skipped} ai_classified={budget_run.ai_classified}", flush=True)
                 budget_classified = budget_run.rows_written or 0
 
                 # Count needs_review from classification_log for today
@@ -1078,7 +1077,9 @@ async def upload_bank_statement(
                     )
                     budget_needs_review = (await count_db.execute(nr_q)).scalar_one() or 0
             except Exception as exc:
-                _log.error("[UPLOAD DEBUG] BudgetProcessor FAILED: %s", exc, exc_info=True)
+                import traceback
+                print(f"=== UPLOAD DEBUG === BudgetProcessor FAILED: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
 
         _log.info(
             "Isracard upload done: raw=%d/%d budget_classified=%d needs_review=%d",
