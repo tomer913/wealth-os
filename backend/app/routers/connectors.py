@@ -1042,14 +1042,19 @@ async def upload_bank_statement(
         # BudgetProcessor reads raw_transactions directly and classifies into budget_actuals.
         budget_classified = 0
         budget_needs_review = 0
+        _log.info("[UPLOAD DEBUG] connector.type=%s run_processors=%s raw_created=%d raw_skipped=%d",
+                  connector.type, run_processors, raw_created, raw_skipped)
         if run_processors:
             try:
                 from app.processors.budget_processor import BudgetProcessor
 
+                _log.info("[UPLOAD DEBUG] About to run BudgetProcessor for portfolio=%s", portfolio_id)
                 budget_run = await BudgetProcessor().run(
                     portfolio_id=portfolio_id,
                     triggered_by="manual_upload",
                 )
+                _log.info("[UPLOAD DEBUG] BudgetProcessor done: rows_written=%s rows_skipped=%s ai_classified=%s",
+                          budget_run.rows_written, budget_run.rows_skipped, budget_run.ai_classified)
                 budget_classified = budget_run.rows_written or 0
 
                 # Count needs_review from classification_log for today
@@ -1073,7 +1078,7 @@ async def upload_bank_statement(
                     )
                     budget_needs_review = (await count_db.execute(nr_q)).scalar_one() or 0
             except Exception as exc:
-                _log.error("Processors failed after Isracard upload: %s", exc)
+                _log.error("[UPLOAD DEBUG] BudgetProcessor FAILED: %s", exc, exc_info=True)
 
         _log.info(
             "Isracard upload done: raw=%d/%d budget_classified=%d needs_review=%d",
