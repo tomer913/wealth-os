@@ -122,6 +122,12 @@
   "optional_notes": "Optional notes…",
   "none": "— None —",
   "cannot_be_undone": "This cannot be undone.",
+  "budget": {
+    "abovePlan": "above plan",
+    "belowPlan": "below plan",
+    "overBudget": "over budget",
+    "underBudget": "under budget"
+  },
   "dataSources": {
     "title": "Data sources",
     "activeSources": "Active sources",

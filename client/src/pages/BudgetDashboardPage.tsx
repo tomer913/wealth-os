@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { getBudgetSummary, getBudgetReviewQueue } from '../api/portfolio'
 import { useAppStore } from '../store'
 import type { BudgetSummaryRow } from '../types'
+import { BudgetActualPanel } from '../components/budget/BudgetActualPanel'
 import clsx from 'clsx'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
@@ -31,6 +33,10 @@ export default function BudgetDashboardPage() {
   const { activeBudgetYear, activeBudgetMonth, budgetViewMode, setActiveBudgetYear, setActiveBudgetMonth, setBudgetViewMode } = useAppStore()
 
   const isMonthly = budgetViewMode === 'monthly'
+
+  // Drill-down panel state
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [selectedRow, setSelectedRow] = useState<BudgetSummaryRow | null>(null)
   const { data: summary = [], isLoading } = useQuery({
     queryKey: ['budget-summary', activeBudgetYear, isMonthly ? activeBudgetMonth : null],
     queryFn: () => getBudgetSummary(activeBudgetYear, isMonthly ? activeBudgetMonth : undefined),
@@ -193,8 +199,31 @@ export default function BudgetDashboardPage() {
                     const actualAmt = Number(row.actual_amount)
                     const pct = planAmt > 0 ? Math.min(actualAmt / planAmt, 1) : 0
                     const over = planAmt > 0 && actualAmt > planAmt
+                    const isIncome = row.category_type === 'income'
+                    // Income: over plan = blue (good), under plan = amber (bad)
+                    // Expense/other: over = red (bad), under = green (good)
+                    const varianceColor = isIncome
+                      ? (over ? 'text-blue-500' : 'text-amber-500')
+                      : (over ? 'text-red-500' : 'text-emerald-600')
+                    const barColor = isIncome
+                      ? (over ? '#3b82f6' : '#f59e0b')
+                      : (over ? '#f87171' : '#2dd4bf')
+                    const varianceSign = isIncome ? (over ? '+' : '-') : (over ? '-' : '+')
+                    const canDrillDown = isMonthly && !!row.actual_id
                     return (
-                      <tr key={row.category_id} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer" onClick={() => navigate(`/transactions?economic_type=${row.category_type.toUpperCase()}`)}>
+                      <tr
+                        key={row.category_id}
+                        className={clsx(
+                          'border-b border-gray-50 hover:bg-gray-50/50 transition-colors',
+                          canDrillDown ? 'cursor-pointer' : 'cursor-default',
+                        )}
+                        onClick={() => {
+                          if (canDrillDown) {
+                            setSelectedRow(row)
+                            setPanelOpen(true)
+                          }
+                        }}
+                      >
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-2">
                             <span className={clsx(
@@ -205,20 +234,25 @@ export default function BudgetDashboardPage() {
                             )} />
                             <span className="text-gray-800 font-medium">{row.category_name}</span>
                             {row.has_override && <span className="text-[9px] text-orange-400">✱</span>}
+                            {canDrillDown && (
+                              <svg className="text-gray-300 ms-auto" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 2L7 5l-3 3"/></svg>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-2.5 text-gray-600" dir="ltr">{fmtILS(planAmt || null)}</td>
                         <td className="px-4 py-2.5 text-gray-800 font-medium" dir="ltr">{fmtILS(actualAmt)}</td>
-                        <td className={clsx('px-4 py-2.5 font-medium', over ? 'text-red-500' : 'text-emerald-600')} dir="ltr">
-                          {row.variance != null ? (over ? '-' : '+') + fmtILS(Math.abs(Number(row.variance))) : '–'}
+                        <td className={clsx('px-4 py-2.5 font-medium', varianceColor)} dir="ltr">
+                          {row.variance != null
+                            ? varianceSign + fmtILS(Math.abs(Number(row.variance)))
+                            : '–'}
                         </td>
                         <td className="px-4 py-2.5">
                           {planAmt > 0 ? (
                             <div className="flex items-center gap-1.5">
                               <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                 <div
-                                  className={clsx('h-full rounded-full', over ? 'bg-red-400' : 'bg-teal-400')}
-                                  style={{ width: `${pct * 100}%` }}
+                                  className="h-full rounded-full"
+                                  style={{ width: `${pct * 100}%`, backgroundColor: barColor }}
                                 />
                               </div>
                               <span className="text-[10px] text-gray-400 w-8">{fmtPct(pct)}</span>
@@ -241,6 +275,19 @@ export default function BudgetDashboardPage() {
           <Link to="/budget/manage" className="text-teal-600 text-[13px] underline">{t('dashboard.go_manage')}</Link>
         </div>
       )}
+
+      {/* Drill-down panel */}
+      <BudgetActualPanel
+        isOpen={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        actualId={selectedRow?.actual_id ?? null}
+        categoryName={selectedRow?.category_name ?? ''}
+        month={activeBudgetMonth}
+        year={activeBudgetYear}
+        actual={Number(selectedRow?.actual_amount ?? 0)}
+        planned={selectedRow?.plan_amount != null ? Number(selectedRow.plan_amount) : null}
+        categoryType={selectedRow?.category_type ?? 'expense'}
+      />
     </div>
   )
 }

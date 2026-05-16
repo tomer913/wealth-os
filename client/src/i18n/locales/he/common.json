@@ -122,6 +122,12 @@
   "optional_notes": "הערות אופציונליות…",
   "none": "— ללא —",
   "cannot_be_undone": "פעולה זו אינה הפיכה.",
+  "budget": {
+    "abovePlan": "מעל תכנון",
+    "belowPlan": "מתחת לתכנון",
+    "overBudget": "חריגה",
+    "underBudget": "בתוך תקציב"
+  },
   "dataSources": {
     "title": "מקורות נתונים",
     "activeSources": "מקורות פעילים",

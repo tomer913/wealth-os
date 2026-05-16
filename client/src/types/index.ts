@@ -261,6 +261,17 @@ export interface BudgetSummaryRow {
   variance_pct: number | null
   transaction_count: number
   has_override: boolean
+  actual_id: string | null   // null in annual view; used for drill-down panel
+}
+
+export interface BudgetActualTransaction {
+  id: string
+  date: string | null          // ISO date "2026-04-03"
+  amount: number
+  description: string
+  source: string
+  needs_review: boolean
+  reviewed: boolean
 }
 
 export interface BudgetRule {

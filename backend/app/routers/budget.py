@@ -464,7 +464,11 @@ async def get_summary(
             cid: (float(a.actual_amount), a.transaction_count)
             for cid, a in monthly_actuals.items()
         }
+        actual_id_map: dict = {
+            cid: str(a.id) for cid, a in monthly_actuals.items()
+        }
     else:
+        actual_id_map: dict = {}  # no single actual_id in annual mode
         # Annual mode: aggregate all months for this year
         agg_q = select(
             BudgetActual.category_id,
@@ -537,11 +541,98 @@ async def get_summary(
             "variance_pct": variance_pct,
             "transaction_count": tx_count,
             "has_override": has_override,
+            "actual_id": actual_id_map.get(cat_id),  # None in annual mode
         })
 
     type_order = {"income": 0, "expense": 1, "saving": 2, "investment": 3}
     rows.sort(key=lambda r: (type_order.get(r["category_type"], 9), r["category_name"]))
     return rows
+
+
+@router.get("/actuals/{actual_id}/transactions/")
+async def get_budget_actual_transactions(
+    actual_id: UUID,
+    portfolio_id: UUID = Depends(_verified_pid),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns all raw transactions that contributed to a budget actual entry,
+    with review status from the latest ClassificationLog entry per transaction.
+    Only accessible when the actual belongs to the requesting portfolio.
+    """
+    # Verify the actual belongs to this portfolio
+    actual = await db.get(BudgetActual, actual_id)
+    if not actual or actual.portfolio_id != portfolio_id:
+        raise HTTPException(status_code=404, detail="Budget actual not found")
+
+    # Fetch raw transactions via junction table
+    from sqlalchemy import outerjoin
+
+    # Latest classification log per raw_transaction: DISTINCT ON (raw_transaction_id)
+    latest_cls_sq = (
+        select(
+            ClassificationLog.raw_transaction_id,
+            ClassificationLog.needs_review,
+            ClassificationLog.reviewed_at,
+        )
+        .where(
+            ClassificationLog.raw_transaction_id.in_(
+                select(BudgetActualTransaction.raw_transaction_id).where(
+                    BudgetActualTransaction.budget_actual_id == actual_id
+                )
+            )
+        )
+        .order_by(
+            ClassificationLog.raw_transaction_id,
+            ClassificationLog.processed_at.desc().nullslast(),
+        )
+        .distinct(ClassificationLog.raw_transaction_id)
+        .subquery()
+    )
+
+    q = (
+        select(
+            RawTransaction.id,
+            RawTransaction.raw_date,
+            RawTransaction.amount,
+            RawTransaction.description,
+            RawTransaction.source,
+            latest_cls_sq.c.needs_review,
+            latest_cls_sq.c.reviewed_at,
+        )
+        .join(
+            BudgetActualTransaction,
+            BudgetActualTransaction.raw_transaction_id == RawTransaction.id,
+        )
+        .outerjoin(
+            latest_cls_sq,
+            latest_cls_sq.c.raw_transaction_id == RawTransaction.id,
+        )
+        .where(
+            BudgetActualTransaction.budget_actual_id == actual_id,
+            RawTransaction.portfolio_id == portfolio_id,
+        )
+        .order_by(RawTransaction.raw_date.desc())
+    )
+
+    rows = (await db.execute(q)).all()
+    transactions = [
+        {
+            "id": str(r.id),
+            "date": r.raw_date.date().isoformat() if r.raw_date else None,
+            "amount": float(r.amount),
+            "description": r.description,
+            "source": r.source,
+            "needs_review": bool(r.needs_review) if r.needs_review is not None else False,
+            "reviewed": r.reviewed_at is not None,
+        }
+        for r in rows
+    ]
+    return {
+        "transactions": transactions,
+        "total": sum(abs(t["amount"]) for t in transactions),
+        "count": len(transactions),
+    }
 
 
 # ── Rules ──────────────────────────────────────────────────────────────────────

@@ -301,6 +301,18 @@ export async function getBudgetSummary(year: number, month?: number) {
   return Array.isArray(data) ? data : []
 }
 
+export async function getBudgetActualTransactions(actualId: string): Promise<{
+  transactions: import('../types').BudgetActualTransaction[]
+  total: number
+  count: number
+}> {
+  const { data } = await apiClient.get(
+    `/api/v1/budget/actuals/${actualId}/transactions/`,
+    { params: { portfolio_id: pid() } },
+  )
+  return data
+}
+
 export async function getBudgetPlans(year?: number) {
   const { data } = await apiClient.get('/api/v1/budget/plans/', {
     params: { portfolio_id: pid(), ...(year ? { year } : {}) },
