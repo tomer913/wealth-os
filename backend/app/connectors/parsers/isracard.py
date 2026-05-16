@@ -4,9 +4,10 @@ Isracard — monthly XLSX statement parser.
 File exported from Isracard online banking (פירוט עסקאות).
 
 Sheet layout (0-indexed rows):
-  Rows 0-9:   metadata headers — skip
-  Row  10:    column headers — skip
-  Rows 11+:   transaction data (stop at first non-date row)
+  Rows 0-N:   metadata headers — number varies by month (extra EUR summary row
+              pushes everything down one row in some statements)
+  Row  N+1:   column headers row — identified by 'תאריך רכישה' in column 0
+  Rows N+2+:  transaction data (stop at first non-date row)
 
 Columns (0-indexed):
   0  תאריך רכישה   Purchase date (DD.MM.YY)
@@ -72,9 +73,27 @@ def parse_isracard_xlsx(file_bytes: bytes, card_last4: str = '') -> List[Dict[st
     except Exception as exc:
         raise ValueError(f"Cannot read Isracard XLSX: {exc}") from exc
 
+    # Detect header row dynamically — find 'תאריך רכישה' in column 0.
+    # The exact position shifts when the file contains an extra currency summary row.
+    header_row = None
+    for idx in range(len(df)):
+        cell = str(df.iloc[idx, 0]).strip()
+        if 'תאריך רכישה' in cell:
+            header_row = idx
+            break
+
+    if header_row is None:
+        raise ValueError(
+            "Could not find header row with 'תאריך רכישה' in Isracard file. "
+            "Check that the sheet name is 'פירוט עסקאות' and the file is a valid export."
+        )
+
+    data_start = header_row + 1
+    print(f"=== ISRACARD header_row={header_row} data_start={data_start}", flush=True)
+
     rows: List[Dict[str, Any]] = []
 
-    for i in range(11, len(df)):
+    for i in range(data_start, len(df)):
         raw_date_val = df.iloc[i, 0]
 
         # Stop at first non-date row (totals / legal text)
