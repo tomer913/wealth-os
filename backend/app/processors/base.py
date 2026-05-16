@@ -83,6 +83,8 @@ class BaseProcessor(ABC):
         if is_date_range:
             triggered_by = "date_range_rerun"
 
+        print(f"=== PROC START {self.processor_name} portfolio={portfolio_id} date_range={date_from}..{date_to} is_date_range={is_date_range}", flush=True)
+
         async with AsyncSessionLocal() as db:
             # Load checkpoint (ignored in date-range mode)
             checkpoint = await db.get(
@@ -93,6 +95,7 @@ class BaseProcessor(ABC):
                 None if is_date_range
                 else (checkpoint.last_raw_id if checkpoint else None)
             )
+            print(f"=== PROC {self.processor_name} checkpoint_from={checkpoint_from} sources={self.sources}", flush=True)
 
             # Use pre-created record if run_id was provided, else create fresh
             proc_run = await db.get(ProcessorRun, actual_run_id) if run_id else None
@@ -143,10 +146,12 @@ class BaseProcessor(ABC):
                         q = q.where(RawTransaction.id > last_id)
 
                     rows = (await db.execute(q)).scalars().all()
+                    print(f"=== PROC {self.processor_name} batch: found {len(rows)} rows last_id={last_id}", flush=True)
                     if not rows:
                         break
 
                     result = await self.process_batch(rows, db, portfolio_id)
+                    print(f"=== PROC {self.processor_name} batch done: written={result.rows_written} skipped={result.rows_skipped}", flush=True)
                     total_read += len(rows)
                     total_written += result.rows_written
                     total_skipped += result.rows_skipped
@@ -191,6 +196,9 @@ class BaseProcessor(ABC):
                 )
 
             except Exception as e:
+                import traceback as _tb
+                print(f"=== PROC {self.processor_name} EXCEPTION: {e}", flush=True)
+                _tb.print_exc()
                 await db.rollback()
                 async with AsyncSessionLocal() as err_db:
                     proc_run = await err_db.get(ProcessorRun, actual_run_id)
@@ -210,6 +218,7 @@ class BaseProcessor(ABC):
                 log.error("%s failed for portfolio %s: %s", self.processor_name, portfolio_id, e)
                 raise
 
+        print(f"=== PROC {self.processor_name} COMPLETE total_read={total_read} total_written={total_written}", flush=True)
         return proc_run
 
     async def reset_checkpoint(self, portfolio_id: UUID) -> None:
