@@ -768,6 +768,7 @@ async def upload_bank_statement(
     file: UploadFile = File(...),
     connector_id: UUID = Form(...),
     asset_id: Optional[str] = Form(None),  # required when requires_asset_selection_on_upload
+    run_processors: bool = Form(default=True),  # set False for all but the last file in multi-upload
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
@@ -1037,10 +1038,10 @@ async def upload_bank_statement(
         connector.last_error = None
         await db.commit()
 
-        # Run BudgetProcessor on the newly inserted rows
+        # Run BudgetProcessor on the newly inserted rows (only on last file in multi-upload)
         budget_classified = 0
         budget_needs_review = 0
-        if raw_created > 0:
+        if raw_created > 0 and run_processors:
             try:
                 from app.processors.budget_processor import BudgetProcessor
                 budget_run = await BudgetProcessor().run(
@@ -1170,6 +1171,18 @@ async def upload_bank_statement(
     connector.last_run_at = finished_at
     connector.last_error = None
     await db.commit()
+
+    # Optionally skip processors (set run_processors=False for all but the last file
+    # in a multi-file upload to avoid running the pipeline multiple times).
+    if run_processors:
+        try:
+            from app.processors.budget_processor import BudgetProcessor
+            await BudgetProcessor().run(
+                portfolio_id=portfolio_id,
+                triggered_by="manual_upload",
+            )
+        except Exception as exc:
+            _log.warning("Post-upload BudgetProcessor failed: %s", exc)
 
     return {
         "connector_type": connector.type,

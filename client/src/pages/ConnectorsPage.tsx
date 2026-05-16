@@ -637,6 +637,14 @@ function AddWizardModal({
 
 // ─── UploadModal ───────────────────────────────────────────────────────────────
 
+interface PendingFile {
+  file: File
+  status: 'pending' | 'uploading' | 'done' | 'error'
+  transactionCount: number | null
+  needsReview: number | null
+  error: string | null
+}
+
 function UploadModal({
   connector, connectorTypes, onClose, onSuccess,
 }: {
@@ -650,11 +658,10 @@ function UploadModal({
   const needsAsset = typeDef?.requires_asset_selection_on_upload ?? false
   const acceptAttr = typeDef?.supported_file_types.map(e => `.${e}`).join(',') ?? '.pdf'
 
-  const [file, setFile] = useState<File | null>(null)
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [assetId, setAssetId] = useState('')
-  const [uploading, setUploading] = useState(false)
-  const [result, setResult] = useState<UploadResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [allDone, setAllDone] = useState(false)
 
   const { data: assetList } = useQuery({
     queryKey: ['assets'],
@@ -662,74 +669,128 @@ function UploadModal({
     enabled: needsAsset,
   })
   const assets = assetList?.items ?? []
-  const canUpload = !!file && (!needsAsset || !!assetId)
 
-  async function handleUpload() {
-    if (!file || !canUpload) return
-    setUploading(true)
-    setError(null)
-    try {
-      const res = await uploadConnectorFile(connector.id, file, needsAsset ? assetId : undefined)
-      setResult(res)
-      onSuccess()
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(e)
-      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
-    } finally {
-      setUploading(false)
-    }
+  const canUpload = pendingFiles.length > 0 && (!needsAsset || !!assetId) && !isUploading
+
+  function addFiles(fileList: FileList | null) {
+    if (!fileList) return
+    const newFiles: PendingFile[] = Array.from(fileList).map(f => ({
+      file: f,
+      status: 'pending',
+      transactionCount: null,
+      needsReview: null,
+      error: null,
+    }))
+    setPendingFiles(prev => [...prev, ...newFiles])
   }
+
+  function removeFile(idx: number) {
+    setPendingFiles(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  async function handleUploadAll() {
+    if (!canUpload) return
+    setIsUploading(true)
+
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const isLast = i === pendingFiles.length - 1
+      setPendingFiles(prev => prev.map((f, j) => j === i ? { ...f, status: 'uploading' } : f))
+      try {
+        const res = await uploadConnectorFile(
+          connector.id,
+          pendingFiles[i].file,
+          needsAsset ? assetId : undefined,
+          isLast,  // run_processors only on last file
+        )
+        // Extract counts from either raw or bank response shape
+        const raw = res as Record<string, unknown>
+        const txCount = (raw.raw_created ?? raw.created ?? null) as number | null
+        const review  = (raw.budget_needs_review ?? null) as number | null
+        setPendingFiles(prev => prev.map((f, j) =>
+          j === i ? { ...f, status: 'done', transactionCount: txCount, needsReview: review } : f,
+        ))
+      } catch (e: unknown) {
+        const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(e)
+        setPendingFiles(prev => prev.map((f, j) =>
+          j === i ? { ...f, status: 'error', error: typeof msg === 'string' ? msg : 'Upload failed' } : f,
+        ))
+      }
+    }
+
+    setIsUploading(false)
+    setAllDone(true)
+    onSuccess()
+  }
+
+  // Summary totals for final screen
+  const totalTx      = pendingFiles.reduce((s, f) => s + (f.transactionCount ?? 0), 0)
+  const totalReview  = pendingFiles.reduce((s, f) => s + (f.needsReview ?? 0), 0)
+  const doneCount    = pendingFiles.filter(f => f.status === 'done').length
+  const errorCount   = pendingFiles.filter(f => f.status === 'error').length
 
   const title = `${tc('dataSources.upload.title')} — ${connector.name}`
 
+  // File status icon
+  function StatusIcon({ f }: { f: PendingFile }) {
+    if (f.status === 'done')     return <span className="text-emerald-500 text-[14px]">✅</span>
+    if (f.status === 'error')    return <span className="text-rose-500 text-[14px]">❌</span>
+    if (f.status === 'uploading')
+      return <svg className="animate-spin text-teal-500" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 1v2M7 11v2M1 7h2M11 7h2" strokeLinecap="round"/></svg>
+    return <span className="text-gray-300 text-[14px]">📄</span>
+  }
+
   return (
     <Modal open onClose={onClose} title={title} width="max-w-md">
-      {result ? (
+      {allDone ? (
+        /* ── Final summary ─────────────────────────────────────────────────── */
         <div className="space-y-4">
-          <div className="text-center py-4">
-            <div className="text-[32px] mb-2">✅</div>
-            {'raw_created' in result ? (
-              <>
-                <div className="text-[16px] font-bold text-gray-900">
-                  <span dir="ltr">{(result as Record<string, unknown>).raw_created as number}</span>{' '}
-                  {tc('dataSources.upload.success.transactions')}
-                </div>
-                {'budget_classified' in result && (
-                  <div className="text-[13px] text-gray-500 mt-1">
-                    {tc('dataSources.upload.success.autoClassified')}:{' '}
-                    <span dir="ltr">{(result as Record<string, unknown>).budget_classified as number}</span>
-                    {' · '}
-                    {tc('dataSources.upload.success.needsReview')}:{' '}
-                    <span dir="ltr">{(result as Record<string, unknown>).budget_needs_review as number}</span>
-                  </div>
-                )}
-                {'date_range' in result && (result as Record<string, unknown>).date_range !== '—' && (
-                  <div className="text-[12px] text-gray-400 mt-1" dir="ltr">
-                    {(result as Record<string, unknown>).date_range as string}
-                  </div>
-                )}
-              </>
-            ) : 'report_date' in result ? (
-              <>
-                <div className="text-[14px] font-semibold text-gray-900">
-                  BTB report — <span dir="ltr">{result.report_date}</span>
-                </div>
-                <div className="text-[13px] text-gray-600 mt-1" dir="ltr">
-                  ₪{result.current_value.toLocaleString('en-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </>
-            ) : 'created' in result ? (
-              <div className="text-[16px] font-bold text-gray-900">
-                <span dir="ltr">{result.created}</span> {tc('dataSources.upload.success.transactions')}
-              </div>
-            ) : null}
+          <div className="text-center py-3">
+            <div className="text-[28px] mb-2">{errorCount === 0 ? '✅' : '⚠️'}</div>
+            <div className="text-[15px] font-bold text-gray-900">
+              {tc('dataSources.upload.title')} complete
+            </div>
           </div>
+
+          {/* Per-file results */}
+          <div className="space-y-1.5">
+            {pendingFiles.map((f, i) => (
+              <div key={i} className="flex items-center gap-2 text-[12px]">
+                <StatusIcon f={f} />
+                <span dir="ltr" className="flex-1 font-mono text-gray-700 truncate">{f.file.name}</span>
+                {f.status === 'done' && f.transactionCount != null && (
+                  <span dir="ltr" className="text-emerald-600 font-medium">{f.transactionCount} imported</span>
+                )}
+                {f.status === 'error' && (
+                  <span className="text-rose-500 truncate max-w-[120px]">{f.error}</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Totals */}
+          {doneCount > 0 && (
+            <div className="bg-gray-50 rounded-lg p-3 text-[12px] space-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-500">{tc('upload.filesProcessed', { count: doneCount })}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{tc('upload.combinedTotal', { count: totalTx })}</span>
+              </div>
+              {totalReview > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-amber-600">{tc('dataSources.upload.success.needsReview')}: {totalReview}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <button type="button" onClick={onClose}
             className="w-full px-4 py-2 text-[13px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
-            {tc('dataSources.wizard.common.cancel')}
+            Close
           </button>
         </div>
       ) : (
+        /* ── Upload form ───────────────────────────────────────────────────── */
         <div className="space-y-4">
           <p className="text-[12px] text-gray-500">
             {tc('dataSources.upload.accepts')}:{' '}
@@ -742,49 +803,70 @@ function UploadModal({
               <select value={assetId} onChange={e => setAssetId(e.target.value)}
                 className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400">
                 <option value="">— select asset —</option>
-                {assets.map(a => (
-                  <option key={a.id} value={a.id}>{a.name} ({a.symbol})</option>
-                ))}
+                {assets.map(a => <option key={a.id} value={a.id}>{a.name} ({a.symbol})</option>)}
               </select>
             </div>
           )}
 
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-teal-300 transition-colors">
-            {file ? (
-              <div className="space-y-2">
-                <div className="text-[13px] font-medium text-gray-700" dir="ltr">{file.name}</div>
-                <div className="text-[11px] text-gray-400">{(file.size / 1024).toFixed(0)} KB</div>
-                <button type="button" onClick={() => setFile(null)} className="text-[11px] text-rose-500 hover:underline">
-                  Remove
-                </button>
-              </div>
-            ) : (
-              <label className="cursor-pointer block">
-                <div className="text-[13px] text-gray-500">{tc('dataSources.upload.dragDrop')}</div>
-                <input type="file" accept={acceptAttr} className="hidden"
-                  onChange={e => setFile(e.target.files?.[0] ?? null)} />
-                <div className="mt-2 inline-flex px-3 py-1.5 text-[12px] font-medium text-teal-600 border border-teal-200 rounded-lg hover:bg-teal-50">
-                  {tc('dataSources.upload.chooseFile')}
+          {/* File list */}
+          {pendingFiles.length > 0 && (
+            <div className="space-y-1.5">
+              {pendingFiles.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-[12px]">
+                  <StatusIcon f={f} />
+                  <span dir="ltr" className="flex-1 font-mono text-gray-700 truncate">{f.file.name}</span>
+                  {f.status === 'done' && f.transactionCount != null && (
+                    <span dir="ltr" className="text-emerald-600 font-medium whitespace-nowrap">
+                      {f.transactionCount} imported{f.needsReview ? ` · ${f.needsReview} review` : ''}
+                    </span>
+                  )}
+                  {f.status === 'uploading' && (
+                    <span className="text-gray-400 whitespace-nowrap">{tc('upload.uploading')}</span>
+                  )}
+                  {f.status === 'pending' && !isUploading && (
+                    <button type="button" onClick={() => removeFile(i)}
+                      className="text-gray-300 hover:text-rose-400 transition-colors flex-shrink-0">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 1l10 10M11 1L1 11"/></svg>
+                    </button>
+                  )}
+                  {f.status === 'error' && (
+                    <span className="text-rose-500 truncate max-w-[100px]">{f.error}</span>
+                  )}
                 </div>
-              </label>
-            )}
-          </div>
-
-          {error && (
-            <div className="text-[12px] text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{error}</div>
+              ))}
+            </div>
           )}
 
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2 text-[13px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
+          {/* Drop zone / add more files */}
+          <label className={clsx(
+            'block border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors',
+            isUploading ? 'border-gray-100 opacity-50 pointer-events-none' : 'border-gray-200 hover:border-teal-300',
+          )}>
+            <div className="text-[13px] text-gray-500">
+              {pendingFiles.length === 0 ? tc('dataSources.upload.dragDrop') : tc('upload.addFiles')}
+            </div>
+            <input type="file" accept={acceptAttr} multiple className="hidden"
+              onChange={e => addFiles(e.target.files)} />
+            <div className="mt-2 inline-flex px-3 py-1.5 text-[12px] font-medium text-teal-600 border border-teal-200 rounded-lg hover:bg-teal-50">
+              {pendingFiles.length === 0 ? tc('dataSources.upload.chooseFile') : tc('upload.addFiles')}
+            </div>
+          </label>
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onClose} disabled={isUploading}
+              className="flex-1 px-4 py-2 text-[13px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
               Cancel
             </button>
-            <button type="button" onClick={handleUpload} disabled={!canUpload || uploading}
+            <button type="button" onClick={handleUploadAll} disabled={!canUpload}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-[13px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
-              {uploading ? (
-                <><svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>{tc('dataSources.upload.uploading')}</>
+              {isUploading ? (
+                <><svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>{tc('upload.uploading')}</>
               ) : (
-                <><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M6.5 9V2M3 5l3.5-3.5L10 5"/><path d="M1 11h11"/></svg>Upload</>
+                <><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M6.5 9V2M3 5l3.5-3.5L10 5"/><path d="M1 11h11"/></svg>
+                  {pendingFiles.length > 1
+                    ? tc('upload.uploadAll', { count: pendingFiles.length })
+                    : 'Upload'}</>
               )}
             </button>
           </div>
