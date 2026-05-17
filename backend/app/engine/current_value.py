@@ -135,7 +135,8 @@ def _get_latest_price_row(db: Session, asset, as_of: date):
             .order_by(AssetPriceHistory.price_date.desc())
             .first()
         )
-    except Exception:
+    except Exception as _e:
+        print(f"=== _get_latest_price_row EXCEPTION asset_id={getattr(asset,'id','?')}: {_e}", flush=True)
         return None
 
 
@@ -206,6 +207,13 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
     ph  = _get_latest_price_row(db, asset, as_of)   # full row, carries price_date
     val = get_latest_valuation(db, asset.id, as_of)
 
+    _sym = getattr(asset, 'symbol', None)
+    if _sym == 'BTC':
+        print(f"=== BTC CALC asset_id={asset.id} as_of={as_of}", flush=True)
+        print(f"=== BTC ph={ph} ph.price_date={getattr(ph,'price_date',None)} ph.price={getattr(ph,'price',None)}", flush=True)
+        print(f"=== BTC val={val} val.valuation_date={getattr(val,'valuation_date',None)} val.date={getattr(val,'date',None)} val.market_value={getattr(val,'market_value',None)}", flush=True)
+        print(f"=== BTC asset.current_price={asset.current_price} asset.extra_data={asset.extra_data}", flush=True)
+
     # Decide: manual valuation wins only if strictly newer than price history
     use_manual = False
     if val and val.market_value:
@@ -214,6 +222,9 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
         elif val.valuation_date > ph.price_date:
             use_manual = True                           # manual is fresher → use manual
         # else: price history is same date or newer → price × quantity wins
+
+    if _sym == 'BTC':
+        print(f"=== BTC use_manual={use_manual}", flush=True)
 
     if use_manual:
         value_native = val.market_value
