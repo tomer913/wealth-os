@@ -226,7 +226,11 @@ def _run_rebuild(portfolio_id: UUID, as_of_date: date, asset_id: Optional[UUID])
                     snapshot_date=as_of_date,
                     value_ils=snap.current_value_ils,
                     current_value=snap.current_value_ils,
-                    invested_capital=snap.gross_invested_capital_ils,
+                    invested_capital=(
+                        snap.net_invested_capital_ils
+                        if snap.model_used and snap.model_used.value in ("FUND", "CASH_OR_DEBT")
+                        else snap.gross_invested_capital_ils
+                    ),
                     total_return=snap.total_return_ils,
                     total_return_pct=snap.total_return_pct,
                     xirr_return_pct=snap.xirr_pct,
