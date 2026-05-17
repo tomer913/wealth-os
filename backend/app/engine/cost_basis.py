@@ -109,29 +109,35 @@ def _calc_net_invested(transactions: list) -> tuple:
     Return (gross_inflows, net_invested) for FUND / CASH_OR_DEBT assets.
 
     invested_capital = sum(inflows) - sum(outflows), floored at 0.
-    Uses economic_type first; falls back to tx.type (uppercased) when economic_type is empty.
+    Uses tx.type (uppercased) as the primary signal — economic_type can be
+    mis-set (e.g. SELL → INVESTMENT_OUTFLOW) causing sells to inflate the total.
+    Falls back to economic_type only when tx.type is unrecognised.
     """
     inflows = ZERO
     outflows = ZERO
     for tx in transactions:
-        eco = (
-            (tx.economic_type or "").upper()
-            if hasattr(tx, "economic_type")
-            else (tx.get("economic_type") or "").upper()
-        )
         tx_type = (
             (tx.type or "").upper()
             if hasattr(tx, "type")
             else (tx.get("type") or "").upper()
+        )
+        eco = (
+            (tx.economic_type or "").upper()
+            if hasattr(tx, "economic_type")
+            else (tx.get("economic_type") or "").upper()
         )
         raw = (
             tx.total_amount if hasattr(tx, "total_amount") else tx.get("total_amount")
         ) or ZERO
         amount = abs(Decimal(str(raw)))
 
-        if eco in _NET_INFLOW_TYPES or (not eco and tx_type in _TYPE_INFLOW_TYPES):
+        if tx_type in _TYPE_INFLOW_TYPES:
             inflows += amount
-        elif eco in _NET_OUTFLOW_TYPES or (not eco and tx_type in _TYPE_OUTFLOW_TYPES):
+        elif tx_type in _TYPE_OUTFLOW_TYPES:
+            outflows += amount
+        elif eco in _NET_INFLOW_TYPES:
+            inflows += amount
+        elif eco in _NET_OUTFLOW_TYPES:
             outflows += amount
     return inflows, max(inflows - outflows, ZERO)
 
