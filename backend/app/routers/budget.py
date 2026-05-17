@@ -571,6 +571,7 @@ async def get_budget_actual_transactions(
     # Latest classification log per raw_transaction: DISTINCT ON (raw_transaction_id)
     latest_cls_sq = (
         select(
+            ClassificationLog.id.label("log_id"),
             ClassificationLog.raw_transaction_id,
             ClassificationLog.needs_review,
             ClassificationLog.reviewed_at,
@@ -597,6 +598,7 @@ async def get_budget_actual_transactions(
             RawTransaction.amount,
             RawTransaction.description,
             RawTransaction.source,
+            latest_cls_sq.c.log_id,
             latest_cls_sq.c.needs_review,
             latest_cls_sq.c.reviewed_at,
         )
@@ -619,6 +621,7 @@ async def get_budget_actual_transactions(
     transactions = [
         {
             "id": str(r.id),
+            "log_id": str(r.log_id) if r.log_id else None,
             "date": r.raw_date.date().isoformat() if r.raw_date else None,
             "amount": float(r.amount),
             "description": r.description,

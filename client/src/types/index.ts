@@ -266,6 +266,7 @@ export interface BudgetSummaryRow {
 
 export interface BudgetActualTransaction {
   id: string
+  log_id: string | null        // ClassificationLog.id — used for exclude/recategorize
   date: string | null          // ISO date "2026-04-03"
   amount: number
   description: string

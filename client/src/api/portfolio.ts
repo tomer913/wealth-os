@@ -313,6 +313,25 @@ export async function getBudgetActualTransactions(actualId: string): Promise<{
   return data
 }
 
+export async function excludeBudgetTransaction(logId: string): Promise<void> {
+  await apiClient.post(
+    `/api/v1/budget/review/${logId}/categorize/`,
+    { excluded: true },
+    { params: { portfolio_id: pid() } },
+  )
+}
+
+export async function recategorizeBudgetTransaction(
+  logId: string,
+  categoryId: string,
+): Promise<void> {
+  await apiClient.post(
+    `/api/v1/budget/review/${logId}/categorize/`,
+    { category_id: categoryId },
+    { params: { portfolio_id: pid() } },
+  )
+}
+
 export async function getBudgetPlans(year?: number) {
   const { data } = await apiClient.get('/api/v1/budget/plans/', {
     params: { portfolio_id: pid(), ...(year ? { year } : {}) },

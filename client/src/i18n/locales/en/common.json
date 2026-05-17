@@ -128,6 +128,18 @@
     "overBudget": "over budget",
     "underBudget": "under budget"
   },
+  "budgetPanel": {
+    "removeTransaction": "Remove from budget",
+    "removeConfirm": "Remove this transaction from {{category}}?",
+    "changeCategory": "Change category",
+    "moveTo": "Move to {{category}}",
+    "createRule": "Create rule for similar transactions",
+    "removed": "Transaction removed",
+    "recategorized": "Category updated",
+    "confirmRemove": "Remove",
+    "confirmMove": "Move",
+    "cancel": "Cancel"
+  },
   "upload": {
     "addFiles": "Add files",
     "uploadAll": "Upload all ({{count}})",

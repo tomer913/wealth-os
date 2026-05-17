@@ -1,7 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
-import { getBudgetActualTransactions } from '../../api/portfolio'
+import {
+  getBudgetActualTransactions,
+  getBudgetCategories,
+  excludeBudgetTransaction,
+  recategorizeBudgetTransaction,
+} from '../../api/portfolio'
 import { formatILS } from '../../utils/format'
 import type { BudgetActualTransaction } from '../../types'
 
@@ -29,7 +35,7 @@ export function BudgetActualPanel({
   categoryType,
 }: BudgetActualPanelProps) {
   const { t: tc } = useTranslation('common')
-  const { t } = useTranslation('budget')
+  const qc = useQueryClient()
 
   const { data, isLoading } = useQuery({
     queryKey: ['budget-actual-transactions', actualId],
@@ -37,19 +43,39 @@ export function BudgetActualPanel({
     enabled: isOpen && !!actualId,
   })
 
+  const { data: categoriesData } = useQuery({
+    queryKey: ['budget-categories'],
+    queryFn: () => getBudgetCategories(),
+    enabled: isOpen,
+  })
+  const allCategories = categoriesData ?? []
+
+  const excludeMut = useMutation({
+    mutationFn: (logId: string) => excludeBudgetTransaction(logId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['budget-actual-transactions', actualId] })
+      qc.invalidateQueries({ queryKey: ['budget-summary'] })
+    },
+  })
+
+  const recatMut = useMutation({
+    mutationFn: ({ logId, categoryId }: { logId: string; categoryId: string }) =>
+      recategorizeBudgetTransaction(logId, categoryId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['budget-actual-transactions', actualId] })
+      qc.invalidateQueries({ queryKey: ['budget-summary'] })
+      setRecatTarget(null)
+    },
+  })
+
+  // Per-row action state
+  const [confirmExclude, setConfirmExclude] = useState<string | null>(null)  // log_id
+  const [recatTarget, setRecatTarget] = useState<{ logId: string; selectedCatId: string } | null>(null)
+
   if (!isOpen) return null
 
   const isIncome = categoryType === 'income'
   const over = planned != null && actual > planned
-
-  function amountColor(tx: BudgetActualTransaction): string {
-    if (isIncome) return 'text-emerald-600'
-    return 'text-gray-800'
-  }
-
-  function amountSign(tx: BudgetActualTransaction): string {
-    return isIncome ? '+' : '-'
-  }
 
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return '—'
@@ -88,7 +114,8 @@ export function BudgetActualPanel({
           <div className="flex items-center gap-3">
             <div>
               <span className="text-gray-500">ביצוע: </span>
-              <span dir="ltr" className={clsx('font-semibold', isIncome ? 'text-emerald-600' : over ? 'text-rose-600' : 'text-gray-900')}>
+              <span dir="ltr" className={clsx('font-semibold',
+                isIncome ? 'text-emerald-600' : over ? 'text-rose-600' : 'text-gray-900')}>
                 {formatILS(actual)}
               </span>
             </div>
@@ -101,8 +128,7 @@ export function BudgetActualPanel({
             )}
           </div>
           {planned != null && (
-            <span className={clsx(
-              'text-[11px] px-2 py-0.5 rounded-full font-medium',
+            <span className={clsx('text-[11px] px-2 py-0.5 rounded-full font-medium',
               isIncome
                 ? (over ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600')
                 : (over ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'),
@@ -117,48 +143,123 @@ export function BudgetActualPanel({
         {/* Transaction list */}
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
-            <div className="p-8 text-center text-[13px] text-gray-400">
-              {tc('status.loading')}
-            </div>
+            <div className="p-8 text-center text-[13px] text-gray-400">{tc('status.loading')}</div>
           ) : !data || data.transactions.length === 0 ? (
-            <div className="p-8 text-center text-[13px] text-gray-400">
-              לא נמצאו תנועות
-            </div>
+            <div className="p-8 text-center text-[13px] text-gray-400">לא נמצאו תנועות</div>
           ) : (
             <div>
-              {data.transactions.map((tx: BudgetActualTransaction) => (
-                <div key={tx.id}
-                  className="flex items-center gap-3 px-5 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50/60 transition-colors">
-                  {/* Date */}
-                  <span dir="ltr" className="text-[11px] text-gray-400 flex-shrink-0 w-14 text-left">
-                    {formatDate(tx.date)}
-                  </span>
+              {data.transactions.map((tx: BudgetActualTransaction) => {
+                const isConfirmingExclude = confirmExclude === tx.log_id
+                const isRecatting = recatTarget?.logId === tx.log_id
+                const isMutating = (excludeMut.isPending && excludeMut.variables === tx.log_id) ||
+                  (recatMut.isPending && recatMut.variables?.logId === tx.log_id)
 
-                  {/* Description */}
-                  <span dir="rtl" className="flex-1 text-[13px] text-gray-800 truncate">
-                    {tx.description}
-                  </span>
-
-                  {/* Badges */}
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {tx.needs_review && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-medium">
-                        לבדיקה
+                return (
+                  <div key={tx.id} className="border-b border-gray-50 last:border-0">
+                    {/* Main row */}
+                    <div className="group flex items-center gap-3 px-5 py-3 hover:bg-gray-50/60 transition-colors">
+                      {/* Date */}
+                      <span dir="ltr" className="text-[11px] text-gray-400 flex-shrink-0 w-14 text-left">
+                        {formatDate(tx.date)}
                       </span>
+
+                      {/* Description */}
+                      <span dir="rtl" className="flex-1 text-[13px] text-gray-800 truncate">
+                        {tx.description}
+                      </span>
+
+                      {/* Badges */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {tx.needs_review && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-medium">
+                            לבדיקה
+                          </span>
+                        )}
+                        {tx.reviewed && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Amount */}
+                      <span dir="ltr" className={clsx('text-[13px] font-medium flex-shrink-0',
+                        isIncome ? 'text-emerald-600' : 'text-gray-800')}>
+                        {isIncome ? '+' : '-'}{formatILS(Math.abs(tx.amount))}
+                      </span>
+
+                      {/* Action buttons — shown on hover when log_id exists */}
+                      {tx.log_id && !isMutating && (
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                          <button type="button"
+                            onClick={() => { setRecatTarget({ logId: tx.log_id!, selectedCatId: '' }); setConfirmExclude(null) }}
+                            title={tc('budgetPanel.changeCategory')}
+                            className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors">
+                            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1l2 2-6 6H2V7l6-6z"/></svg>
+                          </button>
+                          <button type="button"
+                            onClick={() => { setConfirmExclude(tx.log_id); setRecatTarget(null) }}
+                            title={tc('budgetPanel.removeTransaction')}
+                            className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-colors">
+                            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M1 3h9M4 3V2h3v1M3 3l.5 6h4L8 3"/></svg>
+                          </button>
+                        </div>
+                      )}
+                      {isMutating && (
+                        <svg className="animate-spin text-gray-400 flex-shrink-0" width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.5 1v2M6.5 10v2M1 6.5h2M10 6.5h2" strokeLinecap="round"/></svg>
+                      )}
+                    </div>
+
+                    {/* Inline remove confirm */}
+                    {isConfirmingExclude && (
+                      <div className="px-5 pb-3 flex items-center gap-2 bg-rose-50/60">
+                        <span className="text-[12px] text-rose-700 flex-1">
+                          {tc('budgetPanel.removeConfirm', { category: categoryName })}
+                        </span>
+                        <button type="button"
+                          onClick={() => { excludeMut.mutate(tx.log_id!); setConfirmExclude(null) }}
+                          className="px-2.5 py-1 text-[11px] font-medium bg-rose-500 text-white rounded-lg hover:bg-rose-600">
+                          {tc('budgetPanel.confirmRemove')}
+                        </button>
+                        <button type="button"
+                          onClick={() => setConfirmExclude(null)}
+                          className="px-2.5 py-1 text-[11px] font-medium border border-gray-200 rounded-lg hover:bg-white">
+                          {tc('budgetPanel.cancel')}
+                        </button>
+                      </div>
                     )}
-                    {tx.reviewed && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium">
-                        ✓
-                      </span>
+
+                    {/* Inline recategorize */}
+                    {isRecatting && recatTarget && (
+                      <div className="px-5 pb-3 space-y-2 bg-teal-50/40">
+                        <select
+                          value={recatTarget.selectedCatId}
+                          onChange={e => setRecatTarget({ ...recatTarget, selectedCatId: e.target.value })}
+                          className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none focus:border-teal-400 bg-white">
+                          <option value="">— {tc('budgetPanel.changeCategory')} —</option>
+                          {allCategories.map((c: { id: string; name: string; category_type: string }) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                        {recatTarget.selectedCatId && (
+                          <div className="flex items-center gap-2">
+                            <button type="button"
+                              onClick={() => recatMut.mutate({ logId: tx.log_id!, categoryId: recatTarget.selectedCatId })}
+                              className="px-2.5 py-1 text-[11px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+                              {tc('budgetPanel.confirmMove')}
+                            </button>
+                            <button type="button"
+                              onClick={() => setRecatTarget(null)}
+                              className="px-2.5 py-1 text-[11px] font-medium border border-gray-200 rounded-lg hover:bg-white">
+                              {tc('budgetPanel.cancel')}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-
-                  {/* Amount */}
-                  <span dir="ltr" className={clsx('text-[13px] font-medium flex-shrink-0', amountColor(tx))}>
-                    {amountSign(tx)}{formatILS(Math.abs(tx.amount))}
-                  </span>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
