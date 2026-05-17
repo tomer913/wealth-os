@@ -244,28 +244,27 @@ def _calc_market(asset, db: Session, as_of: date) -> CurrentValueResult:
     # Price: from history row if available, else asset.current_price hot cache
     current_price = ph.price if ph else asset.current_price
 
-    extra = asset.extra_data or {}
-    quantity = extra.get("quantity") or extra.get("units")
+    # Always compute quantity from transactions — never read extra_data["quantity"].
+    # Connector balance fields (kraken_balance, cexio_balance, ib_position_value, etc.)
+    # reflect only one source and are wrong when the asset exists across multiple connectors.
+    _BUY_TYPES  = frozenset({"BUY", "VEST", "ALLOCATION", "BONUS", "SWAP_IN", "EXTERNAL_DEPOSIT"})
+    _SELL_TYPES = frozenset({"SELL", "SWAP_OUT", "EXTERNAL_WITHDRAWAL"})
+    txns = get_asset_transactions(db, asset.id, as_of)
+    net = ZERO
+    for tx in txns:
+        qty = tx.quantity
+        if not qty:
+            continue
+        qty = Decimal(str(qty))
+        tx_type_upper = (tx.type or "").upper()
+        if tx_type_upper in _BUY_TYPES:
+            net += qty
+        elif tx_type_upper in _SELL_TYPES:
+            net -= qty
+    quantity = net if net > ZERO else None
 
-    if not quantity:
-        # Compute net quantity from transactions (sum of buys - sells).
-        # Use uppercase sets so DB values like "VEST", "vest", "BUY", "buy" all match.
-        _BUY_TYPES  = frozenset({"BUY", "VEST", "ALLOCATION", "BONUS", "SWAP_IN", "EXTERNAL_DEPOSIT"})
-        _SELL_TYPES = frozenset({"SELL", "SWAP_OUT", "EXTERNAL_WITHDRAWAL"})
-        txns = get_asset_transactions(db, asset.id, as_of)
-        net = ZERO
-        for tx in txns:
-            qty = tx.quantity
-            if not qty:
-                continue
-            qty = Decimal(str(qty))
-            tx_type_upper = (tx.type or "").upper()
-            if tx_type_upper in _BUY_TYPES:
-                net += qty
-            elif tx_type_upper in _SELL_TYPES:
-                net -= qty
-        if net > ZERO:
-            quantity = net
+    if _sym == 'BTC':
+        print(f"=== BTC quantity_from_txns={quantity} txn_count={len(txns)}", flush=True)
 
     if current_price and quantity:
         value_native = Decimal(str(current_price)) * Decimal(str(quantity))

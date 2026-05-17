@@ -411,8 +411,8 @@ class CexioConnector(BaseConnector):
 
             if asset:
                 extra = dict(asset.extra_data or {})
-                extra["quantity"] = str(balance)
-                extra["cexio_balance"] = str(balance)
+                extra["cexio_balance"] = str(balance)  # for reference only; quantity computed from transactions
+                extra.pop("quantity", None)              # remove stale balance — engine uses transactions
                 asset.extra_data = extra
                 if not asset.category:
                     asset.category = "crypto"

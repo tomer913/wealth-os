@@ -438,9 +438,10 @@ class IBFlexConnector(BaseConnector):
         if not asset:
             return False
 
-        # Update quantity in extra_data — engine reads this for value calculation
+        # Store IB position metadata for reference — do NOT set "quantity" since
+        # the engine now computes net quantity from transactions across all sources.
         extra = asset.extra_data or {}
-        extra["quantity"] = quantity
+        extra.pop("quantity", None)  # remove stale balance — engine uses transactions
         extra["ib_position_value"] = float(position.get("positionValue") or "0")
         extra["ib_mark_price"] = float(position.get("markPrice") or "0")
         extra["ib_cost_basis"] = float(position.get("costBasisMoney") or "0")
