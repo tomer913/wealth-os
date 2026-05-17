@@ -55,5 +55,11 @@
   "error_name_required": "שם נדרש",
   "error_symbol_required": "סימבול נדרש",
   "error_behavior_required": "התנהגות נדרשת",
-  "import_from_json": "ייבוא מ-JSON"
+  "import_from_json": "ייבוא מ-JSON",
+  "tooltips": {
+    "pensionNoReturn": "תשואה לא זמינה — הוסף היסטוריית עסקאות לחישוב ביצועים",
+    "fundSimpleReturn": "תשואה פשוטה: (שווי נוכחי − השקעה נטו) / השקעה נטו. השקעה נטו = סך הפקדות פחות משיכות.",
+    "fundXirr": "תשואת XIRR: תשואה משוקללת בזמן המתחשבת בעיתוי תזרימי המזומנים",
+    "marketReturn": "תשואה כוללת על בסיס מחיר נוכחי × כמות מול בסיס עלות במחיר הבשלה/רכישה"
+  }
 }

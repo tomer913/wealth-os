@@ -212,15 +212,29 @@ def build_asset_snapshot(asset, db: Session, snapshot_date: date) -> AssetSnapsh
     result.equity_value_ils = calc_equity_value(result.current_value_ils, result.debt_balance_ils)
     result.ltv              = calc_ltv(result.debt_balance_ils, result.current_value_ils)
 
-    result.total_return_ils = calc_total_return(
-        result.current_value_ils,
-        result.net_cashflow_ils,
-        result.gross_invested_capital_ils,
-    )
-    result.total_return_pct = calc_total_return_pct(
-        result.total_return_ils,
-        result.gross_invested_capital_ils,
-    )
+    if model == CalcModel.FUND:
+        # FUND return: (current_value - net_invested) / net_invested
+        # Uses net_invested so partial withdrawals don't distort the yield display.
+        # Requires at least one transaction — pension/securities with only manual
+        # valuations and no transaction history show null (can't calculate return).
+        cv      = result.current_value_ils
+        net_inv = result.net_invested_capital_ils
+        if cv is not None and net_inv and net_inv > ZERO and len(transactions) > 0:
+            diff = cv - net_inv
+            result.total_return_ils = diff
+            result.total_return_pct = diff / net_inv
+        # else: total_return_ils and total_return_pct remain None
+    else:
+        result.total_return_ils = calc_total_return(
+            result.current_value_ils,
+            result.net_cashflow_ils,
+            result.gross_invested_capital_ils,
+        )
+        result.total_return_pct = calc_total_return_pct(
+            result.total_return_ils,
+            result.gross_invested_capital_ils,
+        )
+
     result.annualized_return_pct = calc_annualized_return(
         result.total_return_pct,
         result.first_investment_date,
@@ -238,6 +252,12 @@ def build_asset_snapshot(asset, db: Session, snapshot_date: date) -> AssetSnapsh
     result.xirr_pct = xirr.xirr_pct
     if xirr.warning:
         result.warnings.append(f"xirr: {xirr.warning}")
+
+    # For pension/securities FUND assets, prefer XIRR return when available
+    if model == CalcModel.FUND and result.xirr_pct is not None:
+        cat = (getattr(asset, "category", None) or "").lower()
+        if cat in ("pension", "securities", "mutual_fund", "etf"):
+            result.total_return_pct = result.xirr_pct
 
     # Step 7: pipeline sanity check
     if model == CalcModel.REAL_ESTATE_PIPELINE:

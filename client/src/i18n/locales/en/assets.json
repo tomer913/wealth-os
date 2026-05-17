@@ -55,5 +55,11 @@
   "error_name_required": "Name is required",
   "error_symbol_required": "Symbol is required",
   "error_behavior_required": "Behavior is required",
-  "import_from_json": "Import from JSON"
+  "import_from_json": "Import from JSON",
+  "tooltips": {
+    "pensionNoReturn": "Return not available — add transaction history to calculate performance",
+    "fundSimpleReturn": "Simple return: (current value − net invested) / net invested. Net invested = total deposits minus withdrawals.",
+    "fundXirr": "XIRR return: time-weighted return accounting for timing of cash flows",
+    "marketReturn": "Total return based on current price × quantity vs cost basis at vest/purchase price"
+  }
 }

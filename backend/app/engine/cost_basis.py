@@ -99,15 +99,17 @@ _NET_INFLOW_TYPES  = frozenset({"BUY", "DEPOSIT", "INVESTMENT_OUTFLOW", "ALLOCAT
 # Economic types that represent money coming OUT of a FUND / CASH_OR_DEBT asset
 _NET_OUTFLOW_TYPES = frozenset({"SELL", "WITHDRAWAL", "INVESTMENT_INFLOW"})
 
+# tx.type (uppercased) fallbacks — used when economic_type is missing/empty
+_TYPE_INFLOW_TYPES  = frozenset({"BUY", "ALLOCATION", "EXTERNAL_DEPOSIT", "VEST", "BONUS", "SWAP_IN", "DEPOSIT"})
+_TYPE_OUTFLOW_TYPES = frozenset({"SELL", "WITHDRAWAL", "EXTERNAL_WITHDRAWAL", "SWAP_OUT"})
+
 
 def _calc_net_invested(transactions: list) -> tuple:
     """
     Return (gross_inflows, net_invested) for FUND / CASH_OR_DEBT assets.
 
     invested_capital = sum(inflows) - sum(outflows), floored at 0.
-    This gives a meaningful yield when subtracted from current_value:
-        profit     = current_value - net_invested   (interest earned)
-        return_pct = profit / net_invested           (yield %)
+    Uses economic_type first; falls back to tx.type (uppercased) when economic_type is empty.
     """
     inflows = ZERO
     outflows = ZERO
@@ -117,13 +119,19 @@ def _calc_net_invested(transactions: list) -> tuple:
             if hasattr(tx, "economic_type")
             else (tx.get("economic_type") or "").upper()
         )
+        tx_type = (
+            (tx.type or "").upper()
+            if hasattr(tx, "type")
+            else (tx.get("type") or "").upper()
+        )
         raw = (
             tx.total_amount if hasattr(tx, "total_amount") else tx.get("total_amount")
         ) or ZERO
         amount = abs(Decimal(str(raw)))
-        if eco in _NET_INFLOW_TYPES:
+
+        if eco in _NET_INFLOW_TYPES or (not eco and tx_type in _TYPE_INFLOW_TYPES):
             inflows += amount
-        elif eco in _NET_OUTFLOW_TYPES:
+        elif eco in _NET_OUTFLOW_TYPES or (not eco and tx_type in _TYPE_OUTFLOW_TYPES):
             outflows += amount
     return inflows, max(inflows - outflows, ZERO)
 

@@ -336,8 +336,33 @@ export default function AssetsPage() {
                         <td className="px-4 py-3 font-mono text-gray-600" dir="ltr">
                           {asset.snapshot_invested_capital != null ? formatILS(asset.snapshot_invested_capital) : '—'}
                         </td>
-                        <td className={clsx('px-4 py-3 font-mono font-semibold', gainClass(retPct))} dir="ltr">
-                          {retPct != null ? formatPct(retPct) : '—'}
+                        <td className="px-4 py-3 font-mono font-semibold" dir="ltr">
+                          {retPct != null ? (
+                            <span
+                              className={gainClass(retPct)}
+                              title={
+                                asset.asset_behavior === 'FUND'
+                                  ? (asset.category === 'pension'
+                                      ? t('tooltips.fundXirr')
+                                      : t('tooltips.fundSimpleReturn'))
+                                  : asset.asset_behavior === 'MARKET'
+                                    ? t('tooltips.marketReturn')
+                                    : undefined
+                              }>
+                              {formatPct(retPct)}
+                            </span>
+                          ) : (
+                            <span
+                              className="text-gray-300"
+                              title={
+                                asset.asset_behavior === 'FUND' &&
+                                ['pension', 'securities'].includes(asset.category ?? '')
+                                  ? t('tooltips.pensionNoReturn')
+                                  : undefined
+                              }>
+                              —
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3"><BehaviorBadge behavior={asset.asset_behavior} /></td>
                         <td className="px-4 py-3">
