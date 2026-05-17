@@ -217,10 +217,10 @@ def build_asset_snapshot(asset, db: Session, snapshot_date: date) -> AssetSnapsh
         # Uses net_invested so partial withdrawals don't distort the yield display.
         # Requires at least one transaction — pension/securities with only manual
         # valuations and no transaction history show null (can't calculate return).
-        cv      = result.current_value_ils
+        cur_val = result.current_value_ils
         net_inv = result.net_invested_capital_ils
-        if cv is not None and net_inv and net_inv > ZERO and len(transactions) > 0:
-            diff = cv - net_inv
+        if cur_val is not None and net_inv and net_inv > ZERO and len(transactions) > 0:
+            diff = cur_val - net_inv
             result.total_return_ils = diff
             result.total_return_pct = diff / net_inv
         # else: total_return_ils and total_return_pct remain None

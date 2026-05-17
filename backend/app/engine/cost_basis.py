@@ -150,24 +150,6 @@ def _apply_fund_rules(result: CostBasisResult, asset, transactions: list) -> Cos
     SELL/WITHDRAWAL transactions properly reduce the displayed invested capital.
     """
     gross, net = _calc_net_invested(transactions)
-    if hasattr(asset, "symbol") and asset.symbol == "MIGDAL_CASH":
-        inflows = ZERO
-        outflows = ZERO
-        for tx in transactions:
-            tx_type = ((tx.type or "").upper() if hasattr(tx, "type") else (tx.get("type") or "").upper())
-            eco = ((tx.economic_type or "").upper() if hasattr(tx, "economic_type") else (tx.get("economic_type") or "").upper())
-            raw = (tx.total_amount if hasattr(tx, "total_amount") else tx.get("total_amount")) or ZERO
-            amount = abs(Decimal(str(raw)))
-            print(f"=== MIGDAL_CASH tx: type={tx_type!r} eco={eco!r} amount={amount}", flush=True)
-            if tx_type in _TYPE_INFLOW_TYPES:
-                inflows += amount
-            elif tx_type in _TYPE_OUTFLOW_TYPES:
-                outflows += amount
-            elif eco in _NET_INFLOW_TYPES:
-                inflows += amount
-            elif eco in _NET_OUTFLOW_TYPES:
-                outflows += amount
-        print(f"=== MIGDAL_CASH inflows={inflows} outflows={outflows} net={inflows - outflows}", flush=True)
     result.gross_invested_capital = gross
     result.net_invested_capital = net
     return result

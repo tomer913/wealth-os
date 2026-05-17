@@ -77,7 +77,7 @@ export async function rebuildSnapshot(asOfDate?: string): Promise<PortfolioSnaps
   const { data } = await apiClient.post(`/api/v1/snapshots/rebuild`, {
     portfolio_id: pid(),
     ...(asOfDate ? { as_of_date: asOfDate } : {}),
-  })
+  }, { timeout: 120_000 })
   return data
 }
 
